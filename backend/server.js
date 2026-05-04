@@ -75,19 +75,21 @@ app.set('notificationService', notificationService);
 const SERVER_SESSION_ID = Date.now().toString();
 app.get('/api/session', (req, res) => res.json({ sessionId: SERVER_SESSION_ID }));
 
+console.log('Registering routes...');
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/inventory', inventoryRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/paymongo', paymongoRoutes);
-app.use('/api/upload', uploadRoutes);
-app.use('/api/chatbot', chatbotRoutes);
-app.use('/api/admin-ai', adminAIRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/payments', paymentRoutes);
+console.log('Routes registered');
+app.use('/api/admin-ai', adminAIRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/paymongo', paymongoRoutes);
+app.use('/api/chatbot', chatbotRoutes);
 
 app.get('/api/test', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
