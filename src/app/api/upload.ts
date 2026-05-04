@@ -1,5 +1,7 @@
 import { apiRequest } from '../api';
 
+const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+
 /**
  * Upload design image file
  * @param file - Image file (JPG, PNG, GIF, WebP, SVG)
@@ -8,7 +10,7 @@ export async function uploadDesign(file: File) {
   const formData = new FormData();
   formData.append('design', file);
 
-  const response = await fetch('http://localhost:4000/api/upload/design', {
+  const response = await fetch(`${API_URL}/upload/design`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -45,7 +47,7 @@ export async function uploadProductImage(file: File) {
   const formData = new FormData();
   formData.append('image', file);
 
-  const response = await fetch('http://localhost:4000/api/upload/product', {
+  const response = await fetch(`${API_URL}/upload/product`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -69,7 +71,7 @@ export async function uploadAvatar(file: File) {
   const formData = new FormData();
   formData.append('avatar', file);
 
-  const response = await fetch('http://localhost:4000/api/upload/avatar', {
+  const response = await fetch(`${API_URL}/upload/avatar`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${localStorage.getItem('token')}`

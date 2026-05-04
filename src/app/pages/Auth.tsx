@@ -8,6 +8,8 @@ import { Modal } from '../components/Modal';
 import { useAuth } from '../hooks/useAuth';
 
 const GOOGLE_CLIENT_ID = '458001122120-l668j5ulj18pqmu426t6v0pcno0ru73j.apps.googleusercontent.com';
+
+const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const isValidEmail = (value: string) => emailRegex.test(value.trim());
 const isValidPhone = (value: string) => /^(\+639|09)\d{9}$/.test(value.trim());
@@ -721,7 +723,7 @@ export function ForgotPassword() {
     setError('');
 
     try {
-      const res = await fetch('http://localhost:4000/api/auth/forgot-password', {
+      const res = await fetch(`${API_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() })
@@ -827,7 +829,7 @@ export function ResetPassword() {
     setError('');
 
     try {
-      const res = await fetch('http://localhost:4000/api/auth/reset-password', {
+      const res = await fetch(`${API_URL}/auth/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, newPassword: password })

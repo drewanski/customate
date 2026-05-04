@@ -3,6 +3,8 @@ import { getProfile, apiRequest } from '../api';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/Card';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
+
+const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 import { Input } from '../components/Input';
 import { Textarea } from '../components/Textarea';
 import { Plus, Edit2, Trash2, X, Check, Package, Image as ImageIcon } from 'lucide-react';
@@ -73,17 +75,17 @@ export default function AdminDashboard() {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const profileRes = await fetch('http://localhost:4000/api/users/me', {
+      const profileRes = await fetch(`${API_URL}/users/me`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const profileData = await profileRes.json();
       setUser(profileData);
 
       const [invRes, ordersRes] = await Promise.all([
-        fetch('http://localhost:4000/api/inventory', {
+        fetch(`${API_URL}/inventory`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        fetch('http://localhost:4000/api/orders', {
+        fetch(`${API_URL}/orders`, {
           headers: { Authorization: `Bearer ${token}` }
         })
       ]);
@@ -138,8 +140,8 @@ export default function AdminDashboard() {
     setFormLoading(true);
     try {
       const url = editingItem 
-        ? `http://localhost:4000/api/inventory/${editingItem._id}`
-        : 'http://localhost:4000/api/inventory';
+        ? `${API_URL}/inventory/${editingItem._id}`
+        : `${API_URL}/inventory`;
       
       const method = editingItem ? 'PUT' : 'POST';
       const token = localStorage.getItem('token');
@@ -170,7 +172,7 @@ export default function AdminDashboard() {
     
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://localhost:4000/api/inventory/${id}`, {
+      const res = await fetch(`${API_URL}/inventory/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
