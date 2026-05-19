@@ -35,6 +35,8 @@ logs/
 .idea/
 *.swp
 *.swo
+.claude/settings.local.json
+.claude/cache/
 
 # OS
 .DS_Store
