@@ -1,7 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Bell, Check, Trash2, ShoppingBag, Package, AlertTriangle, CheckCircle } from 'lucide-react';
-import { getNotifications, markAsRead, markAllAsRead, deleteNotification, Notification } from '../api/notifications';
+import { Bell, Check, Trash2, ShoppingBag, Package, AlertTriangle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
+import { useAdminNotifications, Notification } from '../hooks/useAdminNotifications';
 import { ToastType } from './Toast';
+
+// Simple API functions to avoid import issues
+async function deleteNotification(notificationId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const response = await fetch(`/api/notifications/${notificationId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    if (!response.ok) throw new Error('Failed to delete notification');
+    return response.json();
+  } catch (error) {
+    console.error('Error deleting notification:', error);
+    throw error;
+  }
+}
 
 interface NotificationBellProps {
   userRole?: string;
@@ -17,38 +35,50 @@ const addToast = (message: string, type: ToastType) => {
 
 export function NotificationBell({ userRole }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Fetch notifications
-  const fetchNotifications = useCallback(async () => {
+  
+  // Use admin notifications hook for admin users
+  const adminNotifications = useAdminNotifications();
+  
+  // For regular customers, use the basic notification system
+  const [customerNotifications, setCustomerNotifications] = useState<Notification[]>([]);
+  const [customerUnreadCount, setCustomerUnreadCount] = useState(0);
+  const [customerLoading, setCustomerLoading] = useState(false);
+  
+  const isAdmin = userRole === 'admin';
+  const notifications = isAdmin ? adminNotifications.notifications : customerNotifications;
+  const unreadCount = isAdmin ? adminNotifications.unreadCount : customerUnreadCount;
+  const loading = isAdmin ? adminNotifications.loading : customerLoading;
+  
+  // Customer notification fetching (for non-admins)
+  const fetchCustomerNotifications = useCallback(async () => {
     try {
-      console.log('Fetching notifications...');
-      const data = await getNotifications(20, false);
-      console.log('Notifications fetched:', data);
-      setNotifications(data.notifications);
-      setUnreadCount(data.unreadCount);
+      setCustomerLoading(true);
+      const response = await fetch(`/api/notifications?limit=20&unreadOnly=false`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!response.ok) throw new Error('Failed to fetch notifications');
+      const data = await response.json();
+      setCustomerNotifications(data.notifications);
+      setCustomerUnreadCount(data.unreadCount);
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
+    } finally {
+      setCustomerLoading(false);
     }
   }, []);
 
-  // Initial fetch + refresh when dropdown opens
+  // Customer notifications effect
   useEffect(() => {
-    fetchNotifications();
-    // Poll every 30 seconds
-    const interval = setInterval(fetchNotifications, 30000);
-    return () => clearInterval(interval);
-  }, [fetchNotifications]);
-
-  // Refresh when dropdown opens
-  useEffect(() => {
-    if (isOpen) {
-      fetchNotifications();
+    if (!isAdmin) {
+      fetchCustomerNotifications();
+      const interval = setInterval(fetchCustomerNotifications, 30000);
+      return () => clearInterval(interval);
     }
-  }, [isOpen, fetchNotifications]);
+  }, [isAdmin, fetchCustomerNotifications]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -61,50 +91,71 @@ export function NotificationBell({ userRole }: NotificationBellProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Listen for real-time notifications via socket
+  // Refresh when dropdown opens
   useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'newNotification') {
-        fetchNotifications();
+    if (isOpen) {
+      if (isAdmin) {
+        adminNotifications.refreshNotifications();
+      } else {
+        fetchCustomerNotifications();
       }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, [fetchNotifications]);
+    }
+  }, [isOpen, isAdmin, adminNotifications, fetchCustomerNotifications]);
 
-  const handleMarkAsRead = async (id: string) => {
+  const handleMarkAsRead = isAdmin ? adminNotifications.markAsRead : async (id: string) => {
     try {
-      await markAsRead(id);
-      setNotifications(prev => 
+      const response = await fetch(`/api/notifications/${id}/read`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!response.ok) throw new Error('Failed to mark as read');
+      
+      setCustomerNotifications(prev => 
         prev.map(n => n._id === id ? { ...n, read: true, readAt: new Date().toISOString() } : n)
       );
-      setUnreadCount(prev => Math.max(0, prev - 1));
+      setCustomerUnreadCount(prev => Math.max(0, prev - 1));
     } catch (err) {
       addToast('Failed to mark notification as read', 'error');
     }
   };
 
-  const handleMarkAllAsRead = async () => {
+  const handleMarkAllAsRead = isAdmin ? adminNotifications.markAllAsRead : async () => {
     try {
-      setLoading(true);
-      await markAllAsRead();
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-      setUnreadCount(0);
+      setCustomerLoading(true);
+      const response = await fetch('/api/notifications/read-all', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!response.ok) throw new Error('Failed to mark all as read');
+      
+      setCustomerNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setCustomerUnreadCount(0);
       addToast('All notifications marked as read', 'success');
     } catch (err) {
       addToast('Failed to mark all as read', 'error');
     } finally {
-      setLoading(false);
+      setCustomerLoading(false);
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
       await deleteNotification(id);
-      setNotifications(prev => prev.filter(n => n._id !== id));
-      const deletedNotification = notifications.find(n => n._id === id);
-      if (deletedNotification && !deletedNotification.read) {
-        setUnreadCount(prev => Math.max(0, prev - 1));
+      if (isAdmin) {
+        // Admin notifications are managed by the hook
+        adminNotifications.refreshNotifications();
+      } else {
+        setCustomerNotifications(prev => prev.filter(n => n._id !== id));
+        const deletedNotification = customerNotifications.find(n => n._id === id);
+        if (deletedNotification && !deletedNotification.read) {
+          setCustomerUnreadCount(prev => Math.max(0, prev - 1));
+        }
       }
     } catch (err) {
       addToast('Failed to delete notification', 'error');

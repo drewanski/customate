@@ -1,607 +1,421 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '../components/Card';
-import { Table, TableColumn } from '../components/Table';
-import { Input } from '../components/Input';
-import { Select } from '../components/Select';
+import { Card } from '../components/Card';
 import { Button } from '../components/Button';
-import { apiRequest } from '../api';
-import { Search, Plus, Download, Trash2, Edit, Eye, Users, Shield, Clock, Calendar } from 'lucide-react';
+import { Input } from '../components/Input';
+import {
+  Search,
+  Users,
+  UserCheck,
+  Crown,
+  Eye,
+  Download,
+  RefreshCw,
+  Sparkles,
+  CheckCircle2,
+  Ban,
+  ChevronRight,
+} from 'lucide-react';
+import {
+  getUsersList as getUsers,
+  getUserStats as getUserStatsSummary,
+  bulkUpdateUsers,
+  downloadUsersCsv,
+} from '../api';
+import { UserDetailDrawer } from '../components/users/UserDetailDrawer';
 
-type AdminUserRow = {
-  _id?: string;
-  id?: string;
-  name: string;
-  email: string;
-  contactNumber: string;
-  role: 'customer' | 'admin';
-  status: 'active' | 'inactive' | 'suspended';
-  avatar?: string;
-  lastLogin?: string;
-  createdAt: string;
+const STATUS_TINT: Record<string, string> = {
+  active: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  inactive: 'bg-slate-100 text-slate-600 border-slate-200',
+  suspended: 'bg-rose-100 text-rose-700 border-rose-200',
 };
-
-type UserStats = {
-  total: number;
-  customers: number;
-  admins: number;
-  active: number;
-  inactive: number;
-  suspended: number;
-  recentLogins: number;
+const ROLE_TINT: Record<string, string> = {
+  customer: 'bg-blue-100 text-blue-700 border-blue-200',
+  admin: 'bg-purple-100 text-purple-700 border-purple-200',
+  guest: 'bg-slate-100 text-slate-600 border-slate-200',
 };
 
 export function AdminUsers() {
-  const [users, setUsers] = useState<AdminUserRow[]>([]);
-  const [stats, setStats] = useState<UserStats | null>(null);
+  const [users, setUsers] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'customer' | 'admin'>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'suspended'>('all');
-  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
-  const [editingUser, setEditingUser] = useState<AdminUserRow | null>(null);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [viewingUser, setViewingUser] = useState<AdminUserRow | null>(null);
-  const [showViewModal, setShowViewModal] = useState(false);
 
-  const load = async () => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [verifiedFilter, setVerifiedFilter] = useState<'all' | 'verified' | 'unverified'>('all');
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 12;
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkConfirm, setBulkConfirm] = useState<{ action: string; value: string } | null>(null);
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeUserId, setActiveUserId] = useState<string | null>(null);
+
+  const [exporting, setExporting] = useState(false);
+
+  const fetchAll = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      setError('');
-      const [usersData, statsData] = await Promise.all([
-        apiRequest('/users'),
-        apiRequest('/users/stats')
+      const [usersRes, statsRes] = await Promise.all([
+        getUsers(),
+        getUserStatsSummary().catch(() => null),
       ]);
-      setUsers(Array.isArray(usersData) ? usersData : []);
-      setStats(statsData);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load users');
+      setUsers(Array.isArray(usersRes) ? usersRes : []);
+      setStats(statsRes);
+    } catch (err) {
+      console.error('Failed to fetch users', err);
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => { fetchAll(); }, []);
+
   useEffect(() => {
-    load();
-  }, []);
+    setCurrentPage(1);
+    setSelectedIds(new Set());
+  }, [searchTerm, roleFilter, statusFilter, verifiedFilter]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return users
-      .filter((u) => roleFilter === 'all' || u.role === roleFilter)
-      .filter((u) => statusFilter === 'all' || u.status === statusFilter)
-      .filter((u) => {
-        if (!q) return true;
-        return (
-          (u.name || '').toLowerCase().includes(q) ||
-          (u.email || '').toLowerCase().includes(q) ||
-          String(u._id || u.id || '').toLowerCase().includes(q)
-        );
-      });
-  }, [users, search, roleFilter, statusFilter]);
+  const filteredUsers = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return users.filter((u) => {
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+      if (statusFilter !== 'all' && u.status !== statusFilter) return false;
+      if (verifiedFilter === 'verified' && !u.isEmailVerified) return false;
+      if (verifiedFilter === 'unverified' && u.isEmailVerified) return false;
+      if (!term) return true;
+      return (
+        (u.name || '').toLowerCase().includes(term) ||
+        (u.email || '').toLowerCase().includes(term) ||
+        (u.contactNumber || '').toLowerCase().includes(term)
+      );
+    });
+  }, [users, searchTerm, roleFilter, statusFilter, verifiedFilter]);
 
-  const updateUser = async (userId: string, updates: Partial<AdminUserRow>) => {
-    try {
-      setSavingId(userId);
-      setError('');
-      const updated = await apiRequest(`/users/${userId}`, {
-        method: 'PUT',
-        body: JSON.stringify(updates)
-      });
-      setUsers((prev) => prev.map((u) => String(u._id || u.id) === String(userId) ? { ...u, ...updated } : u));
-      setSuccess('User updated successfully');
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to update user');
-    } finally {
-      setSavingId(null);
-    }
-  };
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / itemsPerPage));
+  const paginated = filteredUsers.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const deleteUser = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-      return;
-    }
-    try {
-      setSavingId(userId);
-      setError('');
-      await apiRequest(`/users/${userId}`, { method: 'DELETE' });
-      setUsers((prev) => prev.filter((u) => String(u._id || u.id) !== String(userId)));
-      setSuccess('User deleted successfully');
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to delete user');
-    } finally {
-      setSavingId(null);
-    }
-  };
-
-  const bulkUpdate = async (updates: { role?: string; status?: string }) => {
-    if (selectedUsers.length === 0) {
-      setError('Please select users to update');
-      return;
-    }
-    try {
-      setSavingId('bulk');
-      setError('');
-      const result = await apiRequest('/users/bulk/update', {
-        method: 'PUT',
-        body: JSON.stringify({ userIds: selectedUsers, updates })
-      });
-      await load();
-      setSelectedUsers([]);
-      setSuccess(result.message || 'Bulk update completed');
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to update users');
-    } finally {
-      setSavingId(null);
-    }
-  };
-
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return 'Never';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
   };
+  const clearSelection = () => setSelectedIds(new Set());
+  const selectAllOnPage = () => setSelectedIds(new Set(paginated.map((u) => u._id)));
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'bg-green-100 text-green-800';
-      case 'inactive': return 'bg-gray-100 text-gray-800';
-      case 'suspended': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+  const handleBulkUpdate = async (action: string, value: string) => {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      const updates: any = {};
+      if (action === 'status') updates.status = value;
+      if (action === 'role') updates.role = value;
+      const result = await bulkUpdateUsers(Array.from(selectedIds), updates);
+      clearSelection();
+      setBulkConfirm(null);
+      await fetchAll();
+      alert(`Updated ${result.modifiedCount} users`);
+    } catch (err: any) {
+      alert(err.message || 'Bulk update failed');
+    } finally {
+      setBulkBusy(false);
     }
   };
 
-  const getRoleColor = (role: string) => {
-    switch (role) {
-      case 'admin': return 'bg-purple-100 text-purple-800';
-      case 'customer': return 'bg-blue-100 text-blue-800';
-      default: return 'bg-gray-100 text-gray-800';
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await downloadUsersCsv({
+        role: roleFilter === 'all' ? undefined : roleFilter,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+      });
+    } catch (err: any) {
+      alert(err.message || 'Export failed');
+    } finally {
+      setExporting(false);
     }
   };
 
-  const columns: TableColumn<AdminUserRow>[] = [
-    {
-      key: 'select',
-      header: '',
-      render: (u) => (
-        <input
-          type="checkbox"
-          checked={selectedUsers.includes(String(u._id || u.id))}
-          onChange={(e) => {
-            const uid = String(u._id || u.id);
-            if (e.target.checked) {
-              setSelectedUsers(prev => [...prev, uid]);
-            } else {
-              setSelectedUsers(prev => prev.filter(id => id !== uid));
-            }
-          }}
-        />
-      )
-    },
-    {
-      key: 'user',
-      header: 'User',
-      render: (u) => (
-        <div className="flex items-center gap-3">
-          {u.avatar ? (
-            <img src={u.avatar} alt={u.name} className="w-8 h-8 rounded-full object-cover" />
-          ) : (
-            <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-              <span className="text-xs font-medium text-gray-600">{u.name.charAt(0).toUpperCase()}</span>
-            </div>
-          )}
-          <div>
-            <div className="font-medium text-gray-900">{u.name}</div>
-            <div className="text-sm text-gray-500">{u.email}</div>
-            <div className="text-sm text-gray-500">{u.contactNumber}</div>
-          </div>
-        </div>
-      )
-    },
-    {
-      key: 'role',
-      header: 'Role',
-      render: (u) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleColor(u.role)}`}>
-          {u.role}
-        </span>
-      )
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (u) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(u.status)}`}>
-          {u.status}
-        </span>
-      )
-    },
-    {
-      key: 'lastLogin',
-      header: 'Last Login',
-      render: (u) => (
-        <div className="text-sm text-gray-500">
-          {formatDate(u.lastLogin)}
-        </div>
-      )
-    },
-    {
-      key: 'createdAt',
-      header: 'Joined',
-      render: (u) => (
-        <div className="text-sm text-gray-500">
-          {formatDate(u.createdAt)}
-        </div>
-      )
-    },
-    {
-      key: 'actions',
-      header: 'Actions',
-      render: (u) => {
-        const uid = String(u._id || u.id || '');
-        const disabled = !uid || savingId === uid || savingId === 'bulk';
-        return (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setViewingUser(u);
-                setShowViewModal(true);
-              }}
-              disabled={disabled}
-            >
-              <Eye className="w-4 h-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setEditingUser(u);
-                setShowEditModal(true);
-              }}
-              disabled={disabled}
-            >
-              <Edit className="w-4 h-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => deleteUser(uid)}
-              disabled={disabled}
-              className="text-red-600 hover:text-red-700"
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          </div>
-        );
-      }
-    }
-  ];
+  const openDrawer = (userId: string) => {
+    setActiveUserId(userId);
+    setDrawerOpen(true);
+  };
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Account Management</h1>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={load} disabled={loading || !!savingId}>
-            <Download className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
+    <div className="min-h-screen bg-slate-50">
+      <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 text-white">
+        <div className="absolute -top-32 -left-24 w-80 h-80 rounded-full bg-blue-400/30 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -right-24 w-80 h-80 rounded-full bg-purple-400/40 blur-3xl pointer-events-none" />
+        <div
+          className="absolute inset-0 opacity-[0.06] pointer-events-none"
+          style={{
+            backgroundImage:
+              'linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)',
+            backgroundSize: '32px 32px',
+          }}
+        />
+        <div className="relative max-w-7xl mx-auto px-6 lg:px-8 py-8 md:py-10 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md border border-white/20 text-[10px] font-bold uppercase tracking-widest mb-3">
+              <Sparkles className="w-3 h-3" /> Accounts
+            </div>
+            <h1 className="text-3xl md:text-4xl font-black tracking-tight">User Management</h1>
+            <p className="text-sm md:text-base text-white/85 mt-1 max-w-2xl">
+              Manage customer accounts, role changes, suspensions and the full account audit trail.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" /> {exporting ? 'Exporting…' : 'Export CSV'}
+            </button>
+            <button
+              onClick={fetchAll}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold text-blue-600 bg-white hover:bg-slate-50 shadow-xl shadow-black/10 transition-all hover:-translate-y-0.5"
+            >
+              <RefreshCw className="w-4 h-4" /> Refresh
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Statistics Cards */}
-      {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-blue-100 rounded-lg p-3">
-                  <Users className="w-6 h-6 text-blue-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Users</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-green-100 rounded-lg p-3">
-                  <Shield className="w-6 h-6 text-green-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Active Users</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.active}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-purple-100 rounded-lg p-3">
-                  <Users className="w-6 h-6 text-purple-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Admins</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.admins}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-orange-100 rounded-lg p-3">
-                  <Clock className="w-6 h-6 text-orange-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Recent Logins</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.recentLogins}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      <div className="max-w-7xl mx-auto px-6 lg:px-8 py-8 -mt-2 relative z-10">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+          <KpiTile label="Total users" value={stats?.total ?? '—'} icon={Users} tint="from-blue-500 to-indigo-500" blob="bg-blue-100" />
+          <KpiTile label="Customers" value={stats?.customers ?? '—'} hint={`${stats?.activeCustomers ?? 0} placed orders`} icon={UserCheck} tint="from-emerald-500 to-teal-500" blob="bg-emerald-100" />
+          <KpiTile label="Admins" value={stats?.admins ?? '—'} icon={Crown} tint="from-purple-500 to-fuchsia-500" blob="bg-purple-100" />
+          <KpiTile label="New this week" value={stats?.newThisWeek ?? '—'} hint={`${stats?.newThisMonth ?? 0} this month`} icon={Sparkles} tint="from-amber-500 to-orange-500" blob="bg-amber-100" />
+          <KpiTile label="Suspended" value={stats?.suspended ?? '—'} icon={Ban} tint="from-rose-500 to-orange-500" blob="bg-rose-100" />
         </div>
-      )}
 
-      {/* Filters */}
-      <Card className="mb-6">
-        <CardContent>
-          <div className="grid md:grid-cols-4 gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <Input
-                placeholder="Search users..."
-                value={search}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-                className="pl-10"
-              />
+        <div className="space-y-3 mb-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              placeholder="Search by name, email or phone…"
+              className="pl-10"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex p-1 rounded-full bg-white border border-slate-200">
+              {['all', 'customer', 'admin', 'guest'].map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setRoleFilter(r)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold capitalize transition ${
+                    roleFilter === r ? 'bg-slate-900 text-white shadow' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {r === 'all' ? 'All roles' : r}
+                </button>
+              ))}
             </div>
-            <Select
-              options={[
-                { value: 'all', label: 'All Roles' },
-                { value: 'customer', label: 'Customer' },
-                { value: 'admin', label: 'Admin' }
-              ]}
-              value={roleFilter}
-              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRoleFilter(e.target.value as any)}
-            />
-            <Select
-              options={[
-                { value: 'all', label: 'All Status' },
-                { value: 'active', label: 'Active' },
-                { value: 'inactive', label: 'Inactive' },
-                { value: 'suspended', label: 'Suspended' }
-              ]}
-              value={statusFilter}
-              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStatusFilter(e.target.value as any)}
-            />
-            <div className="text-sm text-gray-500 self-center">
-              {filtered.length} users found
+            <div className="inline-flex p-1 rounded-full bg-white border border-slate-200">
+              {['all', 'active', 'inactive', 'suspended'].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold capitalize transition ${
+                    statusFilter === s ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {s === 'all' ? 'All status' : s}
+                </button>
+              ))}
+            </div>
+            <div className="inline-flex p-1 rounded-full bg-white border border-slate-200">
+              {(['all', 'verified', 'unverified'] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setVerifiedFilter(v)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold capitalize transition ${
+                    verifiedFilter === v ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {v === 'all' ? 'Any email' : v}
+                </button>
+              ))}
             </div>
           </div>
-          
-          {/* Bulk Actions */}
-          {selectedUsers.length > 0 && (
-            <div className="mt-4 p-3 bg-gray-50 rounded-lg flex items-center justify-between">
-              <span className="text-sm text-gray-600">
-                {selectedUsers.length} user{selectedUsers.length !== 1 ? 's' : ''} selected
-              </span>
-              <div className="flex items-center gap-2">
-                <Select
-                  options={[
-                    { value: '', label: 'Bulk Actions...' },
-                    { value: 'customer', label: 'Set as Customer' },
-                    { value: 'admin', label: 'Set as Admin' },
-                    { value: 'active', label: 'Set as Active' },
-                    { value: 'inactive', label: 'Set as Inactive' },
-                    { value: 'suspended', label: 'Set as Suspended' }
-                  ]}
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      const updates: any = {};
-                      if (['customer', 'admin'].includes(e.target.value)) {
-                        updates.role = e.target.value;
-                      } else {
-                        updates.status = e.target.value;
-                      }
-                      bulkUpdate(updates);
-                      e.target.value = '';
-                    }
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedUsers([])}
-                >
-                  Clear Selection
-                </Button>
+        </div>
+
+        {selectedIds.size > 0 && (
+          <div className="mb-4 p-3 rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-900 text-white flex items-center justify-between flex-wrap gap-2">
+            <div className="text-sm">
+              <span className="font-bold">{selectedIds.size}</span> users selected
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={clearSelection} className="!text-white !border-white/30 hover:!bg-white/10">Clear</Button>
+              <Button size="sm" disabled={bulkBusy} onClick={() => setBulkConfirm({ action: 'status', value: 'active' })}>
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Activate
+              </Button>
+              <Button size="sm" variant="danger" disabled={bulkBusy} onClick={() => setBulkConfirm({ action: 'status', value: 'suspended' })}>
+                <Ban className="w-3.5 h-3.5 mr-1" /> Suspend
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {bulkConfirm && (
+          <div className="mb-4 p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm flex items-center justify-between flex-wrap gap-2">
+            <span>Apply <strong className="capitalize">{bulkConfirm.value}</strong> to {selectedIds.size} users?</span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setBulkConfirm(null)}>Cancel</Button>
+              <Button size="sm" loading={bulkBusy} onClick={() => handleBulkUpdate(bulkConfirm.action, bulkConfirm.value)}>Confirm</Button>
+            </div>
+          </div>
+        )}
+
+        <Card className="border-0 shadow-xl shadow-gray-200/50 overflow-visible">
+          {loading ? (
+            <div className="p-12 text-center">
+              <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-slate-500 text-sm">Loading users…</p>
+            </div>
+          ) : paginated.length === 0 ? (
+            <div className="p-12 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-slate-100 mx-auto flex items-center justify-center mb-3">
+                <Users className="w-7 h-7 text-slate-400" />
+              </div>
+              <p className="text-sm font-medium text-slate-700">No users match</p>
+              <p className="text-xs text-slate-500 mt-1">Try a different filter.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                    <th className="px-3 py-3 text-left">
+                      <input
+                        type="checkbox"
+                        checked={paginated.length > 0 && paginated.every((u) => selectedIds.has(u._id))}
+                        onChange={(e) => (e.target.checked ? selectAllOnPage() : clearSelection())}
+                        className="w-4 h-4 rounded border-slate-300"
+                      />
+                    </th>
+                    <th className="text-left px-3 py-3">User</th>
+                    <th className="text-left px-3 py-3">Contact</th>
+                    <th className="text-center px-3 py-3">Role</th>
+                    <th className="text-center px-3 py-3">Status</th>
+                    <th className="text-center px-3 py-3">Email</th>
+                    <th className="text-right px-3 py-3">Joined</th>
+                    <th className="text-right px-3 py-3">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginated.map((u) => (
+                    <tr
+                      key={u._id}
+                      className={`border-b border-slate-100 hover:bg-slate-50/60 transition cursor-pointer ${
+                        selectedIds.has(u._id) ? 'bg-blue-50/40' : ''
+                      }`}
+                      onClick={() => openDrawer(u._id)}
+                    >
+                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(u._id)}
+                          onChange={() => toggleSelect(u._id)}
+                          className="w-4 h-4 rounded border-slate-300"
+                        />
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-xs flex-shrink-0">
+                            {u.name?.[0]?.toUpperCase() || '?'}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-900 text-sm truncate max-w-[200px]">{u.name || '(no name)'}</p>
+                            <p className="text-[11px] text-slate-500 truncate max-w-[200px]">{u.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-xs text-slate-600">{u.contactNumber || '—'}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${ROLE_TINT[u.role] || ROLE_TINT.customer}`}>
+                          {u.role === 'admin' && <Crown className="w-2.5 h-2.5" />}
+                          {u.role}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span className={`inline-flex px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${STATUS_TINT[u.status] || STATUS_TINT.active}`}>
+                          {u.status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        {u.isEmailVerified ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 inline-block" />
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-semibold">unverified</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-xs text-slate-600">
+                        {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => openDrawer(u._id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span className="hidden md:inline">View</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!loading && filteredUsers.length > 0 && totalPages > 1 && (
+            <div className="flex items-center justify-between gap-2 mt-4 px-4 pb-4">
+              <p className="text-xs text-slate-500">
+                Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredUsers.length)} of {filteredUsers.length}
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
+                <span className="px-3 py-1 text-xs font-semibold text-slate-700">{currentPage} / {totalPages}</span>
+                <Button size="sm" variant="outline" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
               </div>
             </div>
           )}
-          
-          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-          {success && <p className="mt-3 text-sm text-green-600">{success}</p>}
-          {loading && <p className="mt-3 text-sm text-gray-600">Loading...</p>}
-        </CardContent>
-      </Card>
+        </Card>
+      </div>
 
-      {/* Users Table */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Users ({filtered.length})</CardTitle>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={selectedUsers.length === filtered.length && filtered.length > 0}
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    setSelectedUsers(filtered.map(u => String(u._id || u.id)));
-                  } else {
-                    setSelectedUsers([]);
-                  }
-                }}
-              />
-              <span className="text-sm text-gray-600">Select All</span>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Table columns={columns} data={filtered} />
-        </CardContent>
-      </Card>
+      <UserDetailDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        userId={activeUserId}
+        onChanged={fetchAll}
+      />
+    </div>
+  );
+}
 
-      {/* View User Modal */}
-      {showViewModal && viewingUser && (
-        <div className="fixed inset-0 bg-white/80 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto border-2 border-gray-300 shadow-xl">
-            <div className="p-6">
-              <h2 className="text-xl font-bold mb-4">User Details</h2>
-              <div className="space-y-4">
-                <div className="flex items-center gap-4">
-                  {viewingUser.avatar ? (
-                    <img src={viewingUser.avatar} alt={viewingUser.name} className="w-16 h-16 rounded-full object-cover" />
-                  ) : (
-                    <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center">
-                      <span className="text-xl font-medium text-gray-600">{viewingUser.name.charAt(0).toUpperCase()}</span>
-                    </div>
-                  )}
-                  <div>
-                    <h3 className="text-lg font-semibold">{viewingUser.name}</h3>
-                    <p className="text-gray-600">{viewingUser.email}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Role</label>
-                    <p className="mt-1">{viewingUser.role}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Status</label>
-                    <p className="mt-1">{viewingUser.status}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Last Login</label>
-                    <p className="mt-1">{formatDate(viewingUser.lastLogin)}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Member Since</label>
-                    <p className="mt-1">{formatDate(viewingUser.createdAt)}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-6 flex justify-end gap-3">
-                <Button variant="outline" onClick={() => setShowViewModal(false)}>
-                  Close
-                </Button>
-                <Button onClick={() => {
-                  setShowViewModal(false);
-                  setEditingUser(viewingUser);
-                  setShowEditModal(true);
-                }}>
-                  Edit User
-                </Button>
-              </div>
-            </div>
-          </div>
+function KpiTile({ label, value, hint, icon: Icon, tint, blob }: any) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-4 shadow-sm">
+      <div className={`absolute -top-12 -right-12 w-32 h-32 rounded-full ${blob} opacity-50`} />
+      <div className="relative">
+        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${tint} flex items-center justify-center shadow-lg mb-2.5`}>
+          <Icon className="w-5 h-5 text-white" />
         </div>
-      )}
-
-      {/* Edit User Modal */}
-      {showEditModal && editingUser && (
-        <div className="fixed inset-0 bg-white/80 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full border-2 border-gray-300 shadow-xl">
-            <div className="p-6">
-              <h2 className="text-xl font-bold mb-4">Edit User</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                  <Input
-                    value={editingUser.name}
-                    onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                  <Input
-                    value={editingUser.email}
-                    disabled
-                    className="bg-gray-50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
-                  <Input
-                    value={editingUser.contactNumber}
-                    onChange={(e) => setEditingUser({ ...editingUser, contactNumber: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                  <Select
-                    options={[
-                      { value: 'customer', label: 'Customer' },
-                      { value: 'admin', label: 'Admin' }
-                    ]}
-                    value={editingUser.role}
-                    onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value as any })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                  <Select
-                    options={[
-                      { value: 'active', label: 'Active' },
-                      { value: 'inactive', label: 'Inactive' },
-                      { value: 'suspended', label: 'Suspended' }
-                    ]}
-                    value={editingUser.status}
-                    onChange={(e) => setEditingUser({ ...editingUser, status: e.target.value as any })}
-                  />
-                </div>
-              </div>
-              <div className="mt-6 flex justify-end gap-3">
-                <Button variant="outline" onClick={() => setShowEditModal(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => {
-                    const uid = String(editingUser._id || editingUser.id);
-                    updateUser(uid, {
-                      name: editingUser.name,
-                      role: editingUser.role,
-                      status: editingUser.status,
-                      contactNumber: editingUser.contactNumber
-                    });
-                    setShowEditModal(false);
-                  }}
-                  disabled={savingId === String(editingUser._id || editingUser.id)}
-                >
-                  {savingId === String(editingUser._id || editingUser.id) ? 'Saving...' : 'Save Changes'}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+        <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">{value}</p>
+        <p className="text-xs font-semibold text-slate-700 mt-0.5">{label}</p>
+        {hint && <p className="text-[10px] text-slate-500 mt-0.5">{hint}</p>}
+      </div>
     </div>
   );
 }

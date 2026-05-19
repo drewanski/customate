@@ -26,6 +26,23 @@ export interface CustomizationConfig {
   size: string;
   placement: string;
   image?: string;
+  // ─── Design snapshot (set at "Add to Cart" time) ─────────────────────────
+  // isCustomized is set when the user actually touched the 3D studio. Plain
+  // adds from the product list (no studio visit) leave it false so production
+  // can spot bare orders that don't need a custom print pass.
+  isCustomized?: boolean;
+  // PNG data URL of the rendered 3D canvas — what the customer saw.
+  previewImage?: string;
+  // Structured snapshot used to faithfully reproduce / re-print the design.
+  designConfig?: {
+    baseColor?: string;
+    finish?: string;
+    pattern?: string;
+    patternAccent?: string;
+    meshColors?: Record<string, string>;
+    designElements?: any[];
+    snapshotAt?: string;
+  };
 }
 
 export interface CartItem {

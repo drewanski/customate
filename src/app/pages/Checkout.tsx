@@ -6,7 +6,7 @@ import { Input } from '../components/Input';
 import { Textarea } from '../components/Textarea';
 import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
-import { apiRequest, getProfile } from '../api';
+import { apiRequest, getProfile, validateCouponCode, quoteDelivery as quoteDeliveryApi } from '../api';
 import { formatPeso } from '../utils/format';
 import { MapPin, Phone, User as UserIcon, ChevronDown, Check, Wallet, Smartphone, Landmark, Loader2 } from 'lucide-react';
 
@@ -29,6 +29,113 @@ export function Checkout() {
   const [pendingPaymentData, setPendingPaymentData] = useState<any>(null);
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
   const [showSavedAddresses, setShowSavedAddresses] = useState(false);
+
+  // Coupon state
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; name?: string; type?: string; discount: number } | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState('');
+
+  const handleApplyCoupon = async () => {
+    const code = couponInput.trim().toUpperCase();
+    if (!code) return;
+    setCouponError('');
+    setCouponLoading(true);
+    try {
+      const res: any = await validateCouponCode(code, itemsPayload);
+      if (res?.valid === false) {
+        setCouponError(res?.reason || 'Invalid coupon code');
+        setAppliedCoupon(null);
+      } else {
+        const discount = Number(res?.discount ?? res?.discountAmount ?? 0);
+        setAppliedCoupon({
+          code,
+          name: res?.coupon?.name,
+          type: res?.coupon?.type,
+          discount,
+        });
+      }
+    } catch (err: any) {
+      setCouponError(err?.message || 'Failed to validate coupon');
+      setAppliedCoupon(null);
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponInput('');
+    setCouponError('');
+  };
+
+  const discountAmount = appliedCoupon?.discount || 0;
+
+  // ─── Delivery date / urgency state ──────────────────────────────────────
+  // Default delivery date = today + 10 business days (standard tier sweet
+  // spot — no surcharge, no capacity risk). We let the user adjust earlier.
+  const defaultDeliveryDate = useMemo(() => {
+    const d = new Date();
+    let added = 0;
+    while (added < 14) {
+      d.setDate(d.getDate() + 1);
+      if (d.getDay() !== 0) added++;
+    }
+    return d.toISOString().slice(0, 10);
+  }, []);
+  const [deliveryDate, setDeliveryDate] = useState<string>(defaultDeliveryDate);
+  const [deliveryQuote, setDeliveryQuote] = useState<any>(null);
+  const [deliveryQuoteLoading, setDeliveryQuoteLoading] = useState(false);
+  const [deliveryError, setDeliveryError] = useState('');
+
+  // Re-quote whenever the date OR the cart subtotal changes. Pre-coupon
+  // subtotal is what the server uses to compute the surcharge.
+  useEffect(() => {
+    if (!deliveryDate) {
+      setDeliveryQuote(null);
+      setDeliveryError('');
+      return;
+    }
+    let cancelled = false;
+    setDeliveryQuoteLoading(true);
+    setDeliveryError('');
+    quoteDeliveryApi(deliveryDate, totalAmount)
+      .then((q: any) => {
+        if (cancelled) return;
+        if (q?.ok === false) {
+          setDeliveryError(q.reason || 'Unable to quote that date.');
+          setDeliveryQuote(null);
+        } else {
+          setDeliveryQuote(q);
+        }
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setDeliveryError(err?.message || 'Failed to quote delivery.');
+        setDeliveryQuote(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDeliveryQuoteLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deliveryDate, totalAmount]);
+
+  const rushFee = deliveryQuote?.rushFee || 0;
+  const finalTotal = Math.max(0, totalAmount + rushFee - discountAmount);
+
+  // Date picker bounds: tomorrow → +90 days, no Sundays
+  const minDeliveryDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }, []);
+  const maxDeliveryDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 90);
+    return d.toISOString().slice(0, 10);
+  }, []);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -130,7 +237,9 @@ export function Checkout() {
           recipientName: recipientName.trim(),
           notes: notes.trim() || undefined,
           paymentMethod,
-          paymentDetails: null // Will be updated after PayMongo payment
+          paymentDetails: null, // Will be updated after PayMongo payment
+          couponCode: appliedCoupon?.code,
+          requestedDeliveryDate: deliveryDate || undefined,
         };
         const order = await apiRequest('/orders', {
           method: 'POST',
@@ -175,7 +284,8 @@ export function Checkout() {
         recipientName: recipientName.trim(),
         notes: notes.trim() || undefined,
         paymentMethod,
-        paymentDetails // Include reference number etc.
+        paymentDetails, // Include reference number etc.
+        couponCode: appliedCoupon?.code,
       };
       const order = await apiRequest('/orders', {
         method: 'POST',
@@ -193,21 +303,36 @@ export function Checkout() {
 
   if (!items.length) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-10">
-        <Card>
-          <CardContent className="py-10 text-center text-gray-600">
-            Your cart is empty.
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+        <div className="max-w-6xl mx-auto px-6 lg:px-8 py-16 text-center">
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-12">
+            <p className="text-slate-600 mb-6">Your cart is empty. Add a product to continue.</p>
+            <button
+              onClick={() => navigate('/products')}
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-full font-bold text-sm text-white bg-gradient-to-br from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-200 transition-all hover:-translate-y-0.5"
+            >
+              Browse products
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-10">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Checkout</h1>
-        <p className="text-gray-600">{items.length} items</p>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+      <div className="max-w-6xl mx-auto px-6 lg:px-8 py-8 md:py-12">
+      <div className="flex items-end justify-between mb-8">
+        <div>
+          <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight">Checkout</h1>
+          <p className="text-slate-500 mt-1">
+            {totalQty} {totalQty === 1 ? 'item' : 'items'} ready to ship
+          </p>
+        </div>
+        <div className="hidden md:flex items-center gap-1.5 text-xs font-bold text-emerald-600">
+          <Check className="w-3.5 h-3.5" />
+          Secure checkout
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-8">
@@ -504,9 +629,153 @@ export function Checkout() {
                 <span className="text-gray-600">Shipping</span>
                 <span>Free</span>
               </div>
+
+              {/* ─── Delivery date / urgency picker ─────────────────────── */}
+              <div className="pt-2 border-t border-slate-100">
+                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                  Preferred delivery date
+                </label>
+                <input
+                  type="date"
+                  value={deliveryDate}
+                  min={minDeliveryDate}
+                  max={maxDeliveryDate}
+                  onChange={(e) => setDeliveryDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {deliveryQuoteLoading && (
+                  <p className="mt-1.5 text-[11px] text-slate-500">Checking availability…</p>
+                )}
+                {deliveryError && (
+                  <p className="mt-1.5 text-[11px] text-rose-600 font-semibold">{deliveryError}</p>
+                )}
+                {deliveryQuote && !deliveryError && (
+                  <div
+                    className="mt-2 p-2.5 rounded-lg border"
+                    style={{
+                      backgroundColor: `${deliveryQuote.color}15`,
+                      borderColor: `${deliveryQuote.color}55`,
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p
+                          className="text-xs font-black uppercase tracking-wider"
+                          style={{ color: deliveryQuote.color }}
+                        >
+                          {deliveryQuote.label}
+                        </p>
+                        <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
+                          {deliveryQuote.leadTimeDays} business day
+                          {deliveryQuote.leadTimeDays === 1 ? '' : 's'} lead time
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        {deliveryQuote.rushFee > 0 ? (
+                          <p
+                            className="text-sm font-black"
+                            style={{ color: deliveryQuote.color }}
+                          >
+                            +{formatPeso(deliveryQuote.rushFee)}
+                          </p>
+                        ) : (
+                          <p className="text-sm font-black text-emerald-600">No surcharge</p>
+                        )}
+                        <p className="text-[10px] text-slate-500 font-semibold">
+                          {Math.round((deliveryQuote.surchargePct || 0) * 100)}% rush fee
+                        </p>
+                      </div>
+                    </div>
+                    {deliveryQuote.capacity?.available === false && (
+                      <p className="mt-1.5 text-[11px] text-rose-700 font-semibold">
+                        ⚠ {deliveryQuote.capacity.reason}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Rush fee line — only show when there's actually a fee */}
+              {rushFee > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">
+                    Rush fee ({deliveryQuote?.label || ''})
+                  </span>
+                  <span
+                    className="font-bold"
+                    style={{ color: deliveryQuote?.color || '#475569' }}
+                  >
+                    +{formatPeso(rushFee)}
+                  </span>
+                </div>
+              )}
+
+              {/* Coupon input / applied state */}
+              {!appliedCoupon ? (
+                <div className="pt-2 border-t border-slate-100">
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                    Promo code
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={couponInput}
+                      onChange={(e) => {
+                        setCouponInput(e.target.value.toUpperCase());
+                        if (couponError) setCouponError('');
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleApplyCoupon();
+                        }
+                      }}
+                      placeholder="Enter code"
+                      className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm font-bold uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={couponLoading}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyCoupon}
+                      disabled={couponLoading || !couponInput.trim()}
+                      className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {couponLoading ? '…' : 'Apply'}
+                    </button>
+                  </div>
+                  {couponError && (
+                    <p className="mt-1.5 text-[11px] text-rose-600 font-semibold">{couponError}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="pt-2 border-t border-slate-100">
+                  <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
+                    <div className="min-w-0">
+                      <p className="text-xs font-black text-emerald-700 truncate">
+                        {appliedCoupon.code}
+                      </p>
+                      {appliedCoupon.name && (
+                        <p className="text-[10px] text-emerald-600 truncate">{appliedCoupon.name}</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemoveCoupon}
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div className="flex justify-between text-sm mt-2">
+                    <span className="text-emerald-700 font-semibold">Discount</span>
+                    <span className="text-emerald-700 font-bold">-{formatPeso(discountAmount)}</span>
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-between font-semibold border-t pt-3">
                 <span>Total</span>
-                <span className="text-blue-600">{formatPeso(totalAmount)}</span>
+                <span className="text-blue-600">{formatPeso(finalTotal)}</span>
               </div>
               {error && <p className="text-sm text-red-600">{error}</p>}
               <Button 
@@ -520,7 +789,7 @@ export function Checkout() {
                     handlePlaceOrder();
                   }
                 }} 
-                disabled={loading}
+                disabled={loading || !!deliveryError || deliveryQuote?.capacity?.available === false}
               >
                 {loading ? (
                   <span className="flex items-center gap-2">
@@ -549,13 +818,14 @@ export function Checkout() {
           setPendingPaymentData(details);
           handlePlaceOrder(details, false);
         }}
-        amount={totalAmount}
+        amount={finalTotal}
         method={paymentMethod}
         isBulk={isBulk}
         orderId={createdOrderId || undefined}
         userEmail={userProfile?.email}
         userName={userProfile?.name || recipientName}
       />
+      </div>
     </div>
   );
 }

@@ -1,0 +1,70 @@
+# Render Blueprint — one-click deploy for the CustoMate backend.
+# To deploy: push this file to your repo, then go to Render dashboard →
+# New → Blueprint, point at this repo. Render reads this file and provisions
+# the service. You'll be prompted to fill in the secret env vars.
+#
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: customate-api
+    runtime: node
+    plan: starter # $7/mo — upgrade to standard ($25/mo) once you have steady traffic
+    region: singapore # Closest to PH; change to your nearest region
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /healthz
+    autoDeploy: true # auto-redeploy on push to main
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      # All sensitive values are entered in the Render dashboard, NOT here.
+      # Mark them as `sync: false` so blueprint doesn't try to read them.
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: FRONTEND_URL
+        sync: false # e.g. https://customate.vercel.app
+      - key: BACKEND_URL
+        sync: false
+      - key: PAYMONGO_PUBLIC_KEY
+        sync: false
+      - key: PAYMONGO_SECRET_KEY
+        sync: false
+      - key: PAYMONGO_WEBHOOK_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SEMAPHORE_API_KEY
+        sync: false
+      - key: SEMAPHORE_SENDER_NAME
+        value: CustoMate
+      # Sentry — recommended for production error tracking
+      - key: SENTRY_DSN
+        sync: false

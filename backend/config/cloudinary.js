@@ -3,13 +3,40 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Cloudinary configuration
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-  secure: true
-});
+// ─── Configuration with placeholder detection ──────────────────────────────
+// .env.example ships placeholder values (`your_cloud_name`, etc). Without
+// detecting these, uploads would silently 401 against a fake Cloudinary URL
+// — appearing as "Failed to upload" to the user. We treat placeholders as
+// "not configured" and gracefully fall back to the original input (data URL
+// for base64, a no-op for files) so dev flows work without Cloudinary.
+const PLACEHOLDER_VALUES = new Set([
+  '',
+  'your_cloud_name',
+  'your_api_key',
+  'your_api_secret',
+  'changeme',
+  'replaceme',
+]);
+
+function looksReal(v) {
+  return typeof v === 'string' && v.trim().length > 0 && !PLACEHOLDER_VALUES.has(v.trim());
+}
+
+export const isCloudinaryConfigured =
+  looksReal(process.env.CLOUDINARY_CLOUD_NAME) &&
+  looksReal(process.env.CLOUDINARY_API_KEY) &&
+  looksReal(process.env.CLOUDINARY_API_SECRET);
+
+if (isCloudinaryConfigured) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true,
+  });
+} else {
+  console.warn('[cloudinary] Skipped configuration — env vars missing or placeholder. Uploads will return data URLs.');
+}
 
 /**
  * Upload image to Cloudinary
@@ -18,6 +45,20 @@ cloudinary.config({
  * @param {object} options - Additional options
  */
 export async function uploadImage(filePath, folder = 'customate', options = {}) {
+  // Dev fallback: no Cloudinary → return the original input (data URI) so
+  // the studio still gets a usable image reference. The thumbnail URL is
+  // the same — the customizer's WebGL texture loader handles either form.
+  if (!isCloudinaryConfigured) {
+    return {
+      publicId: null,
+      url: filePath,
+      thumbnailUrl: filePath,
+      width: 0,
+      height: 0,
+      format: 'png',
+      size: 0,
+    };
+  }
   try {
     const result = await cloudinary.uploader.upload(filePath, {
       folder: `customate/${folder}`,
@@ -53,6 +94,17 @@ export async function uploadImage(filePath, folder = 'customate', options = {}) 
  * Used for design previews or canvas exports
  */
 export async function uploadBase64(base64Data, folder = 'designs', filename = null) {
+  // Dev fallback — return the data URI unchanged so callers can persist
+  // it (smaller PNGs only, ideally) without an external dependency.
+  if (!isCloudinaryConfigured) {
+    return {
+      publicId: null,
+      url: base64Data,
+      thumbnailUrl: base64Data,
+      width: 0,
+      height: 0,
+    };
+  }
   try {
     // Remove data:image/xxx;base64, prefix if present
     const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');

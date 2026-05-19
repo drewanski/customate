@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite"
+    "dev": "vite",
+    "preview": "vite preview",
+    "optimize:models": "node scripts/optimize-models.mjs",
+    "analyze": "vite build --mode analyze"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -49,6 +52,7 @@
     "cmdk": "1.1.1",
     "crypto-js": "^4.2.0",
     "date-fns": "3.6.0",
+    "dotenv": "^17.4.2",
     "embla-carousel-react": "8.6.0",
     "input-otp": "1.4.2",
     "lucide-react": "0.487.0",
@@ -68,7 +72,7 @@
     "react-router": "^7.13.0",
     "react-router-dom": "^7.13.0",
     "react-slick": "0.31.0",
-    "recharts": "2.15.2",
+    "recharts": "^2.15.2",
     "sonner": "2.0.3",
     "tailwind-merge": "3.2.0",
     "three": "^0.160.0",

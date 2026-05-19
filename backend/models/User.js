@@ -34,7 +34,10 @@ const userSchema = new mongoose.Schema({
     isDefault: { type: Boolean, default: false }
   }],
   lastLogin: { type: Date },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  // True once the user has completed an email OTP flow (either during
+  // password registration or during first-time Google sign-in).
+  isEmailVerified: { type: Boolean, default: false }
 });
 
 export default mongoose.model('User', userSchema);

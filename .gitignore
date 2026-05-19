@@ -53,3 +53,8 @@ test-results/
 
 # Sentry source maps
 *.map.gz
+
+# Large 3D body-model assets — kept on disk + uploaded to host, not in git.
+# These have Windows path-length issues and don't change between deploys.
+public/models/Universal*/
+dist/models/Universal*/

@@ -1,7 +1,8 @@
 import React, { useRef, useState } from 'react';
-import { Upload, X, Image as ImageIcon, Loader2, Check } from 'lucide-react';
+import { Upload, X, Image as ImageIcon, Loader2, Check, Wand2, Sparkles } from 'lucide-react';
 import { Button } from './Button';
 import { uploadDesign, validateImageFile } from '../api/upload';
+import { aiRemoveBackground } from '../api';
 
 interface FileUploadProps {
   onUpload: (imageUrl: string, thumbnailUrl: string) => void;
@@ -23,6 +24,11 @@ export function FileUpload({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(currentImage ?? null);
+  // AI background removal state. Only available when an image is loaded
+  // and the user is signed in (guests don't get free AI calls).
+  const [removingBg, setRemovingBg] = useState(false);
+  const [bgRemoved, setBgRemoved] = useState(false);
+  const isAuthenticated = typeof window !== 'undefined' && !!localStorage.getItem('token');
 
   const handleClick = () => {
     inputRef.current?.click();
@@ -47,13 +53,27 @@ export function FileUpload({
       const localPreview = URL.createObjectURL(file);
       setPreview(localPreview);
 
-      // Upload to Cloudinary
-      const result = await uploadDesign(file);
-      
-      onUpload(result.image.url, result.image.thumbnailUrl);
-      setPreview(result.image.thumbnailUrl);
-      
-      // Clear input
+      // Guests don't have an auth token — skip the Cloudinary upload and
+      // use a client-side data URL so the customization preview still works.
+      // The image won't persist across sessions, which is fine because they
+      // can't order without signing in anyway.
+      const isGuest = !localStorage.getItem('token');
+      if (isGuest) {
+        const dataUrl: string = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.readAsDataURL(file);
+        });
+        onUpload(dataUrl, dataUrl);
+        setPreview(dataUrl);
+      } else {
+        // Authenticated user — upload to Cloudinary for persistence
+        const result = await uploadDesign(file);
+        onUpload(result.image.url, result.image.thumbnailUrl);
+        setPreview(result.image.thumbnailUrl);
+      }
+
       if (inputRef.current) {
         inputRef.current.value = '';
       }
@@ -68,9 +88,51 @@ export function FileUpload({
   const handleClear = () => {
     setPreview(null);
     setError(null);
+    setBgRemoved(false);
     onClear?.();
     if (inputRef.current) {
       inputRef.current.value = '';
+    }
+  };
+
+  /**
+   * AI background removal. Calls /api/ai-design/remove-bg with the current
+   * preview (data URL or remote URL — backend accepts either). The cleaned
+   * image replaces the current one and is also reported via onUpload so the
+   * 3D customizer picks it up.
+   *
+   * Falls back gracefully if the model isn't available (backend returns
+   * the original image with fallback: true).
+   */
+  const handleRemoveBg = async () => {
+    if (!preview || removingBg) return;
+    setError(null);
+    setRemovingBg(true);
+    try {
+      // If the preview is a remote URL (Cloudinary), fetch and convert to
+      // data URL first so we always send raw bytes to the model.
+      let imagePayload = preview;
+      if (preview.startsWith('http')) {
+        const res = await fetch(preview);
+        const blob = await res.blob();
+        imagePayload = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error('Failed to read image'));
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      const result = await aiRemoveBackground(imagePayload);
+      if (result?.dataUrl) {
+        setPreview(result.dataUrl);
+        onUpload(result.dataUrl, result.dataUrl);
+        setBgRemoved(!result.fallback);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Could not remove background');
+    } finally {
+      setRemovingBg(false);
     }
   };
 
@@ -137,15 +199,49 @@ export function FileUpload({
       )}
 
       {preview && !uploading && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleClick}
-          className="w-full"
-        >
-          <Upload className="w-4 h-4 mr-2" />
-          Replace Image
-        </Button>
+        <div className="space-y-2">
+          {/* AI background removal — only for signed-in users */}
+          {isAuthenticated && (
+            <button
+              type="button"
+              onClick={handleRemoveBg}
+              disabled={removingBg}
+              className={`w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition shadow-md disabled:opacity-60 ${
+                bgRemoved
+                  ? 'bg-emerald-500 text-white shadow-emerald-500/30'
+                  : 'bg-gradient-to-r from-purple-600 via-fuchsia-500 to-orange-500 text-white shadow-purple-500/30 hover:opacity-95'
+              }`}
+            >
+              {removingBg ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Cleaning background…
+                </>
+              ) : bgRemoved ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  Background removed
+                </>
+              ) : (
+                <>
+                  <Wand2 className="w-4 h-4" />
+                  Remove background with AI
+                  <Sparkles className="w-3 h-3" />
+                </>
+              )}
+            </button>
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleClick}
+            className="w-full"
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            Replace Image
+          </Button>
+        </div>
       )}
     </div>
   );

@@ -32,7 +32,19 @@ export function PaymentSuccess() {
       }
 
       try {
-        // Fetch full order details
+        // Actively verify with PayMongo first — webhooks can't reach localhost
+        // in dev so the order status would otherwise stay "awaiting_payment"
+        // even after the customer authorized in the GCash/Maya app. This call
+        // pulls live status from PayMongo and finalizes the order if it's
+        // chargeable. It's idempotent (no-op on already-paid orders).
+        try {
+          await apiRequest(`/paymongo/verify/${orderId}`, { method: 'POST' });
+        } catch (verifyErr) {
+          // Non-fatal — fall back to reading the order, which webhook may have updated.
+          console.warn('PayMongo verify failed, falling back to status read:', verifyErr);
+        }
+
+        // Fetch full order details (now reflects verify result if it succeeded)
         const order = await apiRequest(`/orders/${orderId}`);
         setOrderStatus(order);
         

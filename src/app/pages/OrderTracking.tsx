@@ -1,14 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/Card';
 import { Stepper } from '../components/Stepper';
 import { Badge } from '../components/Badge';
-import { Package, CheckCircle, Clock, Truck, CreditCard, User } from 'lucide-react';
+import { Package, CheckCircle, Clock, Truck, CreditCard, User, Printer, Sparkles } from 'lucide-react';
 import { apiRequest } from '../api';
 import { formatPeso, shortOrderCode } from '../utils/format';
+import { useAuth } from '../hooks/useAuth';
 
 export function OrderTracking() {
   const { orderId } = useParams();
+  const { user } = useAuth();
+  const location = useLocation();
+  const isAdminView = user?.role === 'admin' && location.pathname.startsWith('/admin');
+  const hasAnyCustomItem = false; // computed below from order.items
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -105,28 +110,63 @@ export function OrderTracking() {
         <CardContent>
           <div className="grid md:grid-cols-2 gap-6">
             <div>
-              <h4 className="font-medium text-gray-900 mb-3">Items</h4>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-medium text-gray-900">Items</h4>
+                {/* Admin-only call-to-action when at least one item has a saved design.
+                    The print sheet is generated server-side from the saved snapshot,
+                    so the production team can reproduce exactly what the customer saw. */}
+                {isAdminView &&
+                  (order.items || []).some(
+                    (it: any) => it.isCustomized || it.customization?.previewImage,
+                  ) && (
+                    <Link
+                      to={`/admin/orders/${orderId}/design`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-slate-900 hover:bg-slate-800"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      Print Design Sheet
+                    </Link>
+                  )}
+              </div>
               <div className="space-y-2">
-                {(order.items || []).map((it: any, idx: number) => (
-                  <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="w-16 h-16 bg-blue-100 rounded flex items-center justify-center">
-                      <Package className="w-8 h-8 text-blue-600" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium">{it.name}</p>
-                      <p className="text-sm text-gray-600">Qty: {it.quantity} × {formatPeso(it.unitPrice)}</p>
-                      {it.customization && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          {it.customization.size && <span>Size: {it.customization.size} | </span>}
-                          {it.customization.color && <span>Color: {it.customization.color} | </span>}
-                          {it.customization.placement && <span>Placement: {it.customization.placement}</span>}
-                          {it.customization.text && <p>Text: "{it.customization.text}"</p>}
+                {(order.items || []).map((it: any, idx: number) => {
+                  const c = it.customization || {};
+                  const hasPreview = !!c.previewImage;
+                  const isCustom = !!c.isCustomized;
+                  return (
+                    <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      {/* Use the saved design preview as the thumbnail when available */}
+                      <div className="w-16 h-16 bg-blue-100 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                        {hasPreview ? (
+                          <img src={c.previewImage} alt="Design" className="w-full h-full object-cover" />
+                        ) : (
+                          <Package className="w-8 h-8 text-blue-600" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-medium">{it.name}</p>
+                          {isCustom && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-black uppercase tracking-wider">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              Custom
+                            </span>
+                          )}
                         </div>
-                      )}
+                        <p className="text-sm text-gray-600">Qty: {it.quantity} × {formatPeso(it.unitPrice)}</p>
+                        {c && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            {c.size && <span>Size: {c.size} | </span>}
+                            {c.color && <span>Color: {c.color} | </span>}
+                            {c.placement && <span>Placement: {c.placement}</span>}
+                            {c.text && <p>Text: "{c.text}"</p>}
+                          </div>
+                        )}
+                      </div>
+                      <div className="font-medium">{formatPeso(it.quantity * it.unitPrice)}</div>
                     </div>
-                    <div className="font-medium">{formatPeso(it.quantity * it.unitPrice)}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
             <div className="space-y-4">

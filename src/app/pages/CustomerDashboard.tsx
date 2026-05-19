@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Package,
@@ -6,88 +6,606 @@ import {
   Palette,
   ArrowRight,
   Sparkles,
+  TrendingUp,
+  Clock,
+  DollarSign,
+  ShoppingCart,
+  User,
+  Calendar,
+  Truck,
+  CheckCircle,
+  AlertCircle,
+  Eye,
+  Download,
+  Star,
+  Heart,
+  Settings,
+  Bell,
+  Search,
+  Filter,
+  MoreVertical,
+  ChevronRight,
+  Activity,
+  Zap,
+  Target,
+  Award,
+  Gift,
+  BarChart3,
+  PieChart,
+  Users,
+  ShoppingBag,
+  RefreshCw,
+  XCircle,
+  HelpCircle
 } from 'lucide-react';
+import { useDashboardData } from '../hooks/useDashboardData';
 
-/**
- * Customer-facing dashboard.
- * This fixes the 404 when navigating to /dashboard from the top nav and after login.
- */
+interface Order {
+  id: string;
+  orderNumber: string;
+  date: string;
+  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'approved' | 'in_production' | 'ready' | 'completed' | 'rejected';
+  totalAmount: number;
+  items: number;
+  totalQty: number;
+  estimatedDelivery?: string;
+  trackingNumber?: string;
+  customerName?: string;
+  customerEmail?: string;
+  paymentStatus?: string;
+  isBulk?: boolean;
+  shippingAddress?: string;
+  notes?: string;
+}
+
+interface CustomerStats {
+  totalOrders: number;
+  totalSpent: number;
+  pendingOrders: number;
+  completedOrders: number;
+  cancelledOrders: number;
+  averageOrderValue: number;
+  lastOrderDate: Date | null;
+  recentOrders: Order[];
+  bulkOrders: number;
+}
+
+interface CustomerActivity {
+  id: string;
+  type: string;
+  title: string;
+  description: string;
+  status: string;
+  date: string;
+  orderId: string;
+  amount: number;
+}
+
+interface StatCard {
+  title: string;
+  value: string | number;
+  change: string;
+  changeType: 'increase' | 'decrease' | 'neutral';
+  icon: React.ElementType;
+  color: string;
+}
+
+interface QuickAction {
+  title: string;
+  description: string;
+  to: string;
+  Icon: React.ElementType;
+  color: string;
+  badge?: string;
+}
+
 export function CustomerDashboard() {
-  const quickActions = [
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedTimeRange, setSelectedTimeRange] = useState('30days');
+  
+  const { data, loading, error, refreshing, refreshData } = useDashboardData();
+  const { user, orders, stats, activities } = data;
+
+  // Generate stats cards from real data
+  const getStatsCards = (): StatCard[] => {
+    if (!stats) return [];
+
+    const cards: StatCard[] = [
+      {
+        title: 'Total Orders',
+        value: stats.totalOrders,
+        change: stats.bulkOrders > 0 ? `${stats.bulkOrders} bulk orders` : 'All regular orders',
+        changeType: 'neutral',
+        icon: ShoppingBag,
+        color: 'blue'
+      },
+      {
+        title: 'Total Spent',
+        value: `₱${stats.totalSpent.toFixed(2)}`,
+        change: `Avg: ₱${stats.averageOrderValue.toFixed(0)} per order`,
+        changeType: 'neutral',
+        icon: DollarSign,
+        color: 'green'
+      },
+      {
+        title: 'Pending Orders',
+        value: stats.pendingOrders,
+        change: stats.pendingOrders > 0 ? 'Awaiting processing' : 'All orders completed',
+        changeType: 'neutral',
+        icon: Clock,
+        color: 'yellow'
+      },
+      {
+        title: 'Completed',
+        value: stats.completedOrders,
+        change: stats.completedOrders > 0 ? 'Successfully delivered' : 'No completed orders',
+        changeType: 'increase',
+        icon: CheckCircle,
+        color: 'green'
+      }
+    ];
+
+    return cards;
+  };
+
+  const quickActions: QuickAction[] = [
     {
       title: 'Browse Products',
-      description: 'Explore available items and start customizing.',
+      description: 'Explore our collection and start customizing',
       to: '/products',
       Icon: Package,
+      color: 'blue',
+      badge: stats?.totalOrders === 0 ? 'New' : undefined
     },
     {
-      title: 'Track an Order',
-      description: 'Check the latest status of your orders.',
+      title: 'Track Orders',
+      description: 'Monitor your order status in real-time',
       to: '/order-tracking',
-      Icon: ClipboardList,
+      Icon: Truck,
+      color: 'green'
     },
     {
-      title: 'Try Customization',
-      description: 'Preview designs in the studio (sample product).',
+      title: 'Design Studio',
+      description: 'Create custom designs with our tools',
       to: '/product/1/customize',
       Icon: Palette,
+      color: 'purple'
     },
+    {
+      title: 'Quick Reorder',
+      description: orders.length > 0 ? 'Reorder your favorite items' : 'Place your first order',
+      to: orders.length > 0 ? '/reorder' : '/products',
+      Icon: Zap,
+      color: 'orange',
+      badge: orders.length > 2 ? 'Popular' : undefined
+    }
   ];
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'delivered':
+      case 'completed':
+        return 'bg-green-100 text-green-800';
+      case 'shipped':
+      case 'ready':
+        return 'bg-blue-100 text-blue-800';
+      case 'processing':
+      case 'in_production':
+      case 'approved':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'pending':
+        return 'bg-gray-100 text-gray-800';
+      case 'cancelled':
+      case 'rejected':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'delivered':
+      case 'completed':
+        return CheckCircle;
+      case 'shipped':
+      case 'ready':
+        return Truck;
+      case 'processing':
+      case 'in_production':
+      case 'approved':
+        return Clock;
+      case 'pending':
+        return AlertCircle;
+      case 'cancelled':
+      case 'rejected':
+        return XCircle;
+      default:
+        return Clock;
+    }
+  };
+
+  const getActivityIcon = (activity: CustomerActivity) => {
+    switch (activity.status) {
+      case 'delivered':
+      case 'completed':
+        return CheckCircle;
+      case 'shipped':
+        return Truck;
+      case 'processing':
+        return Clock;
+      case 'cancelled':
+        return XCircle;
+      default:
+        return Activity;
+    }
+  };
+
+  const filteredOrders = orders.filter(order =>
+    order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    order.status.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Unable to load dashboard</h2>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <button
+            onClick={refreshData}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 py-10">
-        <div className="flex items-start justify-between gap-6 flex-col md:flex-row">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-            <p className="text-gray-600 mt-2">
-              Quick access to products, customization, and order tracking.
-            </p>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+      {/* Header Section — premium gradient with decorative blobs */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 text-white">
+        <div className="absolute -top-32 -left-24 w-96 h-96 rounded-full bg-blue-400/30 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -right-24 w-96 h-96 rounded-full bg-purple-400/40 blur-3xl pointer-events-none" />
+        <div
+          className="absolute inset-0 opacity-[0.05] pointer-events-none"
+          style={{
+            backgroundImage:
+              'linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)',
+            backgroundSize: '32px 32px',
+          }}
+        />
+
+        <div className="relative max-w-7xl mx-auto px-6 lg:px-8 py-10 md:py-14">
+          <div className="flex items-start justify-between gap-6 flex-col lg:flex-row">
+            <div className="flex-1">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-16 h-16 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center shadow-lg shadow-black/10 ring-1 ring-white/20">
+                  {user?.avatar ? (
+                    <img src={user.avatar} alt={user.name} className="w-16 h-16 rounded-2xl object-cover" />
+                  ) : (
+                    <User className="w-7 h-7" />
+                  )}
+                </div>
+                <div>
+                  <h1 className="text-2xl md:text-3xl font-black tracking-tight">Welcome back, {user?.name}!</h1>
+                  <p className="text-sm text-white/75 mt-0.5">
+                    Member since {new Date(user?.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+              <p className="text-white/85 max-w-2xl text-sm md:text-base">
+                Manage your orders, track shipments, and discover new products all in one place.
+              </p>
+            </div>
+
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={refreshData}
+                disabled={refreshing}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white/15 hover:bg-white/25 backdrop-blur-sm rounded-full text-xs font-bold transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+              <Link
+                to="/products"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white text-blue-600 hover:bg-slate-50 rounded-full text-xs font-bold shadow-lg shadow-black/10 transition-all hover:-translate-y-0.5 hover:scale-105"
+              >
+                <ShoppingCart className="w-3.5 h-3.5" />
+                Start Shopping
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-6 lg:px-8 py-8 md:py-10">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5 mb-8">
+          {getStatsCards().map((stat, index) => {
+            const Icon = stat.icon;
+            return (
+              <div key={index} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 hover:shadow-lg hover:-translate-y-0.5 transition-all">
+                <div className="flex items-center justify-between mb-4">
+                  <div className={`w-12 h-12 rounded-lg bg-${stat.color}-100 flex items-center justify-center`}>
+                    <Icon className={`w-6 h-6 text-${stat.color}-600`} />
+                  </div>
+                  <div className={`flex items-center gap-1 text-sm ${
+                    stat.changeType === 'increase' ? 'text-green-600' : 
+                    stat.changeType === 'decrease' ? 'text-red-600' : 'text-gray-600'
+                  }`}>
+                    {stat.changeType === 'increase' && <TrendingUp className="w-4 h-4" />}
+                    {stat.changeType === 'decrease' && <TrendingUp className="w-4 h-4 rotate-180" />}
+                    {stat.change}
+                  </div>
+                </div>
+                <div className="text-2xl font-bold text-gray-900">{stat.value}</div>
+                <div className="text-sm text-gray-600 mt-1">{stat.title}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Quick Actions */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold text-gray-900">Quick Actions</h2>
+            <button className="text-blue-600 hover:text-blue-700 text-sm font-medium">
+              View All <ChevronRight className="w-4 h-4 inline" />
+            </button>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {quickActions.map((action, index) => {
+              const Icon = action.Icon;
+              return (
+                <Link
+                  key={index}
+                  to={action.to}
+                  className="group bg-white rounded-xl border border-gray-200 p-6 hover:border-blue-300 hover:shadow-lg transition-all relative overflow-hidden"
+                >
+                  {action.badge && (
+                    <span className="absolute top-3 right-3 px-2 py-1 bg-red-500 text-white text-xs rounded-full">
+                      {action.badge}
+                    </span>
+                  )}
+                  <div className={`w-12 h-12 rounded-lg bg-${action.color}-100 flex items-center justify-center mb-4`}>
+                    <Icon className={`w-6 h-6 text-${action.color}-600`} />
+                  </div>
+                  <div className="font-semibold text-gray-900 text-lg mb-2">{action.title}</div>
+                  <div className="text-sm text-gray-600 mb-4">{action.description}</div>
+                  <div className={`text-${action.color}-600 text-sm font-medium inline-flex items-center gap-2 group-hover:gap-3 transition-all`}>
+                    Get Started <ArrowRight className="w-4 h-4" />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Recent Orders */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2">
+            <div className="bg-white rounded-xl border border-gray-200">
+              <div className="p-6 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold text-gray-900">Recent Orders</h2>
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search orders..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                      />
+                    </div>
+                    <button className="p-2 hover:bg-gray-100 rounded-lg">
+                      <Filter className="w-4 h-4 text-gray-600" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="divide-y divide-gray-200">
+                {filteredOrders.map((order) => {
+                  const StatusIcon = getStatusIcon(order.status);
+                  return (
+                    <div key={order.id} className="p-6 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="font-semibold text-gray-900">{order.orderNumber}</h3>
+                            <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(order.status)}`}>
+                              <StatusIcon className="w-3 h-3 inline mr-1" />
+                              {order.status.replace('_', ' ').charAt(0).toUpperCase() + order.status.replace('_', ' ').slice(1)}
+                            </span>
+                            {order.isBulk && (
+                              <span className="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded-full">
+                                Bulk
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-sm text-gray-600 mb-3">
+                            <div className="flex items-center gap-4">
+                              <span>{order.totalQty} items</span>
+                              <span>•</span>
+                              <span>{new Date(order.date).toLocaleDateString()}</span>
+                              <span>•</span>
+                              <span className="font-semibold text-gray-900">₱{order.totalAmount.toFixed(2)}</span>
+                            </div>
+                          </div>
+                          {order.trackingNumber && (
+                            <div className="text-xs text-gray-500">
+                              Tracking: {order.trackingNumber}
+                            </div>
+                          )}
+                          {order.notes && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              Notes: {order.notes}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <Link
+                            to={`/orders/${order.id}`}
+                            className="p-2 hover:bg-gray-100 rounded-lg"
+                          >
+                            <Eye className="w-4 h-4 text-gray-600" />
+                          </Link>
+                          <button className="p-2 hover:bg-gray-100 rounded-lg">
+                            <Download className="w-4 h-4 text-gray-600" />
+                          </button>
+                          <button className="p-2 hover:bg-gray-100 rounded-lg">
+                            <MoreVertical className="w-4 h-4 text-gray-600" />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {order.shippingAddress && (
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <Package className="w-4 h-4" />
+                            Ship to: {order.shippingAddress}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                
+                {filteredOrders.length === 0 && (
+                  <div className="p-12 text-center">
+                    <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">
+                      {searchTerm ? 'No orders found matching your search' : 'No orders yet'}
+                    </p>
+                    {!searchTerm && (
+                      <Link
+                        to="/products"
+                        className="inline-flex items-center gap-2 mt-4 text-blue-600 hover:text-blue-700"
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                        Place your first order
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              {orders.length > 0 && (
+                <div className="p-4 border-t border-gray-200">
+                  <Link
+                    to="/orders"
+                    className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center justify-center gap-2"
+                  >
+                    View All Orders <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </div>
+              )}
+            </div>
           </div>
 
-          <Link
-            to="/products"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-          >
-            Start a New Order <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-          {quickActions.map(({ title, description, to, Icon }) => (
-            <Link
-              key={title}
-              to={to}
-              className="group bg-white border border-gray-200 rounded-2xl p-6 hover:border-blue-300 hover:shadow-sm transition-all"
-            >
-              <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center mb-4">
-                <Icon className="w-6 h-6 text-blue-600" />
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Activity Feed */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="font-semibold text-gray-900 mb-4">Recent Activity</h3>
+              <div className="space-y-4">
+                {activities.slice(0, 5).map((activity) => {
+                  const ActivityIcon = getActivityIcon(activity);
+                  return (
+                    <div key={activity.id} className="flex items-start gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        activity.status === 'delivered' || activity.status === 'completed' ? 'bg-green-100' :
+                        activity.status === 'shipped' ? 'bg-blue-100' :
+                        activity.status === 'processing' ? 'bg-yellow-100' :
+                        'bg-gray-100'
+                      }`}>
+                        <ActivityIcon className={`w-4 h-4 ${
+                          activity.status === 'delivered' || activity.status === 'completed' ? 'text-green-600' :
+                          activity.status === 'shipped' ? 'text-blue-600' :
+                          activity.status === 'processing' ? 'text-yellow-600' :
+                          'text-gray-600'
+                        }`} />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-gray-900">{activity.title}</p>
+                        <p className="text-xs text-gray-500">{activity.description}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {new Date(activity.date).toLocaleDateString()} • {new Date(activity.date).toLocaleTimeString()}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                {activities.length === 0 && (
+                  <div className="text-center py-4">
+                    <Activity className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600">No recent activity</p>
+                  </div>
+                )}
               </div>
-              <div className="font-semibold text-gray-900 text-lg">{title}</div>
-              <div className="text-sm text-gray-600 mt-1">{description}</div>
-              <div className="text-blue-600 text-sm font-medium mt-4 inline-flex items-center gap-2">
-                Open <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-              </div>
-            </Link>
-          ))}
-        </div>
-
-        <div className="mt-10 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl text-white p-6 md:p-8">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center">
-              <Sparkles className="w-6 h-6" />
             </div>
-            <div>
-              <div className="text-xl font-semibold">Tip</div>
-              <p className="text-white/90 mt-1">
-                Use the customization studio to preview your design before checkout.
+
+            {/* Recommendations */}
+            <div className="bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl text-white p-6">
+              <h3 className="font-semibold mb-3">Recommended for You</h3>
+              <p className="text-sm text-purple-100 mb-4">
+                {orders.length > 0 
+                  ? 'Based on your order history, you might like these products'
+                  : 'Start exploring our collection of customizable products'
+                }
               </p>
-              <div className="mt-4">
+              <Link
+                to="/products"
+                className="w-full bg-white text-purple-600 hover:bg-purple-50 rounded-lg py-2 font-medium transition-colors inline-block text-center"
+              >
+                {orders.length > 0 ? 'Explore Recommendations' : 'Browse Products'}
+              </Link>
+            </div>
+
+            {/* Support */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="font-semibold text-gray-900 mb-4">Need Help?</h3>
+              <div className="space-y-3">
                 <Link
-                  to="/components"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white text-blue-700 hover:bg-white/90 transition-colors"
+                  to="/contact"
+                  className="flex items-center gap-3 text-gray-600 hover:text-gray-900 transition-colors"
                 >
-                  View UI Components <ArrowRight className="w-4 h-4" />
+                  <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
+                    <AlertCircle className="w-4 h-4" />
+                  </div>
+                  <div className="text-sm">Customer Support</div>
+                </Link>
+                
+                <Link
+                  to="/faq"
+                  className="flex items-center gap-3 text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
+                    <HelpCircle className="w-4 h-4" />
+                  </div>
+                  <div className="text-sm">FAQ</div>
                 </Link>
               </div>
             </div>

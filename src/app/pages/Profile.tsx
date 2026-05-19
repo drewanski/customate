@@ -8,6 +8,7 @@ import type { User } from '../data/types';
 import { Modal } from '../components/Modal';
 import { User as UserIcon, Mail, Phone, Shield, Edit3, LogOut, Save, X, Camera, LayoutDashboard, ShoppingCart, Truck, ArrowLeft, MapPin, Plus, Trash2, Home, Briefcase, Star } from 'lucide-react';
 import { formatPeso, shortOrderCode } from '../utils/format';
+import { useAuth } from '../hooks/useAuth';
 
 interface SavedAddress {
   _id: string;
@@ -274,9 +275,10 @@ export default function Profile() {
     reader.readAsDataURL(file);
   };
 
+  const { logout } = useAuth();
+  
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    logout();
     navigate('/login');
   };
 
@@ -339,20 +341,17 @@ export default function Profile() {
       <div className="pointer-events-none absolute -bottom-24 -right-24 w-96 h-96 bg-purple-300/30 rounded-full blur-3xl" />
 
       <div className="max-w-4xl mx-auto relative">
-        <div className="mb-8">
-          <div className="flex items-center justify-between gap-4">
-            <Button
-              variant="outline"
-              onClick={() => navigate(-1)}
-              className="border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </Button>
-            <div className="text-right">
-              <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
-              <p className="text-gray-600">Manage your account information</p>
-            </div>
+        <div className="mb-8 flex items-center justify-between gap-4">
+          <button
+            onClick={() => navigate(-1)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 shadow-sm transition-all hover:-translate-y-0.5"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back
+          </button>
+          <div className="text-right">
+            <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">My profile</h1>
+            <p className="text-sm text-slate-500 mt-0.5">Manage your account information</p>
           </div>
         </div>
 

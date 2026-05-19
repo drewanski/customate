@@ -459,7 +459,10 @@ Provide:
  * Analyzes order trends and predicts inventory needs
  */
 router.post('/predict-inventory', authMiddleware, async (req, res) => {
+  // Hoisted out of try-block so the catch handler can reference them safely
+  // when the failure happens before either is initialised.
   let inventoryAnalysis = [];
+  let skuUsage = {};
   
   try {
     if (req.user.role !== 'admin') {
@@ -477,8 +480,8 @@ router.post('/predict-inventory', authMiddleware, async (req, res) => {
       status: { $nin: ['rejected', 'cancelled'] }
     });
 
-    // Calculate usage rates per SKU
-    const skuUsage = {};
+    // Calculate usage rates per SKU. Reuses the hoisted `skuUsage` from
+    // function-scope so the catch handler can also see it.
     recentOrders.forEach(order => {
       order.items.forEach(item => {
         const sku = item.sku || 'unknown';

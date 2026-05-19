@@ -29,11 +29,39 @@ export async function register(name, email, password, contactNumber, role = 'cus
   });
 }
 
-export async function googleSignIn(credential) {
-  return apiRequest('/auth/google', {
+/**
+ * Google sign-in.
+ *
+ * Two-step flow for FIRST-TIME accounts:
+ *   1. Call with just the credential. If the email is already in our DB,
+ *      returns { token, user } and you log in.
+ *      If it's a brand-new email, the backend returns HTTP 403 with
+ *      `{ status: 'needs_otp', email, name }` — you should send an email
+ *      OTP (sendOtp), prompt the user to enter the code, verify it
+ *      (verifyOtp), then re-call this with `confirmCreate: true`.
+ *
+ * `apiRequest` already throws on non-OK responses. To distinguish the
+ * needs_otp signal from generic errors, we read the body manually here.
+ */
+export async function googleSignIn(credential, { confirmCreate = false } = {}) {
+  const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+  const res = await fetch(`${API_URL}/auth/google`, {
     method: 'POST',
-    body: JSON.stringify({ credential })
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential, confirmCreate })
   });
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 403 && body.status === 'needs_otp') {
+    // Caller should handle this as a flow signal, not an error
+    const err = new Error(body.message || 'Email verification required');
+    err.code = 'NEEDS_OTP';
+    err.email = body.email;
+    err.suggestedName = body.name;
+    err.suggestedAvatar = body.avatar;
+    throw err;
+  }
+  if (!res.ok) throw new Error(body.message || 'Google sign-in failed');
+  return body;
 }
 
 export async function sendOtp(email) {
@@ -79,5 +107,470 @@ export async function updateProfile(data) {
   return apiRequest('/users/me', {
     method: 'PUT',
     body: JSON.stringify(data)
+  });
+}
+
+// Customer Dashboard API functions
+export async function getMyOrders() {
+  return apiRequest('/orders/my');
+}
+
+export async function getOrderById(orderId) {
+  return apiRequest(`/orders/${orderId}`);
+}
+
+export async function getCustomerStats() {
+  try {
+    const orders = await getMyOrders();
+    const stats = {
+      totalOrders: orders.length,
+      totalSpent: orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0),
+      pendingOrders: orders.filter(o => o.status === 'pending' || o.status === 'processing').length,
+      completedOrders: orders.filter(o => o.status === 'completed' || o.status === 'delivered').length,
+      cancelledOrders: orders.filter(o => o.status === 'cancelled').length,
+      averageOrderValue: orders.length > 0 ? orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0) / orders.length : 0,
+      lastOrderDate: orders.length > 0 ? new Date(Math.max(...orders.map(o => new Date(o.createdAt)))) : null,
+      recentOrders: orders.slice(0, 5),
+      bulkOrders: orders.filter(o => o.isBulk).length
+    };
+    return stats;
+  } catch (error) {
+    console.error('Error calculating customer stats:', error);
+    throw error;
+  }
+}
+
+// ─── Inventory: suppliers ─────────────────────────────────────────────────
+export async function getSuppliers({ includeInactive = false } = {}) {
+  const qs = includeInactive ? '?includeInactive=true' : '';
+  return apiRequest(`/suppliers${qs}`);
+}
+export async function createSupplier(data) {
+  return apiRequest('/suppliers', { method: 'POST', body: JSON.stringify(data) });
+}
+export async function updateSupplier(id, data) {
+  return apiRequest(`/suppliers/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+export async function deleteSupplier(id, hard = false) {
+  const qs = hard ? '?hard=true' : '';
+  return apiRequest(`/suppliers/${id}${qs}`, { method: 'DELETE' });
+}
+
+// ─── Inventory: stock movements (audit log) ───────────────────────────────
+export async function getStockMovements({ inventoryId, type, supplierId, from, to, limit, offset } = {}) {
+  const params = new URLSearchParams();
+  if (inventoryId) params.set('inventoryId', inventoryId);
+  if (type) params.set('type', type);
+  if (supplierId) params.set('supplierId', supplierId);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (limit) params.set('limit', String(limit));
+  if (offset) params.set('offset', String(offset));
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiRequest(`/stock-movements${qs}`);
+}
+
+export async function getMovementSummary(inventoryId) {
+  return apiRequest(`/stock-movements/summary/${inventoryId}`);
+}
+
+export async function getInventoryDashboard() {
+  return apiRequest('/stock-movements/dashboard/summary');
+}
+
+export async function restockItem(payload) {
+  // payload: { inventoryId, quantity, supplierId?, supplierAdHoc?, unitCost?, invoiceNumber?, batchNumber?, expiryDate?, notes? }
+  return apiRequest('/stock-movements/restock', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function adjustStock(payload) {
+  // payload: { inventoryId, delta (signed), reason, notes? }
+  return apiRequest('/stock-movements/adjust', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function recordDamage(payload) {
+  // payload: { inventoryId, quantity (positive), reason, notes? }
+  return apiRequest('/stock-movements/damage', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+// ─── Admin Users ──────────────────────────────────────────────────────────
+export async function getUsersList() {
+  return apiRequest('/users');
+}
+export async function getUserStats() {
+  return apiRequest('/users/stats/summary');
+}
+export async function getUserActivity(userId) {
+  return apiRequest(`/users/${userId}/activity`);
+}
+export async function updateUserAdmin(userId, payload) {
+  // payload: { role?, status?, name?, reason? }
+  return apiRequest(`/users/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+export async function bulkUpdateUsers(userIds, updates) {
+  return apiRequest('/users/bulk/update', {
+    method: 'PUT',
+    body: JSON.stringify({ userIds, updates }),
+  });
+}
+export async function addUserNote(userId, note) {
+  return apiRequest(`/users/${userId}/note`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
+  });
+}
+export async function getUserHistory(userId) {
+  return apiRequest(`/users/${userId}/history`);
+}
+export async function downloadUsersCsv(filter = {}) {
+  const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+  const params = new URLSearchParams();
+  if (filter.role && filter.role !== 'all') params.set('role', filter.role);
+  if (filter.status && filter.status !== 'all') params.set('status', filter.status);
+  const url = `${API_URL}/users/export/csv${params.toString() ? '?' + params.toString() : ''}`;
+  const token = localStorage.getItem('token');
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error('Export failed');
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = `users-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+}
+
+// ─── Coupons ──────────────────────────────────────────────────────────────
+export async function validateCouponCode(code, cartItems) {
+  return apiRequest('/coupons/validate', {
+    method: 'POST',
+    body: JSON.stringify({ code, cartItems }),
+  });
+}
+export async function getCoupons() {
+  return apiRequest('/coupons');
+}
+export async function getCouponStats() {
+  return apiRequest('/coupons/stats/summary');
+}
+export async function getCoupon(id) {
+  return apiRequest(`/coupons/${id}`);
+}
+export async function createCoupon(payload) {
+  return apiRequest('/coupons', { method: 'POST', body: JSON.stringify(payload) });
+}
+export async function updateCoupon(id, payload) {
+  return apiRequest(`/coupons/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+}
+export async function deactivateCoupon(id) {
+  return apiRequest(`/coupons/${id}`, { method: 'DELETE' });
+}
+export async function getCouponRedemptions(id) {
+  return apiRequest(`/coupons/${id}/redemptions`);
+}
+export async function downloadCouponsCsv() {
+  const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_URL}/coupons/export/csv`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error('Export failed');
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = `coupons-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+}
+
+// ─── Admin Insights (AI) ──────────────────────────────────────────────────
+export async function aiOrderSummary(orderId) {
+  return apiRequest(`/admin-insights/order/${orderId}/summary`);
+}
+export async function aiRestockSuggestions() {
+  return apiRequest('/admin-insights/restock-suggestions');
+}
+export async function aiProductionForecast() {
+  return apiRequest('/admin-insights/production-forecast');
+}
+export async function aiHealth() {
+  return apiRequest('/admin-insights/ai-health');
+}
+export async function aiPurgeCache() {
+  return apiRequest('/admin-insights/ai-cache/purge', { method: 'POST' });
+}
+
+// ─── Admin Orders ─────────────────────────────────────────────────────────
+export async function getOrderStats() {
+  return apiRequest('/orders/stats/summary');
+}
+export async function updateOrderStatus(orderId, status, opts = {}) {
+  return apiRequest(`/orders/${orderId}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status, reason: opts.reason, note: opts.note }),
+  });
+}
+export async function bulkUpdateOrderStatus(orderIds, status, reason) {
+  return apiRequest('/orders/bulk-status', {
+    method: 'POST',
+    body: JSON.stringify({ orderIds, status, reason }),
+  });
+}
+export async function refundOrder(orderId, payload) {
+  // payload: { amount, reason, note? }
+  return apiRequest(`/orders/${orderId}/refund`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+export async function addOrderNote(orderId, note) {
+  return apiRequest(`/orders/${orderId}/note`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
+  });
+}
+export async function getOrderHistory(orderId) {
+  return apiRequest(`/orders/${orderId}/history`);
+}
+export function getOrderExportUrl({ status, from, to } = {}) {
+  const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+  const params = new URLSearchParams();
+  if (status && status !== 'all') params.set('status', status);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  // CSV export is auth-protected — the helper returns the URL; the caller
+  // uses fetch() so we can attach the Authorization header, then triggers a
+  // download via a blob URL.
+  return `${API_URL}/orders/export/csv${params.toString() ? '?' + params.toString() : ''}`;
+}
+export async function downloadOrderCsv(filter = {}) {
+  const url = getOrderExportUrl(filter);
+  const token = localStorage.getItem('token');
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error('Export failed');
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+}
+
+// ─── AI Design Assistant ──────────────────────────────────────────────────
+export async function aiGetUsage() {
+  return apiRequest('/ai-design/usage');
+}
+export async function aiGetHistory(limit = 12) {
+  return apiRequest(`/ai-design/history?limit=${limit}`);
+}
+export async function aiSuggestPrompts(category = 'general', count = 6) {
+  return apiRequest('/ai-design/suggest', {
+    method: 'POST',
+    body: JSON.stringify({ category, count }),
+  });
+}
+export async function aiEnhancePrompt(prompt) {
+  return apiRequest('/ai-design/enhance', {
+    method: 'POST',
+    body: JSON.stringify({ prompt }),
+  });
+}
+export async function aiGenerateDecal(prompt, style = 'minimalist') {
+  return apiRequest('/ai-design/decal', {
+    method: 'POST',
+    body: JSON.stringify({ prompt, style }),
+  });
+}
+export async function aiRemoveBackground(image) {
+  return apiRequest('/ai-design/remove-bg', {
+    method: 'POST',
+    body: JSON.stringify({ image }),
+  });
+}
+export async function aiGenerateVariations({ image, prompt, style, count = 3 }) {
+  return apiRequest('/ai-design/variations', {
+    method: 'POST',
+    body: JSON.stringify({ image, prompt, style, count }),
+  });
+}
+export async function aiCritiqueDesign({ image, productName, designContext }) {
+  return apiRequest('/ai-design/critique', {
+    method: 'POST',
+    body: JSON.stringify({ image, productName, designContext }),
+  });
+}
+export async function aiListMockupScenes(productType) {
+  return apiRequest(`/ai-design/mockup/scenes?productType=${encodeURIComponent(productType || 'shirt')}`);
+}
+export async function aiGenerateMockup({ designImage, productType, productName, scene, bodySize, customDescription }) {
+  return apiRequest('/ai-design/mockup', {
+    method: 'POST',
+    body: JSON.stringify({ designImage, productType, productName, scene, bodySize, customDescription }),
+  });
+}
+
+// ─── Production scheduling ────────────────────────────────────────────────
+export async function getProductionQueue() {
+  return apiRequest('/production/queue');
+}
+export async function getProductionSchedule({ from, to, date } = {}) {
+  const params = new URLSearchParams();
+  if (date) params.set('date', date);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiRequest(`/production/schedule${qs}`);
+}
+export async function getProductionActive() {
+  return apiRequest('/production/active');
+}
+export async function getProductionStats() {
+  return apiRequest('/production/stats');
+}
+export async function getProductionTeam() {
+  return apiRequest('/production/team');
+}
+export async function scheduleProductionOrder(orderId, payload) {
+  return apiRequest(`/production/${orderId}/schedule`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+export async function bulkScheduleOrders(payload) {
+  // payload: { orderIds: [...], productionDate, productionPriority? }
+  return apiRequest('/production/schedule/bulk', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+export async function advanceProductionStage(orderId, payload = {}) {
+  return apiRequest(`/production/${orderId}/advance`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+export async function addProductionNote(orderId, note) {
+  return apiRequest(`/production/${orderId}/note`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
+  });
+}
+export async function getProductionHistory(orderId) {
+  return apiRequest(`/production/${orderId}/history`);
+}
+export async function getProductionCapacity() {
+  return apiRequest('/production/capacity');
+}
+export async function updateProductionCapacity(payload) {
+  return apiRequest('/production/capacity', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getCustomerActivity() {
+  try {
+    const orders = await getMyOrders();
+    const activities = orders.map(order => ({
+      id: order.id,
+      type: 'order',
+      title: `Order ${order.id.slice(-6)}`,
+      description: `Order ${order.status} - ₱${(order.totalPrice || 0).toFixed(2)}`,
+      status: order.status,
+      date: order.createdAt,
+      orderId: order.id,
+      amount: order.totalPrice
+    })).sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+    return activities.slice(0, 10); // Return last 10 activities
+  } catch (error) {
+    console.error('Error fetching customer activity:', error);
+    throw error;
+  }
+}
+
+// ─── Delivery / urgency ──────────────────────────────────────────────────
+export async function getDeliveryTiers() {
+  return apiRequest('/orders/delivery/tiers');
+}
+export async function quoteDelivery(requestedDeliveryDate, subtotal) {
+  return apiRequest('/orders/delivery/quote', {
+    method: 'POST',
+    body: JSON.stringify({ requestedDeliveryDate, subtotal }),
+  });
+}
+export async function getDeliveryAvailability(from, to) {
+  const params = new URLSearchParams();
+  if (from) params.set('from', new Date(from).toISOString());
+  if (to) params.set('to', new Date(to).toISOString());
+  return apiRequest(`/orders/delivery/availability?${params.toString()}`);
+}
+export async function getDeliveryCalendar(from, to) {
+  const params = new URLSearchParams();
+  if (from) params.set('from', new Date(from).toISOString());
+  if (to) params.set('to', new Date(to).toISOString());
+  return apiRequest(`/orders/delivery/calendar?${params.toString()}`);
+}
+export async function getPriorityQueue() {
+  return apiRequest('/orders/queue/priority');
+}
+
+// ─── Reviews ──────────────────────────────────────────────────────────────
+export async function getProductReviews(sku) {
+  return apiRequest(`/reviews/product/${encodeURIComponent(sku)}`);
+}
+export async function getReviewEligibility(sku) {
+  return apiRequest(`/reviews/eligibility/${encodeURIComponent(sku)}`);
+}
+export async function getMyReviews() {
+  return apiRequest('/reviews/mine');
+}
+export async function submitReview({ sku, rating, title, comment }) {
+  return apiRequest('/reviews', {
+    method: 'POST',
+    body: JSON.stringify({ sku, rating, title, comment }),
+  });
+}
+export async function deleteMyReview(sku) {
+  return apiRequest(`/reviews/${encodeURIComponent(sku)}`, { method: 'DELETE' });
+}
+export async function getAdminReviews(status = 'pending') {
+  return apiRequest(`/reviews/admin?status=${status}`);
+}
+export async function moderateReview(id, decision, note) {
+  return apiRequest(`/reviews/admin/${id}/moderate`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, note }),
+  });
+}
+export async function getReviewStats() {
+  return apiRequest('/reviews/admin/stats');
+}
+
+// ─── Abandoned carts ──────────────────────────────────────────────────────
+export async function syncAbandonedCart(items, subtotal) {
+  return apiRequest('/abandoned-carts/sync', {
+    method: 'POST',
+    body: JSON.stringify({ items, subtotal }),
   });
 }

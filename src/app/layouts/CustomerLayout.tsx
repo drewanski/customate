@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { ShoppingCart, User, Search, Shield } from 'lucide-react';
+import { ShoppingCart, User, Search } from 'lucide-react';
 import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
 import { Chatbot } from '../components/Chatbot';
@@ -10,6 +10,7 @@ export function CustomerLayout() {
   const location = useLocation();
   const { totalItems } = useCart();
   const { user, loading } = useAuth();
+  const isAuthenticated = Boolean(user) && localStorage.getItem('isAuthenticated') === 'true';
   
   const navLinks = [
     { to: '/', label: 'Home' },
@@ -18,8 +19,9 @@ export function CustomerLayout() {
   ];
   
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
+    <div className="min-h-screen flex flex-col bg-[#f1f1f1]">
+      {/* Header */}
+      <header className="bg-[#f1f1f1] border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2">
@@ -46,37 +48,13 @@ export function CustomerLayout() {
             </nav>
             
             <div className="flex items-center gap-4">
-              <button className="text-gray-600 hover:text-gray-900 transition-colors">
+              {/* Search first */}
+              <button className="flex items-center gap-1 text-gray-600 hover:text-gray-900 transition-colors">
                 <Search className="w-5 h-5" />
+                <span className="text-sm font-medium">Search</span>
               </button>
-              {user ? (
-                <>
-                  <NotificationBell />
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-1 rounded-full capitalize">
-                      {user.role || 'Customer'}
-                    </span>
-                    <Link to="/profile" className="text-gray-600 hover:text-gray-900 transition-colors">
-                      <User className="w-5 h-5" />
-                    </Link>
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <Link
-                    to="/login"
-                    className="px-3 py-2 rounded-lg border border-blue-600 text-blue-600 font-medium hover:bg-blue-50 transition-colors text-sm"
-                  >
-                    Sign In
-                  </Link>
-                  <Link
-                    to="/register"
-                    className="px-3 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors text-sm"
-                  >
-                    Sign Up
-                  </Link>
-                </div>
-              )}
+
+              {/* Cart second */}
               <Link to="/cart" className="text-gray-600 hover:text-gray-900 transition-colors relative">
                 <ShoppingCart className="w-5 h-5" />
                 {totalItems > 0 && (
@@ -85,16 +63,37 @@ export function CustomerLayout() {
                   </span>
                 )}
               </Link>
+
+              {/* Account last */}
+              {!loading && isAuthenticated ? (
+                <>
+                  <NotificationBell />
+                  <Link to="/profile" className="text-gray-600 hover:text-gray-900 transition-colors" aria-label="Profile">
+                    <User className="w-5 h-5" />
+                  </Link>
+                </>
+              ) : !loading ? (
+                <Link
+                  to="/login"
+                  className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+                >
+                  Sign In
+                </Link>
+              ) : (
+                <div className="h-9 w-20 rounded-lg bg-gray-200 animate-pulse" />
+              )}
             </div>
           </div>
         </div>
       </header>
       
-      <main className="flex-1">
+      {/* Main */}
+      <main className="flex-1 bg-[#f1f1f1]">
         <Outlet />
       </main>
       
-      <footer className="bg-gray-50 border-t border-gray-200 mt-12">
+      {/* Footer */}
+      <footer className="bg-[#f1f1f1] border-t border-gray-200 mt-12">
         <div className="max-w-7xl mx-auto px-4 py-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
@@ -112,8 +111,8 @@ export function CustomerLayout() {
             <div>
               <h3 className="font-semibold text-gray-900 mb-3">Legal</h3>
               <ul className="text-sm text-gray-600 space-y-2">
-                <li><a href="#" className="hover:text-blue-600">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-blue-600">Terms of Service</a></li>
+                <li><Link to="/privacy" className="hover:text-blue-600">Privacy Policy</Link></li>
+                <li><Link to="/terms" className="hover:text-blue-600">Terms of Service</Link></li>
               </ul>
             </div>
             <div>

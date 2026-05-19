@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+.env
+.env.local
+.env.development
+.git
+.gitignore
+.DS_Store
+*.log
+test*.js
+checkDatabase.js
+checkImages.js
+checkPrices.js
+updateInventory.js

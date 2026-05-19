@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { CartItem, Product, CustomizationConfig } from '../data/types';
+import { syncAbandonedCart } from '../api';
 
 interface CartContextValue {
   items: CartItem[];
@@ -80,9 +81,57 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(storageKey, JSON.stringify(items));
   }, [items, storageKey]);
 
+  // Debounced server-side cart sync — powers abandoned-cart recovery.
+  // Only fires for logged-in customers (token present); the backend's
+  // authMiddleware rejects anon calls cleanly anyway.
+  const syncTimerRef = useRef<any>(null);
+  useEffect(() => {
+    if (!localStorage.getItem('token')) return;
+    clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      const subtotal = items.reduce(
+        (sum, it) => sum + it.quantity * it.product.price,
+        0,
+      );
+      // Strip large fields (previewImage data URLs) before sending — the
+      // server only needs the bare minimum to reconstruct the recovery email.
+      const lite = items.map((it) => ({
+        sku: it.product.sku,
+        name: it.product.name,
+        quantity: it.quantity,
+        unitPrice: it.product.price,
+        customization: {
+          size: it.customization.size,
+          color: it.customization.color,
+          placement: it.customization.placement,
+          text: it.customization.text,
+        },
+      }));
+      syncAbandonedCart(lite, subtotal).catch((err) =>
+        // Non-fatal: a failed sync just means recovery emails won't fire.
+        console.debug('Cart sync failed (non-fatal):', err?.message),
+      );
+    }, 30 * 1000); // 30s debounce
+    return () => clearTimeout(syncTimerRef.current);
+  }, [items]);
+
   const addItem = (product: Product, customization: CustomizationConfig, quantity = 1) => {
     setItems(prev => {
-      const existing = prev.find(item => item.product.id === product.id && item.customization.size === customization.size && item.customization.color === customization.color && item.customization.text === customization.text);
+      // Dedup rule: same product + same basic specs (size/color/text) AND the
+      // same customized-flag state. A customized item with a design snapshot
+      // is ALWAYS treated as unique — two custom designs that happen to share
+      // size/color/text would still merge incorrectly otherwise, and the
+      // operator would lose one of the design previews.
+      const existing = customization.isCustomized
+        ? null
+        : prev.find(
+            (item) =>
+              item.product.id === product.id &&
+              !item.customization.isCustomized &&
+              item.customization.size === customization.size &&
+              item.customization.color === customization.color &&
+              item.customization.text === customization.text,
+          );
       if (existing) {
         return prev.map(item =>
           item.id === existing.id

@@ -169,6 +169,50 @@ export async function createEWalletSource({
 }
 
 /**
+ * Retrieve an e-wallet source so we can check whether the customer has
+ * actually authorized the payment in the GCash / Maya app.
+ *
+ * Status transitions: pending → chargeable (authorized) → consumed (charged)
+ */
+export async function retrieveSource(sourceId) {
+  try {
+    const response = await paymongoApi.get(`/sources/${sourceId}`);
+    return response.data.data;
+  } catch (error) {
+    console.error('PayMongo Retrieve Source Error:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.errors?.[0]?.detail || error.message);
+  }
+}
+
+/**
+ * Convert a chargeable source into a real payment. After this returns
+ * successfully, the source is "consumed" and the payment is "paid".
+ *
+ * In live mode, the webhook would normally handle this when source.chargeable
+ * fires — but in dev (localhost can't receive webhooks) we call this directly
+ * from the verify endpoint so the order can be marked paid.
+ */
+export async function createPaymentFromSource({ sourceId, amount, description }) {
+  try {
+    const payload = {
+      data: {
+        attributes: {
+          amount,
+          currency: 'PHP',
+          description: description || 'CustoMate order',
+          source: { id: sourceId, type: 'source' },
+        },
+      },
+    };
+    const response = await paymongoApi.post('/payments', payload);
+    return response.data.data;
+  } catch (error) {
+    console.error('PayMongo Create Payment Error:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.errors?.[0]?.detail || error.message);
+  }
+}
+
+/**
  * Retrieve payment status
  * Uses raw PayMongo REST API
  */
@@ -198,29 +242,63 @@ export async function retrievePaymentIntent(intentId) {
 
 /**
  * Verify webhook signature
- * Ensures webhook events are actually from PayMongo
+ *
+ * Ensures webhook events are actually from PayMongo. PayMongo signs the RAW
+ * request body — the buffer must be passed in unparsed. JSON.stringify(buffer)
+ * produces `{"type":"Buffer","data":[…]}`, NOT the original bytes, so this
+ * function expects either a Buffer (preferred) or a UTF-8 string.
+ *
+ * Header format: `t=<timestamp>,te=<test_sig>,li=<live_sig>` (legacy: `v1=`).
+ *
+ * Uses crypto.timingSafeEqual to prevent timing-based signature guessing.
  */
 export function verifyWebhookSignature(payload, signatureHeader, webhookSecret) {
   try {
-    // PayMongo uses t=<timestamp>,v1=<signature> format
-    const elements = signatureHeader.split(',');
-    const signatureHash = elements.find(el => el.startsWith('v1='))?.replace('v1=', '');
-    const timestamp = elements.find(el => el.startsWith('t='))?.replace('t=', '');
-    
-    if (!signatureHash || !timestamp) {
+    if (!signatureHeader || !webhookSecret) return false;
+
+    // Normalize the body to a raw UTF-8 string. Express.raw() gives us a Buffer
+    // when registered for the webhook route; fall back gracefully for string.
+    const rawBody =
+      Buffer.isBuffer(payload) ? payload.toString('utf8') :
+      typeof payload === 'string' ? payload :
+      JSON.stringify(payload); // last-resort, less reliable
+
+    // PayMongo signature header: comma-separated `key=value` pairs.
+    // We accept t= + (te= live test) + (li= live) and the legacy v1= field.
+    const parts = String(signatureHeader).split(',').reduce((acc, pair) => {
+      const [k, v] = pair.split('=');
+      if (k && v) acc[k.trim()] = v.trim();
+      return acc;
+    }, {});
+
+    const timestamp = parts.t;
+    // Prefer live signature in production, test signature in dev. Fall back to
+    // legacy `v1` field for older webhook configs.
+    const expectedKey = process.env.NODE_ENV === 'production' ? 'li' : 'te';
+    const signatureHash = parts[expectedKey] || parts.v1 || parts.li || parts.te;
+
+    if (!timestamp || !signatureHash) return false;
+
+    // Reject events older than 5 minutes to block replay attacks.
+    const eventAge = Math.floor(Date.now() / 1000) - Number(timestamp);
+    if (!Number.isFinite(eventAge) || eventAge > 5 * 60 || eventAge < -60) {
+      console.warn('PayMongo webhook rejected: stale timestamp', { eventAge });
       return false;
     }
 
-    // Create expected signature
-    const signedPayload = `${timestamp}.${JSON.stringify(payload)}`;
-    const expectedSignature = crypto
+    const signedPayload = `${timestamp}.${rawBody}`;
+    const expected = crypto
       .createHmac('sha256', webhookSecret)
-      .update(signedPayload)
+      .update(signedPayload, 'utf8')
       .digest('hex');
 
-    return signatureHash === expectedSignature;
+    // Constant-time compare. Both buffers must be equal length or this throws.
+    const a = Buffer.from(expected, 'hex');
+    const b = Buffer.from(signatureHash, 'hex');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
   } catch (error) {
-    console.error('Webhook verification error:', error);
+    console.error('Webhook verification error:', error.message);
     return false;
   }
 }
