@@ -7,6 +7,7 @@ import axios from 'axios';
 import User from '../models/User.js';
 import EmailOtp from '../models/EmailOtp.js';
 import PhoneOtp from '../models/PhoneOtp.js';
+import { sendMail } from '../services/mailer.js';
 
 const router = express.Router();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -282,68 +283,31 @@ router.post('/otp/send', async (req, res) => {
 
     let mailSent = false;
     let mailError = null;
-    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-      try {
-        // Explicit timeouts so a flaky Gmail handshake fails in seconds
-        // instead of hanging the whole request behind nodemailer's generous
-        // ~2 min defaults (which is what makes the UI stick on "Sending...").
-        //
-        // Render free tier blocks outbound port 465 (Gmail's implicit-TLS
-        // port) on most plans. Switch to 587 + STARTTLS which they DO allow.
-        // If SMTP_HOST/PORT are explicitly set we honour those (lets us
-        // swap to Brevo / Mailgun / Resend SMTP later without code changes).
-        const otpTransport = nodemailer.createTransport({
-          host: process.env.SMTP_HOST || 'smtp.gmail.com',
-          port: Number(process.env.SMTP_PORT) || 587,
-          secure: false,            // false = STARTTLS upgrade after connect
-          requireTLS: true,
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-          connectionTimeout: 8000,  // 8 s to open TCP socket
-          greetingTimeout: 8000,    // 8 s for SMTP greeting
-          socketTimeout: 12000,     // 12 s for the whole conversation
-          tls: {
-            // Render's egress sometimes presents weird cert chains; this
-            // lets the handshake finish without weakening verification of
-            // gmail.com itself (Gmail's cert is still verified by name).
-            servername: process.env.SMTP_HOST || 'smtp.gmail.com',
-          },
-        });
-
-        // Race the sendMail against a hard timeout so even if the underlying
-        // socket misbehaves we still resolve in <15 s. Gmail's worst-case
-        // delivery is single-digit seconds, so anything beyond this is a
-        // network issue worth surfacing rather than waiting on.
-        const sendPromise = otpTransport.sendMail({
-          from: process.env.SMTP_FROM || process.env.SMTP_USER,
-          to: email,
-          subject: 'Your CustoMate verification code',
-          text: `Your verification code is ${code}. It expires in ${OTP_EXPIRY_MINUTES} minutes.`,
-          html: `
-            <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-              <h2 style="color: #1e293b; margin: 0 0 8px;">Verify your email</h2>
-              <p style="color: #475569; margin: 0 0 16px;">Use this code to finish signing up for CustoMate:</p>
-              <div style="font-family: monospace; font-size: 32px; letter-spacing: 8px; font-weight: 800; color: #2563eb; background: #f1f5f9; padding: 16px; border-radius: 12px; text-align: center; margin: 16px 0;">
-                ${code}
-              </div>
-              <p style="color: #94a3b8; font-size: 13px;">Expires in ${OTP_EXPIRY_MINUTES} minutes. If you didn't request this, ignore the email.</p>
+    let mailProvider = null;
+    try {
+      // Unified mailer picks the best available transport (Brevo HTTPS first
+      // on Render free tier, Resend HTTPS, then SMTP fallback for local dev).
+      const result = await sendMail({
+        to: email,
+        subject: 'Your CustoMate verification code',
+        text: `Your verification code is ${code}. It expires in ${OTP_EXPIRY_MINUTES} minutes.`,
+        html: `
+          <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+            <h2 style="color: #1e293b; margin: 0 0 8px;">Verify your email</h2>
+            <p style="color: #475569; margin: 0 0 16px;">Use this code to finish signing up for CustoMate:</p>
+            <div style="font-family: monospace; font-size: 32px; letter-spacing: 8px; font-weight: 800; color: #2563eb; background: #f1f5f9; padding: 16px; border-radius: 12px; text-align: center; margin: 16px 0;">
+              ${code}
             </div>
-          `,
-        });
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('SMTP send timed out after 15s')), 15000),
-        );
-        await Promise.race([sendPromise, timeoutPromise]);
-        mailSent = true;
-      } catch (err) {
-        mailError = err;
-        console.error('OTP mail send failed:', err.message);
-      }
-    } else {
-      mailError = new Error('SMTP credentials missing on server');
-      console.error('OTP send aborted: SMTP_USER or SMTP_PASS not set');
+            <p style="color: #94a3b8; font-size: 13px;">Expires in ${OTP_EXPIRY_MINUTES} minutes. If you didn't request this, ignore the email.</p>
+          </div>
+        `,
+      });
+      mailSent = true;
+      mailProvider = result.provider;
+      console.log(`OTP sent via ${result.provider} to ${email}`);
+    } catch (err) {
+      mailError = err;
+      console.error('OTP mail send failed:', err.message);
     }
 
     // In production, a failed mail is a hard error — the user needs to know.
