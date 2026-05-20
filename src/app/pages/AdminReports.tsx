@@ -16,6 +16,7 @@ import {
   Boxes,
   ArrowUpRight,
   ArrowDownRight,
+  FileText,
 } from 'lucide-react';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
@@ -158,6 +159,25 @@ export function AdminReports() {
     }
   };
 
+  /**
+   * PDF export — uses the browser's native print dialog (Ctrl+P) with a
+   * heavily-customized `@media print` stylesheet so admins get a clean,
+   * paginated document with just the data — no sidebar, no buttons, no
+   * gradient hero. Save-as-PDF is one click from the print dialog.
+   *
+   * Why not jsPDF/html2canvas: that would add ~250KB to the bundle for a
+   * feature most users will hit a few times per month. Browser print is
+   * free, supports the chart SVGs natively, and produces a higher-quality
+   * vector PDF than a rasterized html2canvas screenshot would.
+   */
+  const handleExportPDF = () => {
+    // Give the user a moment to switch to the tab they want (Overview /
+    // Orders / Inventory / Operations) — whatever's visible is what gets
+    // printed. We set a brief delay so the active-tab content fully renders
+    // before the print dialog opens.
+    setTimeout(() => window.print(), 50);
+  };
+
   const weeklyDelta = operationalAnalytics?.weeklyComparison?.changePercent || 0;
 
   return (
@@ -184,12 +204,20 @@ export function AdminReports() {
               Live business intelligence — every number computed from real orders, inventory, and production data.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 no-print">
             <button
               onClick={handleExport}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
+              title="Download raw orders data as CSV (for Excel / Google Sheets)"
             >
               <Download className="w-4 h-4" /> Export CSV
+            </button>
+            <button
+              onClick={handleExportPDF}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
+              title="Save the current report tab as a PDF (Save as PDF in the print dialog)"
+            >
+              <FileText className="w-4 h-4" /> Export PDF
             </button>
             <button
               onClick={fetchData}
@@ -481,6 +509,54 @@ export function AdminReports() {
           </>
         )}
       </div>
+
+      {/* ─── Print-only stylesheet ───────────────────────────────────────
+          When the admin clicks "Export PDF" → window.print() opens. This
+          stylesheet ensures the printed output is clean and paginated:
+            · Sidebar / nav chrome (.no-print) is hidden
+            · Hero gradient becomes a thin header strip (saves toner + ink)
+            · Charts/tables get appropriate page breaks
+            · Backgrounds are removed (most printers can't render them anyway)
+          User just picks "Save as PDF" in the destination dropdown. */}
+      <style>{`
+        @media print {
+          @page { size: A4; margin: 12mm; }
+
+          /* Reset the dark sidebar + any sticky chrome from AdminLayout. */
+          body, html { background: white !important; }
+
+          /* Anything tagged .no-print disappears in the printed copy. */
+          .no-print { display: none !important; }
+
+          /* Strip the colorful hero gradient — wastes ink and looks muddy
+             on most printers. Keep the title text. */
+          .bg-gradient-to-br,
+          .bg-gradient-to-r,
+          .bg-gradient-to-b {
+            background: white !important;
+            color: #0f172a !important;
+          }
+
+          /* Hide the AdminLayout sidebar entirely. */
+          aside { display: none !important; }
+
+          /* Reset main content margin since the sidebar is gone. */
+          main { margin-left: 0 !important; padding-top: 0 !important; }
+
+          /* Page breaks: each chart card stays together when possible. */
+          .recharts-wrapper { break-inside: avoid; }
+          h1, h2, h3, h4 { break-after: avoid; }
+
+          /* Cards lose the heavy shadow on paper. */
+          .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl {
+            box-shadow: none !important;
+          }
+
+          /* Ensure SVG chart text is dark enough for print. */
+          .recharts-text { fill: #1f2937 !important; }
+          .recharts-cartesian-axis-tick-value { fill: #4b5563 !important; }
+        }
+      `}</style>
     </div>
   );
 }

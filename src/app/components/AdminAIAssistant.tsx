@@ -6,7 +6,7 @@ import {
   Megaphone, DollarSign, BrainCircuit, Wand2, Tag, ShoppingCart,
   Users, FileText, ThumbsUp, ThumbsDown, Meh, Zap, LayoutDashboard,
   Box, TrendingUpIcon, CreditCard, Settings, RefreshCw, CheckCircle,
-  XCircle, Clock, AlertTriangle
+  XCircle, Clock, AlertTriangle, Clipboard, Trash2
 } from 'lucide-react';
 import { Button } from './Button';
 import { 
@@ -40,14 +40,38 @@ interface QuickStats {
   weekRevenue: number;
 }
 
+// Local-only metadata we attach to each chat message — timestamp so admins
+// know when each turn happened, and a unique key for the copy button.
+type ChatMessageWithMeta = ChatMessage & { ts?: number };
+
+// Persist key — bump suffix if we ever break the shape so old history doesn't
+// crash the component on load.
+const CHAT_STORAGE_KEY = 'customate_admin_ai_chat_v1';
+
 export function AdminAIAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeMode, setActiveMode] = useState<AIMode>('quickstats');
-  
-  // Chat state
+
+  // Chat state — initial value is loaded from localStorage so the
+  // conversation survives page refreshes. Admins often bounce between tabs
+  // and don't want to lose context.
   const [message, setMessage] = useState('');
-  const [history, setHistory] = useState<ChatMessage[]>([]);
+  const [history, setHistory] = useState<ChatMessageWithMeta[]>(() => {
+    try {
+      const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      // Cap restored history at 50 messages so the chat doesn't grow forever.
+      return parsed.slice(-50);
+    } catch {
+      return [];
+    }
+  });
+  // Local UX helpers — which message was just copied (for the brief
+  // checkmark feedback), and whether the user has chosen to wipe history.
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [insights, setInsights] = useState<string[] | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
@@ -80,6 +104,43 @@ export function AdminAIAssistant() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history, activeMode]);
+
+  // Persist chat to localStorage on every change. Cap stored history at 50
+  // messages so it doesn't bloat localStorage indefinitely. Wrapped in a
+  // try/catch because some browsers (private mode, quota exceeded) throw.
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(history.slice(-50)));
+    } catch {
+      /* non-fatal — chat just won't persist this session */
+    }
+  }, [history]);
+
+  // Copy a message's text to the clipboard. Shows a brief checkmark on the
+  // copied row so the admin gets visual confirmation. We re-clear the
+  // checkmark after 1.5 seconds.
+  const handleCopyMessage = async (idx: number, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIdx(idx);
+      setTimeout(() => setCopiedIdx((current) => (current === idx ? null : current)), 1500);
+    } catch (err) {
+      console.warn('Clipboard copy failed', err);
+    }
+  };
+
+  // Clear the entire conversation. The admin must confirm — chat history
+  // is often a useful record of decisions made during the day.
+  const handleClearChat = () => {
+    if (history.length === 0) return;
+    if (!confirm('Clear the entire chat history? This cannot be undone.')) return;
+    setHistory([]);
+    try {
+      localStorage.removeItem(CHAT_STORAGE_KEY);
+    } catch {
+      /* non-fatal */
+    }
+  };
 
   // Load insights only when explicitly requested (not on auto-open)
   useEffect(() => {
@@ -156,21 +217,25 @@ export function AdminAIAssistant() {
     if (!message.trim() || loading) return;
     const userMessage = message.trim();
     setMessage('');
-    setHistory(prev => [...prev, { role: 'user', content: userMessage }]);
+    // Attach a local timestamp so we can show "2 min ago" on each turn.
+    setHistory(prev => [...prev, { role: 'user', content: userMessage, ts: Date.now() }]);
     setLoading(true);
 
     try {
-      const response = await chatWithAdminAI(userMessage, history);
+      // Strip the local `ts` field before sending — backend expects {role,content}.
+      const cleanHistory = history.map(({ role, content }) => ({ role, content }));
+      const response = await chatWithAdminAI(userMessage, cleanHistory);
       // Check if AI is in fallback mode
       if (response.fallback) {
         setAiAvailable(false);
       }
-      setHistory(prev => [...prev, { role: 'model', content: response.response }]);
+      setHistory(prev => [...prev, { role: 'model', content: response.response, ts: Date.now() }]);
     } catch (err: any) {
       addToast('AI assistant error: ' + err.message, 'error');
-      setHistory(prev => [...prev, { 
-        role: 'model', 
-        content: 'Sorry, I encountered an error. Please try again.' 
+      setHistory(prev => [...prev, {
+        role: 'model',
+        content: 'Sorry, I encountered an error. Please try again.',
+        ts: Date.now(),
       }]);
     } finally {
       setLoading(false);
@@ -591,22 +656,77 @@ export function AdminAIAssistant() {
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/50">
               {history.length === 0 && (
-                <div className="text-center py-8">
+                <div className="text-center py-6">
                   <BrainCircuit className="w-12 h-12 text-blue-200 mx-auto mb-3" />
-                  <p className="text-sm text-gray-600">Ask me anything about your business</p>
-                </div>
-              )}
-              {history.map((msg, idx) => (
-                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
-                    msg.role === 'user'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white border border-gray-200 text-gray-800 shadow-sm'
-                  }`}>
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                  <p className="text-sm font-semibold text-gray-700 mb-3">Ask me anything about your business</p>
+                  {/* Example prompts — click any to drop it into the input.
+                      Helps admins discover what the AI can do without
+                      having to guess. Each is a real, useful question. */}
+                  <div className="text-left max-w-xs mx-auto space-y-1.5">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Try asking</p>
+                    {[
+                      'What were my top 3 products this week?',
+                      'Which SKUs are running low on stock?',
+                      'Summarize today\'s order activity',
+                      'Which urgency tier earns the most revenue?',
+                      'What\'s the average order value this month?',
+                    ].map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => setMessage(q)}
+                        className="block w-full text-left px-2.5 py-1.5 rounded-md text-xs text-gray-700 bg-white border border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                      >
+                        {q}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
+              {history.map((msg, idx) => {
+                const isUser = msg.role === 'user';
+                const ts = msg.ts ? new Date(msg.ts) : null;
+                return (
+                  <div key={idx} className={`flex ${isUser ? 'justify-end' : 'justify-start'} group`}>
+                    <div className="max-w-[85%]">
+                      <div className={`rounded-xl px-3 py-2 text-sm ${
+                        isUser
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white border border-gray-200 text-gray-800 shadow-sm'
+                      }`}>
+                        <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                      </div>
+                      {/* Footer row — timestamp + copy button. Copy only on
+                          AI replies (no value copying your own questions). */}
+                      <div className={`flex items-center gap-2 mt-1 px-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
+                        {ts && (
+                          <span className="text-[10px] text-gray-400">
+                            {ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                        {!isUser && (
+                          <button
+                            onClick={() => handleCopyMessage(idx, msg.content)}
+                            className="text-[10px] text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"
+                            title="Copy response to clipboard"
+                          >
+                            {copiedIdx === idx ? (
+                              <>
+                                <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                                <span className="text-emerald-600">Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Clipboard className="w-3 h-3" />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
               {loading && (
                 <div className="flex justify-start">
                   <div className="bg-white border border-gray-200 rounded-xl px-3 py-2">
@@ -619,20 +739,47 @@ export function AdminAIAssistant() {
 
             {/* Input */}
             <div className="p-3 border-t border-gray-200 bg-white">
-              <div className="flex gap-2">
-                <input
-                  type="text"
+              <div className="flex gap-2 items-start">
+                {/* Multi-line textarea — many AI prompts benefit from
+                    multiple lines (paste an order ID block, describe a
+                    situation in detail). Auto-grows up to 4 rows. */}
+                <textarea
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ask about orders, inventory, or analytics..."
-                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20"
+                  onKeyDown={(e) => {
+                    // Enter sends, Shift+Enter creates a new line — standard
+                    // chat-UX convention.
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="Ask about orders, inventory, or analytics… (Shift+Enter for new line)"
+                  rows={1}
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 resize-none max-h-32"
                   disabled={loading}
                 />
                 <Button size="sm" onClick={handleSend} disabled={!message.trim() || loading}>
                   {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </Button>
               </div>
+              {/* Helper row — char count + clear-chat button. Clear button
+                  only appears once there's actually something to clear. */}
+              {history.length > 0 && (
+                <div className="flex items-center justify-between mt-2 px-1">
+                  <span className="text-[10px] text-gray-400">
+                    {history.length} message{history.length === 1 ? '' : 's'} in conversation
+                  </span>
+                  <button
+                    onClick={handleClearChat}
+                    className="text-[10px] text-gray-400 hover:text-rose-600 transition-colors flex items-center gap-1 font-semibold"
+                    title="Clear all chat history"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Clear
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
