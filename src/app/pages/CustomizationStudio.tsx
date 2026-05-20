@@ -63,6 +63,7 @@ export function CustomizationStudio() {
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: ToastType }>>([]);
   const [activeSidebarTab, setActiveSidebarTab] = useState<'text' | 'image' | 'ai' | 'options'>('text');
   const [refineModalOpen, setRefineModalOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // AI design critique modal — gives 3 tips on the current design
   const [critiqueOpen, setCritiqueOpen] = useState(false);
   // ─── AI Lifestyle Mockup ──────────────────────────────────────────────
@@ -228,6 +229,45 @@ export function CustomizationStudio() {
           setDesignElements((prev) => prev.filter((el) => el.id !== activeDesignElement));
           setActiveDesignElement(null);
         }
+      } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && activeDesignElement) {
+        // Nudge the active layer's position. 1% normally, 5% with Shift.
+        e.preventDefault();
+        const step = e.shiftKey ? 5 : 1;
+        setDesignElements((prev) =>
+          prev.map((el) => {
+            if (el.id !== activeDesignElement) return el;
+            const cur = el.position || { x: 50, y: 50 };
+            let nx = cur.x;
+            let ny = cur.y;
+            if (e.key === 'ArrowUp') ny = Math.max(0, cur.y - step);
+            if (e.key === 'ArrowDown') ny = Math.min(100, cur.y + step);
+            if (e.key === 'ArrowLeft') nx = Math.max(0, cur.x - step);
+            if (e.key === 'ArrowRight') nx = Math.min(100, cur.x + step);
+            return { ...el, position: { ...cur, x: nx, y: ny } };
+          })
+        );
+      } else if ((e.key === '+' || e.key === '=' || e.key === '-' || e.key === '_') && activeDesignElement) {
+        // Scale the active layer with +/-.
+        e.preventDefault();
+        const inc = (e.key === '+' || e.key === '=') ? 0.1 : -0.1;
+        setDesignElements((prev) =>
+          prev.map((el) => {
+            if (el.id !== activeDesignElement) return el;
+            const cur = el.scale ?? 1;
+            return { ...el, scale: Math.max(0.3, Math.min(3, Number((cur + inc).toFixed(2)))) };
+          })
+        );
+      } else if (e.key.toLowerCase() === 'r' && !meta && activeDesignElement) {
+        // Rotate the active layer. R = +15deg, Shift+R = -15deg.
+        e.preventDefault();
+        const delta = e.shiftKey ? -15 : 15;
+        setDesignElements((prev) =>
+          prev.map((el) => {
+            if (el.id !== activeDesignElement) return el;
+            const cur = el.rotation ?? 0;
+            return { ...el, rotation: ((cur + delta) % 360 + 360) % 360 };
+          })
+        );
       }
     };
     window.addEventListener('keydown', onKey);
@@ -272,7 +312,17 @@ export function CustomizationStudio() {
     imageRotation: 0,
     textSurface: undefined as any,
     imageSurface: undefined as any,
+    // ─ Polish-pass additions ─────────────────────────────────────────────
+    imageFlipX: false,           // mirror horizontally
+    imageFlipY: false,           // mirror vertically
+    imageOpacity: 1,             // 0..1 — opacity of the decal
+    textStroke: 0,               // 0..6 — px stroke width
+    textStrokeColor: '#ffffff',  // outline color (high-contrast against fill)
+    textShadow: 0,               // 0..10 — shadow blur radius
+    textShadowColor: '#000000',  // shadow color
+    textLetterSpacing: 0,        // -5..20 px letter spacing
   });
+
 
   // ─── Print-quality plumbing ────────────────────────────────────────────
   // Probe the uploaded image's natural dimensions whenever it changes. We
@@ -291,6 +341,50 @@ export function CustomizationStudio() {
       cancelled = true;
     };
   }, [customization.image]);
+
+  // ─── Snapshot ────────────────────────────────────────────────────────
+  // Grab a high-res PNG of the 3D scene. Relies on the canvas being
+  // mounted with preserveDrawingBuffer:true (see ProductCustomizer3D).
+  const handleSnapshot = useCallback(() => {
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) {
+      addToast('3D canvas not ready yet', 'error');
+      return;
+    }
+    try {
+      const dataUrl = canvas.toDataURL('image/png', 1.0);
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `customate-design-${Date.now()}.png`;
+      a.click();
+      addToast('Snapshot saved!', 'success');
+    } catch (err: any) {
+      addToast('Snapshot failed — try again', 'error');
+    }
+  }, []);
+
+  const handleShareSnapshot = useCallback(async () => {
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    try {
+      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png', 1.0));
+      if (!blob) throw new Error('No blob');
+      if (navigator.share && (navigator.canShare?.({ files: [new File([blob], 'design.png', { type: 'image/png' })] }))) {
+        await navigator.share({
+          title: 'My CustoMate Design',
+          text: 'Check out my custom design on CustoMate!',
+          files: [new File([blob], 'design.png', { type: 'image/png' })],
+        });
+        addToast('Shared!', 'success');
+      } else {
+        // Fallback: copy image to clipboard
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        addToast('Image copied to clipboard!', 'success');
+      }
+    } catch (err) {
+      addToast('Share unavailable — try downloading instead', 'info');
+    }
+  }, []);
 
   // Re-run the full analysis whenever anything that affects print output
   // changes. Result list is sorted error → warning → info.
@@ -361,6 +455,12 @@ export function CustomizationStudio() {
           font: customization.font || 'Arial',
           opacity: 1,
           aspectRatio: 4,
+          // Text effects — pass straight through to the canvas renderer
+          stroke: customization.textStroke || 0,
+          strokeColor: customization.textStrokeColor || '#ffffff',
+          shadow: customization.textShadow || 0,
+          shadowColor: customization.textShadowColor || '#000000',
+          letterSpacing: customization.textLetterSpacing || 0,
         });
       }
 
@@ -378,8 +478,10 @@ export function CustomizationStudio() {
           scale: customization.imageScale || 1,
           rotation: customization.imageRotation || 0,
           color: '#000000',
-          opacity: 1,
+          opacity: customization.imageOpacity ?? 1,
           aspectRatio: 1,
+          flipX: !!customization.imageFlipX,
+          flipY: !!customization.imageFlipY,
         });
       }
 
@@ -397,6 +499,14 @@ export function CustomizationStudio() {
     customization.placement,
     customization.textSurface,
     customization.imageSurface,
+    customization.textStroke,
+    customization.textStrokeColor,
+    customization.textShadow,
+    customization.textShadowColor,
+    customization.textLetterSpacing,
+    customization.imageOpacity,
+    customization.imageFlipX,
+    customization.imageFlipY,
   ]);
 
   // Auto-select the first element so the click-to-place hint appears
@@ -937,15 +1047,122 @@ export function CustomizationStudio() {
                     max="2"
                     step="0.1"
                     value={customization.textScale}
-                    onChange={(e) => setCustomization({ 
-                      ...customization, 
-                      textScale: Number(e.target.value) 
+                    onChange={(e) => setCustomization({
+                      ...customization,
+                      textScale: Number(e.target.value)
                     })}
                     onMouseDown={() => setActiveDesignElement('text_1')}
                     className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-green-600"
                   />
                 </div>
               </div>
+
+              {/* ─── Text effects: stroke, shadow, letter-spacing ─────── */}
+              {customization.text && (
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-4">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-fuchsia-600" />
+                    <h3 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Text Effects</h3>
+                  </div>
+
+                  {/* Stroke (outline) */}
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] text-slate-500 font-semibold tracking-wide">OUTLINE WIDTH</span>
+                      <span className="text-[10px] text-fuchsia-600 font-bold">{customization.textStroke ?? 0}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="6"
+                      step="0.5"
+                      value={customization.textStroke ?? 0}
+                      onChange={(e) => setCustomization({ ...customization, textStroke: Number(e.target.value) })}
+                      onMouseDown={() => setActiveDesignElement('text_1')}
+                      className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-fuchsia-600"
+                    />
+                  </div>
+
+                  {/* Stroke color */}
+                  {(customization.textStroke ?? 0) > 0 && (
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-semibold tracking-wide block mb-1">OUTLINE COLOR</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={customization.textStrokeColor || '#ffffff'}
+                          onChange={(e) => setCustomization({ ...customization, textStrokeColor: e.target.value })}
+                          className="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer"
+                        />
+                        <input
+                          type="text"
+                          value={customization.textStrokeColor || '#ffffff'}
+                          onChange={(e) => setCustomization({ ...customization, textStrokeColor: e.target.value })}
+                          className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono font-bold uppercase"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Drop shadow */}
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] text-slate-500 font-semibold tracking-wide">SHADOW BLUR</span>
+                      <span className="text-[10px] text-fuchsia-600 font-bold">{customization.textShadow ?? 0}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="10"
+                      step="0.5"
+                      value={customization.textShadow ?? 0}
+                      onChange={(e) => setCustomization({ ...customization, textShadow: Number(e.target.value) })}
+                      onMouseDown={() => setActiveDesignElement('text_1')}
+                      className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-fuchsia-600"
+                    />
+                  </div>
+
+                  {/* Letter spacing */}
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] text-slate-500 font-semibold tracking-wide">LETTER SPACING</span>
+                      <span className="text-[10px] text-fuchsia-600 font-bold">{customization.textLetterSpacing ?? 0}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="-5"
+                      max="20"
+                      step="0.5"
+                      value={customization.textLetterSpacing ?? 0}
+                      onChange={(e) => setCustomization({ ...customization, textLetterSpacing: Number(e.target.value) })}
+                      onMouseDown={() => setActiveDesignElement('text_1')}
+                      className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-fuchsia-600"
+                    />
+                  </div>
+
+                  {/* Preset chips for quick application */}
+                  <div className="grid grid-cols-3 gap-1.5 pt-1">
+                    <button
+                      onClick={() => setCustomization({ ...customization, textStroke: 2, textStrokeColor: '#ffffff', textShadow: 4, textShadowColor: '#000000' })}
+                      className="px-2 py-1.5 rounded-md text-[10px] font-bold text-slate-700 bg-white border border-slate-200 hover:border-fuchsia-300 transition"
+                    >
+                      Stadium
+                    </button>
+                    <button
+                      onClick={() => setCustomization({ ...customization, textStroke: 0, textStrokeColor: '#ffffff', textShadow: 8, textShadowColor: '#000000' })}
+                      className="px-2 py-1.5 rounded-md text-[10px] font-bold text-slate-700 bg-white border border-slate-200 hover:border-fuchsia-300 transition"
+                    >
+                      Soft
+                    </button>
+                    <button
+                      onClick={() => setCustomization({ ...customization, textStroke: 0, textStrokeColor: '#ffffff', textShadow: 0, textShadowColor: '#000000', textLetterSpacing: 0 })}
+                      className="px-2 py-1.5 rounded-md text-[10px] font-bold text-slate-700 bg-white border border-slate-200 hover:border-fuchsia-300 transition"
+                    >
+                      Clean
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1105,6 +1322,53 @@ export function CustomizationStudio() {
                       onMouseDown={() => setActiveDesignElement('image_1')}
                       className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-blue-600"
                     />
+                  </div>
+
+                  {/* Opacity */}
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <span className="text-[10px] text-slate-500 font-semibold tracking-wide">OPACITY</span>
+                      <span className="text-[10px] text-blue-600 font-bold">{Math.round((customization.imageOpacity ?? 1) * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="1"
+                      step="0.05"
+                      value={customization.imageOpacity ?? 1}
+                      onChange={(e) => setCustomization({ ...customization, imageOpacity: Number(e.target.value) })}
+                      onMouseDown={() => setActiveDesignElement('image_1')}
+                      className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-blue-600"
+                    />
+                  </div>
+
+                  {/* Mirror / Flip controls */}
+                  <div>
+                    <div className="text-[10px] text-slate-500 font-semibold tracking-wide mb-1.5">MIRROR</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setCustomization({ ...customization, imageFlipX: !customization.imageFlipX })}
+                        className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition ${
+                          customization.imageFlipX
+                            ? 'bg-blue-50 border-blue-300 text-blue-700'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-blue-300'
+                        }`}
+                      >
+                        <span style={{ display: 'inline-block', transform: 'scaleX(-1)' }}>↔</span>
+                        Flip H
+                      </button>
+                      <button
+                        onClick={() => setCustomization({ ...customization, imageFlipY: !customization.imageFlipY })}
+                        className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition ${
+                          customization.imageFlipY
+                            ? 'bg-blue-50 border-blue-300 text-blue-700'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-blue-300'
+                        }`}
+                      >
+                        <span style={{ display: 'inline-block', transform: 'rotate(90deg)' }}>↔</span>
+                        Flip V
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1366,10 +1630,37 @@ export function CustomizationStudio() {
                 Lifestyle Preview
               </button>
             )}
+
+            {/* Snapshot — download a clean PNG of the current 3D scene. */}
+            <button
+              onClick={handleSnapshot}
+              className="flex items-center gap-1.5 px-3 py-2.5 mx-1 rounded-xl text-xs font-bold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 hover:border-blue-300 shadow-sm transition"
+              title="Download a high-resolution PNG of your design"
+            >
+              <Save className="w-3.5 h-3.5 text-blue-600" />
+              Snapshot
+            </button>
+
+            {/* Share — open native share or copy image to clipboard. */}
+            <button
+              onClick={handleShareSnapshot}
+              className="flex items-center gap-1.5 px-3 py-2.5 mx-1 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-95 shadow-sm shadow-blue-500/20 transition"
+              title="Share your design"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Share
+            </button>
           </div>
 
-          {/* Reset canvas — single clean control bottom-right */}
-          <div className="absolute bottom-6 right-6 z-20">
+          {/* Reset + Shortcuts — bottom-right floating controls */}
+          <div className="absolute bottom-6 right-6 z-20 flex items-center gap-2">
+            <button
+              onClick={() => setShortcutsOpen(true)}
+              className="w-9 h-9 rounded-full bg-white hover:bg-slate-50 border border-slate-200 shadow-md text-slate-700 transition-all hover:scale-105 text-base font-black"
+              title="Keyboard shortcuts (?)"
+            >
+              ?
+            </button>
             <button
               onClick={() => {
                 setCustomization({
@@ -1393,6 +1684,59 @@ export function CustomizationStudio() {
               Reset
             </button>
           </div>
+
+          {/* Keyboard shortcuts popover */}
+          {shortcutsOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"
+              onClick={() => setShortcutsOpen(false)}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden"
+              >
+                <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-gradient-to-br from-slate-50 to-blue-50/30">
+                  <h3 className="font-black text-slate-900 tracking-tight">Keyboard Shortcuts</h3>
+                  <button
+                    onClick={() => setShortcutsOpen(false)}
+                    className="text-slate-400 hover:text-slate-700 text-xl leading-none"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="p-5 space-y-3 text-sm">
+                  {[
+                    { keys: ['Ctrl', 'Z'], action: 'Undo last change' },
+                    { keys: ['Ctrl', 'Y'], action: 'Redo' },
+                    { keys: ['↑ ↓ ← →'], action: 'Nudge active element (1%)' },
+                    { keys: ['Shift', '↑ ↓ ← →'], action: 'Nudge faster (5%)' },
+                    { keys: ['+ / -'], action: 'Scale active element' },
+                    { keys: ['R'], action: 'Rotate +15°' },
+                    { keys: ['Shift', 'R'], action: 'Rotate -15°' },
+                    { keys: ['F'], action: 'Toggle fullscreen' },
+                    { keys: ['Delete'], action: 'Remove active layer' },
+                  ].map((s, i) => (
+                    <div key={i} className="flex items-center justify-between gap-3 py-1.5 border-b border-slate-50 last:border-0">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {s.keys.map((k, j) => (
+                          <kbd
+                            key={j}
+                            className="px-2 py-0.5 text-[10px] font-bold font-mono text-slate-700 bg-slate-100 border border-slate-200 rounded-md shadow-sm"
+                          >
+                            {k}
+                          </kbd>
+                        ))}
+                      </div>
+                      <span className="text-xs text-slate-600 font-semibold text-right">{s.action}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-500 leading-snug">
+                  Shortcuts are ignored while typing in a text input or textarea.
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Product Canvas - 3D Preview Panel */}
           <div 

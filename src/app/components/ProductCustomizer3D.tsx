@@ -366,8 +366,13 @@ function textToTexture(opts: {
   text: string;
   font: string;
   color: string;
+  stroke?: number;
+  strokeColor?: string;
+  shadow?: number;
+  shadowColor?: string;
+  letterSpacing?: number;
 }): THREE.CanvasTexture {
-  const { text, font, color } = opts;
+  const { text, font, color, stroke = 0, strokeColor = '#ffffff', shadow = 0, shadowColor = '#000000', letterSpacing = 0 } = opts;
   // High-resolution canvas — the decal is projected onto a curved surface and
   // viewed at varying angles, so we need a lot of source pixels to stay sharp.
   const canvas = document.createElement('canvas');
@@ -375,17 +380,48 @@ function textToTexture(opts: {
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = color;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
   let fontSize = canvas.height * 0.78;
   ctx.font = `bold ${fontSize}px ${font}`;
+  // CSS letter-spacing — supported in modern Canvas 2D. Each px in UI scales
+  // up to ~14px on the 2048-wide canvas so design intent carries over.
+  (ctx as any).letterSpacing = `${letterSpacing * 14}px`;
   while (ctx.measureText(text).width > canvas.width * 0.92 && fontSize > 24) {
     fontSize -= 8;
     ctx.font = `bold ${fontSize}px ${font}`;
   }
-  ctx.fillText(text || ' ', canvas.width / 2, canvas.height / 2);
+
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+
+  // Drop shadow — set BEFORE drawing so the stroke + fill both inherit the blur
+  if (shadow > 0) {
+    ctx.shadowColor = shadowColor;
+    ctx.shadowBlur = shadow * 14;
+    ctx.shadowOffsetX = shadow * 3;
+    ctx.shadowOffsetY = shadow * 3;
+  }
+
+  // Stroke (outline) drawn underneath the fill
+  if (stroke > 0) {
+    ctx.lineWidth = stroke * 14;
+    ctx.strokeStyle = strokeColor;
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+    ctx.strokeText(text || ' ', cx, cy);
+  }
+
+  // Reset shadow on the fill pass so the fill itself is crisp (only the
+  // outline + edges of the fill carry the shadow, which looks cleaner).
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+
+  ctx.fillStyle = color;
+  ctx.fillText(text || ' ', cx, cy);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -409,6 +445,11 @@ function useDecalTexture(el: DesignElement): THREE.Texture | null {
         text: el.content,
         font: el.font || 'Arial',
         color: el.color || '#000000',
+        stroke: (el as any).stroke,
+        strokeColor: (el as any).strokeColor,
+        shadow: (el as any).shadow,
+        shadowColor: (el as any).shadowColor,
+        letterSpacing: (el as any).letterSpacing,
       });
       created = t;
       setTexture(t);
@@ -431,6 +472,10 @@ function useDecalTexture(el: DesignElement): THREE.Texture | null {
           t.minFilter = THREE.LinearFilter;
           t.magFilter = THREE.LinearFilter;
           t.generateMipmaps = false;
+          // Mirror by negating repeat + shifting offset so the texture flips
+          // about its center, not its origin (which would put it off-decal).
+          if ((el as any).flipX) { t.repeat.x = -1; t.offset.x = 1; }
+          if ((el as any).flipY) { t.repeat.y = -1; t.offset.y = 1; }
           t.needsUpdate = true;
           created = t;
           setTexture(t);
@@ -446,7 +491,7 @@ function useDecalTexture(el: DesignElement): THREE.Texture | null {
       cancelled = true;
       if (created) created.dispose();
     };
-  }, [el.type, el.content, el.font, el.color]);
+  }, [el.type, el.content, el.font, el.color, (el as any).stroke, (el as any).strokeColor, (el as any).shadow, (el as any).shadowColor, (el as any).letterSpacing, (el as any).flipX, (el as any).flipY]);
 
   return texture;
 }
