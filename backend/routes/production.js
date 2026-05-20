@@ -162,21 +162,45 @@ router.get('/schedule', async (req, res) => {
       end.setUTCDate(end.getUTCDate() + 7);
     }
 
-    const orders = await Order.find({
+    // Orders that OVERLAP the visible window — i.e. they started on/before
+    // `end` and their due date (or fallback = start + duration) lands on/after
+    // `start`. This lets multi-day production runs paint every day they
+    // occupy, not just the kickoff day.
+    const rawOrders = await Order.find({
       status: { $in: ['approved', 'in_production'] },
-      productionDate: { $gte: start, $lte: end },
+      productionDate: { $ne: null, $lte: end },
     }).sort({ productionDate: 1, productionPriority: -1 });
+
+    const orders = rawOrders.filter((o) => {
+      if (!o.productionDate) return false;
+      const due = o.productionDueDate
+        ? new Date(o.productionDueDate)
+        : new Date(new Date(o.productionDate).getTime() + (Math.max(1, Number(o.estimatedDurationDays) || 1) - 1) * 86400000);
+      return due >= start;
+    });
 
     const populated = await attachUsers(orders);
 
-    // Per-day workload aggregation
+    // Per-day workload aggregation — credit every day the order spans,
+    // not just the start day, so capacity bars reflect actual load.
     const workloadByDay = {};
     for (const o of populated) {
-      const key = dateKey(o.productionDate);
-      if (!workloadByDay[key]) workloadByDay[key] = { date: key, units: 0, orders: 0, ids: [] };
-      workloadByDay[key].units += Number(o.totalQty) || 0;
-      workloadByDay[key].orders += 1;
-      workloadByDay[key].ids.push(o._id);
+      const s = new Date(o.productionDate);
+      s.setUTCHours(0, 0, 0, 0);
+      const d = o.productionDueDate
+        ? new Date(o.productionDueDate)
+        : new Date(s.getTime() + (Math.max(1, Number(o.estimatedDurationDays) || 1) - 1) * 86400000);
+      d.setUTCHours(0, 0, 0, 0);
+      const cur = new Date(Math.max(s.getTime(), start.getTime()));
+      const stop = new Date(Math.min(d.getTime(), end.getTime()));
+      while (cur <= stop) {
+        const key = cur.toISOString().slice(0, 10);
+        if (!workloadByDay[key]) workloadByDay[key] = { date: key, units: 0, orders: 0, ids: [] };
+        workloadByDay[key].units += Number(o.totalQty) || 0;
+        workloadByDay[key].orders += 1;
+        workloadByDay[key].ids.push(o._id);
+        cur.setUTCDate(cur.getUTCDate() + 1);
+      }
     }
 
     // Attach capacity for each day in range

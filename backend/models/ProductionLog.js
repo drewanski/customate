@@ -15,6 +15,7 @@ const productionLogSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: [
+      'approved',          // Order auto-approved (e.g. via scheduling)
       'scheduled',         // First time productionDate is set
       'rescheduled',       // productionDate changed
       'stage_changed',     // productionStage transitioned (or jumped back)

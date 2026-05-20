@@ -536,9 +536,35 @@ export function AdminProduction() {
             ) : !scheduleData ? null : (
               <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
                 {scheduleData.days.map((day) => {
-                  const ordersToday = scheduleData.orders.filter(
-                    (o) => new Date(o.productionDate).toISOString().slice(0, 10) === day.date
-                  );
+                  // Show every order whose [productionDate … productionDueDate]
+                  // window overlaps this day. Annotate each with span position
+                  // so the cell can render "Day N of M" + start/middle/end pip.
+                  const dayMs = new Date(day.date + 'T00:00:00Z').getTime();
+                  const ordersToday = scheduleData.orders
+                    .filter((o: any) => {
+                      if (!o.productionDate) return false;
+                      const start = new Date(o.productionDate);
+                      start.setUTCHours(0, 0, 0, 0);
+                      const dueRaw = o.productionDueDate
+                        ? new Date(o.productionDueDate)
+                        : new Date(start.getTime() + (Math.max(1, Number(o.estimatedDurationDays) || 1) - 1) * 86400000);
+                      dueRaw.setUTCHours(0, 0, 0, 0);
+                      return dayMs >= start.getTime() && dayMs <= dueRaw.getTime();
+                    })
+                    .map((o: any) => {
+                      const start = new Date(o.productionDate);
+                      start.setUTCHours(0, 0, 0, 0);
+                      const dueRaw = o.productionDueDate
+                        ? new Date(o.productionDueDate)
+                        : new Date(start.getTime() + (Math.max(1, Number(o.estimatedDurationDays) || 1) - 1) * 86400000);
+                      dueRaw.setUTCHours(0, 0, 0, 0);
+                      const totalDays = Math.round((dueRaw.getTime() - start.getTime()) / 86400000) + 1;
+                      const dayNum = Math.round((dayMs - start.getTime()) / 86400000) + 1;
+                      const isStart = dayMs === start.getTime();
+                      const isEnd = dayMs === dueRaw.getTime();
+                      return { ...o, _dayNum: dayNum, _totalDays: totalDays, _isStart: isStart, _isEnd: isEnd };
+                    });
+                  const hasActiveProduction = ordersToday.length > 0;
                   const utilPct = day.capacity > 0 ? Math.min(100, Math.round((day.units / day.capacity) * 100)) : 0;
                   const barTint = day.overCapacity
                     ? 'bg-rose-500'
@@ -563,14 +589,19 @@ export function AdminProduction() {
                         }
                       } : undefined}
                       title={dropMode ? `Click to schedule ${selectedIds.size} order${selectedIds.size === 1 ? '' : 's'} to this day` : undefined}
-                      className={`rounded-2xl border bg-white shadow-sm overflow-hidden transition-all ${
-                        !day.isWorking ? 'opacity-60' : ''
-                      } ${day.overCapacity ? 'border-rose-300' : 'border-slate-200'} ${
+                      className={`relative rounded-2xl border shadow-sm overflow-hidden transition-all ${
+                        !day.isWorking ? 'opacity-60 bg-white' :
+                        hasActiveProduction ? 'bg-gradient-to-br from-blue-50/70 via-white to-indigo-50/40' :
+                        'bg-white'
+                      } ${day.overCapacity ? 'border-rose-300' : hasActiveProduction ? 'border-blue-300' : 'border-slate-200'} ${
                         dropMode
                           ? 'cursor-pointer hover:border-blue-500 hover:shadow-md hover:-translate-y-0.5 ring-2 ring-blue-100'
                           : ''
                       }`}
                     >
+                      {hasActiveProduction && (
+                        <span className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-500 to-indigo-600" />
+                      )}
                       <div className="px-3 pt-3 pb-2">
                         <div className="flex items-baseline justify-between">
                           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -599,11 +630,13 @@ export function AdminProduction() {
                             {day.isWorking ? 'Open' : 'Off-day'}
                           </li>
                         ) : (
-                          ordersToday.map((o) => (
+                          ordersToday.map((o: any) => (
                             <li key={o._id}>
                               <button
                                 onClick={() => openDetail(o)}
-                                className="w-full text-left px-3 py-2 hover:bg-slate-50 transition"
+                                className={`w-full text-left px-3 py-2 hover:bg-white/80 transition ${
+                                  o._isStart ? 'bg-blue-50/60' : o._isEnd ? 'bg-emerald-50/60' : ''
+                                }`}
                               >
                                 <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                                   <span className={`w-1.5 h-1.5 rounded-full ${
@@ -612,9 +645,29 @@ export function AdminProduction() {
                                     o.productionPriority === 'medium' ? 'bg-amber-500' : 'bg-slate-400'
                                   }`} />
                                   <span className="text-[10px] font-mono text-slate-500">#{String(o._id).slice(-6)}</span>
+                                  {o._isStart && (
+                                    <span className="text-[8px] font-black bg-blue-600 text-white px-1.5 py-0.5 rounded-full uppercase tracking-wider">Start</span>
+                                  )}
+                                  {o._isEnd && !o._isStart && (
+                                    <span className="text-[8px] font-black bg-emerald-600 text-white px-1.5 py-0.5 rounded-full uppercase tracking-wider">Due</span>
+                                  )}
+                                  {!o._isStart && !o._isEnd && (
+                                    <span className="text-[8px] font-bold bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-full">
+                                      Day {o._dayNum}/{o._totalDays}
+                                    </span>
+                                  )}
                                 </div>
                                 <p className="text-xs font-semibold text-slate-900 truncate">{o.customer?.name || '—'}</p>
-                                <p className="text-[10px] text-slate-500">{o.totalQty} units</p>
+                                <div className="flex items-center justify-between mt-0.5">
+                                  <p className="text-[10px] text-slate-500">{o.totalQty} units</p>
+                                  {/* progress bar showing how far this order is through its span */}
+                                  <div className="w-12 h-1 rounded-full bg-slate-200 overflow-hidden">
+                                    <div
+                                      className="h-full bg-gradient-to-r from-blue-500 to-indigo-600"
+                                      style={{ width: `${Math.round((o._dayNum / o._totalDays) * 100)}%` }}
+                                    />
+                                  </div>
+                                </div>
                               </button>
                             </li>
                           ))
