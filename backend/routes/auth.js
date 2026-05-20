@@ -284,14 +284,25 @@ router.post('/otp/send', async (req, res) => {
     let mailError = null;
     if (process.env.SMTP_USER && process.env.SMTP_PASS) {
       try {
+        // Explicit timeouts so a flaky Gmail handshake fails in seconds
+        // instead of hanging the whole request behind nodemailer's generous
+        // ~2 min defaults (which is what makes the UI stick on "Sending...").
         const otpTransport = nodemailer.createTransport({
           service: 'gmail',
           auth: {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS,
           },
+          connectionTimeout: 8000,  // 8 s to open TCP socket
+          greetingTimeout: 8000,    // 8 s for SMTP greeting
+          socketTimeout: 12000,     // 12 s for the whole conversation
         });
-        await otpTransport.sendMail({
+
+        // Race the sendMail against a hard timeout so even if the underlying
+        // socket misbehaves we still resolve in <15 s. Gmail's worst-case
+        // delivery is single-digit seconds, so anything beyond this is a
+        // network issue worth surfacing rather than waiting on.
+        const sendPromise = otpTransport.sendMail({
           from: process.env.SMTP_FROM || process.env.SMTP_USER,
           to: email,
           subject: 'Your CustoMate verification code',
@@ -307,17 +318,27 @@ router.post('/otp/send', async (req, res) => {
             </div>
           `,
         });
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('SMTP send timed out after 15s')), 15000),
+        );
+        await Promise.race([sendPromise, timeoutPromise]);
         mailSent = true;
       } catch (err) {
         mailError = err;
         console.error('OTP mail send failed:', err.message);
       }
+    } else {
+      mailError = new Error('SMTP credentials missing on server');
+      console.error('OTP send aborted: SMTP_USER or SMTP_PASS not set');
     }
 
     // In production, a failed mail is a hard error — the user needs to know.
     if (!mailSent && process.env.NODE_ENV === 'production') {
       return res.status(503).json({
         message: 'Verification email could not be sent right now. Please try again in a moment.',
+        // Surface the underlying reason so it shows in browser DevTools when
+        // the admin (us) is debugging a stuck signup.
+        debug: mailError?.message || 'unknown SMTP failure',
       });
     }
 
