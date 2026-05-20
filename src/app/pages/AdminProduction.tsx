@@ -28,6 +28,7 @@ import {
   getProductionActive,
   getProductionStats,
   advanceProductionStage,
+  bulkScheduleOrders,
 } from '../api';
 import { ScheduleOrderModal } from '../components/production/ScheduleOrderModal';
 import { BulkScheduleModal } from '../components/production/BulkScheduleModal';
@@ -160,6 +161,41 @@ export function AdminProduction() {
       fetchAll();
     } catch (err: any) {
       alert(err.message || 'Failed to advance');
+    }
+  };
+
+  /**
+   * Drop-on-day bulk scheduler. Triggered from the Calendar tab when admin
+   * clicks any day cell while one-or-more orders are selected. We confirm
+   * before submitting because this can move many orders at once, and the
+   * action becomes part of each order's permanent timeline (ProductionLog).
+   *
+   * Off-days (e.g. Sundays — businessDays config) get a different warning
+   * since scheduling production for a non-working day is usually a mistake,
+   * not an intentional override.
+   */
+  const handleScheduleSelectedToDay = async (day: { date: string; isWorking: boolean; capacity: number; units: number; overCapacity: boolean }) => {
+    if (selectedIds.size === 0) return;
+    const orderCount = selectedIds.size;
+    let confirmMsg = `Schedule ${orderCount} order${orderCount === 1 ? '' : 's'} to start production on ${
+      new Date(day.date).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+    }?`;
+    if (!day.isWorking) {
+      confirmMsg = `${day.date} is a non-working day (e.g. Sunday).\n\n${confirmMsg}`;
+    } else if (day.overCapacity) {
+      confirmMsg = `⚠ This day is already over capacity (${day.units} units booked, ${day.capacity} max).\n\n${confirmMsg}`;
+    }
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      await bulkScheduleOrders({
+        orderIds: Array.from(selectedIds),
+        productionDate: day.date,
+      });
+      clearSelection();
+      fetchAll();
+    } catch (err: any) {
+      alert(err.message || 'Failed to schedule orders');
     }
   };
 
@@ -312,37 +348,77 @@ export function AdminProduction() {
                   <span className="text-xs text-slate-500">{filteredQueue.length} orders</span>
                 </div>
                 <ul className="divide-y divide-slate-100">
-                  {filteredQueue.map((o) => (
-                    <li key={o._id} className="px-4 py-3 hover:bg-slate-50/60 transition">
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(o._id)}
-                          onChange={() => toggleSelect(o._id)}
-                          className="w-4 h-4 rounded border-slate-300 flex-shrink-0"
-                        />
-                        <button onClick={() => openDetail(o)} className="flex-1 min-w-0 text-left">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <span className="font-mono text-[11px] text-slate-500">#{String(o._id).slice(-6)}</span>
-                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${PRIORITY_TINTS[o.productionPriority] || PRIORITY_TINTS.medium}`}>
-                              <Flag className="w-2.5 h-2.5 inline-block mr-1 -mt-0.5" />
-                              {o.productionPriority}
-                            </span>
-                            {o.isBulk && (
-                              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Bulk</span>
-                            )}
-                          </div>
-                          <p className="font-semibold text-slate-900 truncate">{o.customer?.name || 'Customer'}</p>
-                          <p className="text-xs text-slate-500 truncate">
-                            {o.totalQty} units · ₱{Number(o.totalPrice || 0).toLocaleString()} · ordered {shortDate(o.createdAt)}
-                          </p>
-                        </button>
-                        <Button size="sm" onClick={() => openSchedule(o)}>
-                          <Calendar className="w-3.5 h-3.5 mr-1" /> Schedule
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
+                  {filteredQueue.map((o) => {
+                    // Pending = customer just placed it; needs admin attention
+                    // to schedule a production date. Approved = already triaged
+                    // but no date yet. Visual treatment differs so admins see
+                    // at a glance what needs reviewing vs what just needs a
+                    // calendar slot.
+                    const isPending = o.status === 'pending';
+                    // Compute days until customer's requested delivery — if
+                    // it's close, surface a warning so admin doesn't sleep
+                    // on it. Skip if no delivery date was requested.
+                    let dueWarning: string | null = null;
+                    if (o.requestedDeliveryDate) {
+                      const due = new Date(o.requestedDeliveryDate);
+                      const days = Math.ceil((+due - Date.now()) / (24 * 60 * 60 * 1000));
+                      if (days < 0) dueWarning = `${Math.abs(days)}d overdue`;
+                      else if (days <= 2) dueWarning = `due in ${days}d`;
+                    }
+                    return (
+                      <li key={o._id} className={`px-4 py-3 hover:bg-slate-50/60 transition ${isPending ? 'bg-amber-50/30' : ''}`}>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(o._id)}
+                            onChange={() => toggleSelect(o._id)}
+                            className="w-4 h-4 rounded border-slate-300 flex-shrink-0"
+                          />
+                          <button onClick={() => openDetail(o)} className="flex-1 min-w-0 text-left">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className="font-mono text-[11px] text-slate-500">#{String(o._id).slice(-6)}</span>
+                              {/* PENDING badge — most visible signal so admin
+                                  knows they're approving by scheduling. */}
+                              {isPending && (
+                                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-sm">
+                                  ⏱ Pending Review
+                                </span>
+                              )}
+                              <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${PRIORITY_TINTS[o.productionPriority] || PRIORITY_TINTS.medium}`}>
+                                <Flag className="w-2.5 h-2.5 inline-block mr-1 -mt-0.5" />
+                                {o.productionPriority}
+                              </span>
+                              {/* Urgency tier badge if set (Priority/Rush/Express) */}
+                              {o.urgencyTier && o.urgencyTier !== 'standard' && (
+                                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                                  {o.urgencyTier}
+                                </span>
+                              )}
+                              {o.isBulk && (
+                                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Bulk</span>
+                              )}
+                              {dueWarning && (
+                                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-600 text-white">
+                                  ⚠ {dueWarning}
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-semibold text-slate-900 truncate">{o.customer?.name || 'Customer'}</p>
+                            <p className="text-xs text-slate-500 truncate">
+                              {o.totalQty} units · ₱{Number(o.totalPrice || 0).toLocaleString()} · ordered {shortDate(o.createdAt)}
+                              {o.requestedDeliveryDate && (
+                                <>{' · '}<span className="font-semibold">deliver by {shortDate(o.requestedDeliveryDate)}</span></>
+                              )}
+                            </p>
+                          </button>
+                          <Button size="sm" onClick={() => openSchedule(o)}>
+                            <Calendar className="w-3.5 h-3.5 mr-1" />
+                            {isPending ? 'Approve & Schedule' : 'Schedule'}
+                          </Button>
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
@@ -352,6 +428,74 @@ export function AdminProduction() {
         {/* CALENDAR TAB */}
         {tab === 'calendar' && (
           <div>
+            {/* Pending-orders strip — anything still waiting to be scheduled
+                shows up here above the calendar. Admin can select one or
+                more orders, then click any day in the calendar grid below
+                to schedule them all to that date in a single action. */}
+            {queue.length > 0 && (
+              <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-700" />
+                    <p className="text-xs font-black uppercase tracking-wider text-amber-800">
+                      {queue.length} order{queue.length === 1 ? '' : 's'} awaiting a production date
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={selectedIds.size === queue.length ? clearSelection : () => setSelectedIds(new Set(queue.map((o) => o._id)))}
+                      className="text-[10px] font-bold text-amber-700 hover:text-amber-900 underline"
+                    >
+                      {selectedIds.size === queue.length ? 'Clear' : 'Select all'}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {queue.map((o) => {
+                    const sel = selectedIds.has(o._id);
+                    return (
+                      <button
+                        key={o._id}
+                        onClick={() => toggleSelect(o._id)}
+                        className={`flex-shrink-0 px-2.5 py-1.5 rounded-lg border text-left transition ${
+                          sel
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white border-slate-200 hover:border-blue-400'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            o.productionPriority === 'urgent' ? 'bg-rose-500' :
+                            o.productionPriority === 'high' ? 'bg-orange-500' :
+                            o.productionPriority === 'medium' ? 'bg-amber-500' : 'bg-slate-400'
+                          }`} />
+                          <span className={`text-[10px] font-mono ${sel ? 'text-white/80' : 'text-slate-500'}`}>
+                            #{String(o._id).slice(-6)}
+                          </span>
+                          {o.status === 'pending' && !sel && (
+                            <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1 rounded">
+                              PENDING
+                            </span>
+                          )}
+                        </div>
+                        <p className={`text-xs font-semibold truncate max-w-[140px] ${sel ? 'text-white' : 'text-slate-900'}`}>
+                          {o.customer?.name || 'Customer'}
+                        </p>
+                        <p className={`text-[10px] ${sel ? 'text-white/70' : 'text-slate-500'}`}>
+                          {o.totalQty} units
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedIds.size > 0 && (
+                  <p className="text-[11px] text-amber-900 mt-2 font-semibold">
+                    👇 {selectedIds.size} order{selectedIds.size === 1 ? '' : 's'} selected — click any day below to schedule production
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Week nav */}
             <div className="flex items-center justify-between mb-4">
               <button
@@ -401,12 +545,31 @@ export function AdminProduction() {
                     : utilPct > 80
                     ? 'bg-amber-500'
                     : 'bg-emerald-500';
+                  // Drop-target mode — when admin has orders selected upstairs,
+                  // every day cell becomes a clickable target that schedules
+                  // the selected orders to that date. This is the core
+                  // "select pending → click date → done" workflow.
+                  const dropMode = selectedIds.size > 0;
                   return (
                     <div
                       key={day.date}
-                      className={`rounded-2xl border bg-white shadow-sm overflow-hidden ${
+                      onClick={dropMode ? () => handleScheduleSelectedToDay(day) : undefined}
+                      role={dropMode ? 'button' : undefined}
+                      tabIndex={dropMode ? 0 : undefined}
+                      onKeyDown={dropMode ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleScheduleSelectedToDay(day);
+                        }
+                      } : undefined}
+                      title={dropMode ? `Click to schedule ${selectedIds.size} order${selectedIds.size === 1 ? '' : 's'} to this day` : undefined}
+                      className={`rounded-2xl border bg-white shadow-sm overflow-hidden transition-all ${
                         !day.isWorking ? 'opacity-60' : ''
-                      } ${day.overCapacity ? 'border-rose-300' : 'border-slate-200'}`}
+                      } ${day.overCapacity ? 'border-rose-300' : 'border-slate-200'} ${
+                        dropMode
+                          ? 'cursor-pointer hover:border-blue-500 hover:shadow-md hover:-translate-y-0.5 ring-2 ring-blue-100'
+                          : ''
+                      }`}
                     >
                       <div className="px-3 pt-3 pb-2">
                         <div className="flex items-baseline justify-between">

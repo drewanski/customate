@@ -36,26 +36,31 @@ router.get('/orders', authMiddleware, adminMiddleware, async (req, res) => {
       createdAt: { $gte: start, $lte: end }
     }).sort({ createdAt: 1 });
 
-    // Calculate statistics
+    // Calculate statistics. The Order schema field is `totalPrice` (not
+    // `total`) — see models/Order.js. The previous code summed `o.total`
+    // which is undefined for every order, so totalRevenue was always 0.
     const totalOrders = orders.length;
-    const totalRevenue = orders.reduce((sum, o) => sum + (o.total || 0), 0);
+    const totalRevenue = orders.reduce(
+      (sum, o) => sum + (Number(o.totalPrice) || 0),
+      0,
+    );
     const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
     // Status breakdown
     const statusCounts = {};
-    orders.forEach(o => {
+    orders.forEach((o) => {
       statusCounts[o.status] = (statusCounts[o.status] || 0) + 1;
     });
 
     // Daily breakdown for charts
     const dailyData = {};
-    orders.forEach(o => {
+    orders.forEach((o) => {
       const date = o.createdAt.toISOString().split('T')[0];
       if (!dailyData[date]) {
         dailyData[date] = { orders: 0, revenue: 0 };
       }
       dailyData[date].orders++;
-      dailyData[date].revenue += o.total || 0;
+      dailyData[date].revenue += Number(o.totalPrice) || 0;
     });
 
     // Top products
@@ -185,20 +190,26 @@ router.get('/operational', authMiddleware, adminMiddleware, async (req, res) => 
       ? Math.round((totalTurnaroundHours / completedOrders) * 10) / 10 
       : 0;
 
-    // Production status breakdown
-    const allOrders = await Order.find({}).sort({ createdAt: -1 }).limit(200);
+    // Production status breakdown — counts orders by their current status.
+    // Keys must match the actual Order.status enum (see models/Order.js):
+    // pending, approved, in_production, ready, completed, shipped, delivered,
+    // cancelled, rejected, refunded. We initialize each to 0 so the pie
+    // chart on the frontend has stable keys to render.
+    const allOrders = await Order.find({}).sort({ createdAt: -1 }).limit(500);
     const productionStatus = {
       pending: 0,
-      processing: 0,
-      production: 0,
-      quality_check: 0,
+      approved: 0,
+      in_production: 0,
       ready: 0,
+      completed: 0,
       shipped: 0,
       delivered: 0,
-      cancelled: 0
+      cancelled: 0,
+      rejected: 0,
+      refunded: 0,
     };
 
-    allOrders.forEach(o => {
+    allOrders.forEach((o) => {
       if (productionStatus[o.status] !== undefined) {
         productionStatus[o.status]++;
       }
@@ -246,31 +257,54 @@ router.get('/summary', authMiddleware, adminMiddleware, async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Today's stats
+    // Today's stats — count + revenue. We exclude cancelled/rejected from
+    // revenue because those represent money we'll never see (or refunded).
     const todayOrders = await Order.countDocuments({
-      createdAt: { $gte: today }
+      createdAt: { $gte: today },
     });
 
+    // FIX: the Order schema field is `totalPrice`, not `total`. The previous
+    // aggregation summed a non-existent field and always returned 0 — which
+    // is why the dashboard's "Today's revenue" tile was stuck at ₱0.
     const todayRevenue = await Order.aggregate([
-      { $match: { createdAt: { $gte: today } } },
-      { $group: { _id: null, total: { $sum: '$total' } } }
+      {
+        $match: {
+          createdAt: { $gte: today },
+          status: { $nin: ['cancelled', 'rejected'] },
+        },
+      },
+      { $group: { _id: null, total: { $sum: '$totalPrice' } } },
     ]);
 
-    // Pending orders count
+    // Pending orders = anything not yet shipped/delivered/done/cancelled.
+    // The status enum is pending/approved/in_production/ready/completed/
+    // shipped/delivered/cancelled/rejected/refunded — so "active" work is
+    // everything before ready. The old code used 'processing'/'production'
+    // which aren't valid status values.
     const pendingOrders = await Order.countDocuments({
-      status: { $in: ['pending', 'processing', 'production'] }
+      status: { $in: ['pending', 'approved', 'in_production'] },
     });
 
-    // Low stock count
+    // Low-stock count is PER-SKU — each inventory item has its own
+    // `minStock` threshold. Comparing globally against 10 was wrong: a SKU
+    // with minStock=50 sitting at 12 should be flagged, and a SKU with
+    // minStock=5 sitting at 8 should NOT be. Use $expr to compare two
+    // fields on the same document.
     const lowStockCount = await Inventory.countDocuments({
-      stock: { $lte: 10 }
+      isActive: { $ne: false },
+      $expr: { $lte: ['$stock', { $ifNull: ['$minStock', 10] }] },
     });
 
-    // Monthly revenue
+    // Monthly revenue — same totalPrice + cancelled-exclusion fix.
     const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     const monthlyRevenue = await Order.aggregate([
-      { $match: { createdAt: { $gte: thisMonth } } },
-      { $group: { _id: null, total: { $sum: '$total' } } }
+      {
+        $match: {
+          createdAt: { $gte: thisMonth },
+          status: { $nin: ['cancelled', 'rejected'] },
+        },
+      },
+      { $group: { _id: null, total: { $sum: '$totalPrice' } } },
     ]);
 
     res.json({

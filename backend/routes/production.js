@@ -87,17 +87,42 @@ function dateKey(d) {
  */
 router.get('/queue', async (req, res) => {
   try {
+    // Queue = anything waiting to be scheduled into production. Two groups:
+    //   1. status='pending'   → just placed by customer, awaiting admin review
+    //   2. status='approved' AND productionDate is null → reviewed but not
+    //                                                       yet given a start date
+    // Admin schedules a date → status auto-promotes to 'approved' (see PUT
+    // handler below) → order then moves to the Calendar / Pipeline views.
+    //
+    // We intentionally exclude in_production/ready/completed/cancelled —
+    // those have their own home (Pipeline tab) and shouldn't clutter the
+    // "needs scheduling" list.
     const orders = await Order.find({
-      status: 'approved',
-      productionDate: { $in: [null, undefined] },
+      $or: [
+        { status: 'pending' },
+        { status: 'approved', productionDate: { $in: [null, undefined] } },
+      ],
     }).sort({ createdAt: 1 });
 
-    // Sort by priority weight after fetching (small queues; cheap)
+    // Sort by:
+    //   1. Urgency tier (priority > rush > express > standard)
+    //   2. Customer's requested delivery date (sooner first)
+    //   3. Order creation time (FIFO tiebreaker)
+    // Most-at-risk orders bubble to the top.
+    const tierRank = { priority: 0, rush: 1, express: 2, standard: 3 };
     const priorityRank = { urgent: 0, high: 1, medium: 2, low: 3 };
     orders.sort((a, b) => {
-      const ra = priorityRank[a.productionPriority] ?? 9;
-      const rb = priorityRank[b.productionPriority] ?? 9;
-      if (ra !== rb) return ra - rb;
+      const ta = tierRank[a.urgencyTier] ?? 9;
+      const tb = tierRank[b.urgencyTier] ?? 9;
+      if (ta !== tb) return ta - tb;
+      const pa = priorityRank[a.productionPriority] ?? 9;
+      const pb = priorityRank[b.productionPriority] ?? 9;
+      if (pa !== pb) return pa - pb;
+      // Closest requested delivery wins next — these are the ones we'll
+      // miss SLA on if we don't pick them up.
+      const da = a.requestedDeliveryDate ? new Date(a.requestedDeliveryDate).getTime() : Infinity;
+      const db = b.requestedDeliveryDate ? new Date(b.requestedDeliveryDate).getTime() : Infinity;
+      if (da !== db) return da - db;
       return new Date(a.createdAt) - new Date(b.createdAt);
     });
 
@@ -332,6 +357,18 @@ router.put('/:id/schedule', async (req, res) => {
     if (productionNotes !== undefined) order.productionNotes = productionNotes;
     if (assignedTo !== undefined) order.assignedTo = assignedTo || null;
 
+    // Status transitions on schedule:
+    //   pending  →  in_production  (scheduling a pending order acts as
+    //                                implicit approval — admin is committing
+    //                                to producing it)
+    //   approved →  in_production  (scheduled but not yet started)
+    //   anything →  approved       (when admin clears the date)
+    //
+    // We track whether we just promoted a pending order so we can write an
+    // explicit "approved-via-scheduling" audit log entry — operations
+    // managers reviewing the timeline later need to know who signed off on
+    // accepting the order.
+    const wasPending = order.status === 'pending';
     if (order.productionDate) {
       if (!wasScheduled) {
         order.status = 'in_production';
@@ -350,6 +387,19 @@ router.put('/:id/schedule', async (req, res) => {
 
     // Audit log
     if (!wasScheduled && order.productionDate) {
+      // If we just implicitly approved a pending order by scheduling it,
+      // log that distinct event so the timeline is honest about how/why
+      // the order got accepted (not via a manual /approve action).
+      if (wasPending) {
+        await ProductionLog.create({
+          order: order._id,
+          orderRef: String(order._id).slice(-6),
+          type: 'approved',
+          to: 'approved-via-schedule',
+          note: 'Order auto-approved when production date was set',
+          ...actor,
+        });
+      }
       await ProductionLog.create({
         order: order._id,
         orderRef: String(order._id).slice(-6),
