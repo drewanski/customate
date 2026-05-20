@@ -25,9 +25,11 @@ export function CustomerLayout() {
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-xl">CM</span>
-              </div>
+              <img
+                src="/logo.png"
+                alt="CustoMate"
+                className="w-10 h-10 object-contain"
+              />
               <span className="font-bold text-xl text-gray-900">CustoMate</span>
             </Link>
             

@@ -72,8 +72,11 @@ export function AdminLayout() {
           <Menu className="w-5 h-5" />
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-md">
-            CM
+          {/* Mobile top-bar logo. White rounded card around the logo so the
+              transparent PNG always reads cleanly against any future header
+              gradient — same treatment as the desktop sidebar logo. */}
+          <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shadow-md p-0.5">
+            <img src="/logo.png" alt="CustoMate" className="w-full h-full object-contain" />
           </div>
           <span className="font-bold text-sm text-slate-900">CustoMate Admin</span>
         </div>
@@ -105,8 +108,10 @@ export function AdminLayout() {
         {/* TOP / LOGO AREA */}
         <div className="relative p-4 border-b border-white/10 flex items-center justify-between min-h-[72px]">
           <Link to="/admin" className="flex items-center gap-3 cursor-pointer group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-black text-base shadow-lg shadow-blue-500/30 group-hover:scale-105 transition-transform">
-              CM
+            {/* Sidebar logo. Wrapped in a white tile so the blue+gray logo
+                stays readable against the dark sidebar background. */}
+            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-blue-500/30 group-hover:scale-105 transition-transform p-1">
+              <img src="/logo.png" alt="CustoMate" className="w-full h-full object-contain" />
             </div>
             {!collapsed && (
               <div className="leading-tight">

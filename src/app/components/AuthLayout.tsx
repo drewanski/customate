@@ -54,8 +54,10 @@ export function AuthLayout({
         <div className="relative h-full flex flex-col p-8 md:p-12 lg:p-16 min-h-[260px] md:min-h-screen">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2.5 group w-fit">
-            <div className="w-10 h-10 rounded-xl bg-white text-blue-600 font-black text-lg flex items-center justify-center shadow-lg shadow-black/10 group-hover:scale-105 transition-transform">
-              CM
+            {/* Auth page logo — sits over the marketing gradient so the
+                white tile keeps the logo readable. */}
+            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-black/10 group-hover:scale-105 transition-transform p-1">
+              <img src="/logo.png" alt="CustoMate" className="w-full h-full object-contain" />
             </div>
             <span className="text-xl font-bold tracking-tight">CustoMate</span>
           </Link>
