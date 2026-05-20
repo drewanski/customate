@@ -122,6 +122,14 @@ const orderSchema = new mongoose.Schema({
   productionNotes: { type: String },
   productionPriority: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'medium', index: true },
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
+  // Whether real stock has already been deducted from inventory. We flip
+  // this true the first time an order moves to `approved` (or skips straight
+  // to shipped) so subsequent status transitions don't double-deduct. Stays
+  // true even after the order completes — set back to false only on a
+  // return-restock event.
+  inventoryConsumed: { type: Boolean, default: false, index: true },
+  inventoryConsumedAt: { type: Date, default: null },
 }, { timestamps: true });
 
 // Useful indexes for the production queue queries

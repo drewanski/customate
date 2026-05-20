@@ -5,6 +5,7 @@ import User from '../models/User.js';
 import ProductionLog from '../models/ProductionLog.js';
 import ProductionCapacity from '../models/ProductionCapacity.js';
 import { authMiddleware, adminMiddleware } from '../middleware/auth.js';
+import { consumeReservedForOrder } from '../services/inventory.js';
 
 const router = express.Router();
 
@@ -405,6 +406,19 @@ router.put('/:id/schedule', async (req, res) => {
       // Unscheduling — back to approved queue
       if (order.status === 'in_production') order.status = 'approved';
       order.productionStage = 'queued';
+    }
+
+    // Scheduling moves the order into a committed-fulfilment status
+    // (in_production). Deduct real stock + write per-SKU 'sale' movements
+    // the first time this happens — same idempotency flag as /orders/:id/status.
+    if (order.productionDate && !order.inventoryConsumed) {
+      await consumeReservedForOrder({
+        order,
+        actor: { userId: req.user.userId, name: actor.performedByName, role: req.user.role },
+        reason: `Scheduled for production (#${String(order._id).slice(-6)})`,
+      });
+      order.inventoryConsumed = true;
+      order.inventoryConsumedAt = new Date();
     }
 
     await order.save();

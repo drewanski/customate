@@ -66,9 +66,10 @@ async function actorSnapshot(req) {
  * Both paths write an audit row via the inventory service.
  */
 async function restoreInventoryFor(order, actor = null, reason = 'Status change') {
-  // If the order's stock was already deducted (paid/shipped/etc.), restore
+  // If the order's stock was already deducted (approved/shipped/etc.), restore
   // it as a return movement. Otherwise just release the reservation.
-  const wasFulfilled = ['shipped', 'delivered', 'completed'].includes(order.status) ||
+  const wasFulfilled = order.inventoryConsumed ||
+                        ['shipped', 'delivered', 'completed'].includes(order.status) ||
                         order.paymentStatus === 'paid';
 
   if (wasFulfilled) {
@@ -591,26 +592,41 @@ router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
     const actor = await actorSnapshot(req);
 
     // Inventory side-effects on status transitions:
-    //   pending/approved → cancelled/rejected: release reservation + coupon
-    //   in_production/ready → shipped/delivered: consume reservation (deduct real stock)
-    //   shipped/delivered → cancelled (return): restock as return
+    //   pending → approved: CONSUME stock (deduct real on-hand, log a 'sale'
+    //                       movement). Approval is the commitment point —
+    //                       admin has accepted the order so stock should
+    //                       reflect that immediately, not wait for shipping.
+    //   approved → in_production/ready/shipped/delivered: no-op if already
+    //                       consumed at approval; otherwise consume now.
+    //   any → cancelled/rejected: restore (release reservation OR reverse the
+    //                       sale if it was already consumed) + release coupon.
+    //   shipped/delivered → returned/cancelled: restock as customer return.
+    const consumeStatuses = ['approved', 'in_production', 'ready', 'shipped', 'delivered', 'completed'];
     if ((status === 'rejected' || status === 'cancelled') &&
         previousStatus !== 'rejected' && previousStatus !== 'cancelled') {
       await restoreInventoryFor(order, { userId: req.user.userId, name: actor.performedByName, role: req.user.role }, `Status ${previousStatus} → ${status}`);
-      // Release the coupon redemption so customer can re-use the code
+      // If stock was already consumed, the restoreInventoryFor path needs
+      // to know — flip the flag back so future activity is consistent.
+      if (order.inventoryConsumed) {
+        order.inventoryConsumed = false;
+        order.inventoryConsumedAt = null;
+      }
       if (order.couponCode) {
         await releaseCouponForOrder({ order, reason: `Order ${status}` }).catch((err) =>
           console.error('Coupon release failed:', err.message)
         );
       }
-    } else if ((status === 'shipped' || status === 'delivered') &&
-               !['shipped', 'delivered', 'completed'].includes(previousStatus)) {
-      // First time we ship — convert reservation into actual deduction
+    } else if (consumeStatuses.includes(status) && !order.inventoryConsumed) {
+      // First time we cross into the committed-fulfilment zone — convert
+      // reservation into real stock deduction and log a 'sale' movement per
+      // SKU. Marking the order means subsequent transitions skip this step.
       await consumeReservedForOrder({
         order,
         actor: { userId: req.user.userId, name: actor.performedByName, role: req.user.role },
-        reason: `Shipped (order ${String(order._id).slice(-6)})`,
+        reason: `Order ${status} (#${String(order._id).slice(-6)})`,
       });
+      order.inventoryConsumed = true;
+      order.inventoryConsumedAt = new Date();
     }
 
     order.status = status;
@@ -760,9 +776,22 @@ router.post('/bulk-status', authMiddleware, adminMiddleware, async (req, res) =>
           results.push({ id, ok: true, skipped: true });
           continue;
         }
+        const bulkConsumeStatuses = ['approved', 'in_production', 'ready', 'shipped', 'delivered', 'completed'];
         if ((status === 'rejected' || status === 'cancelled') &&
             prev !== 'rejected' && prev !== 'cancelled') {
           await restoreInventoryFor(order);
+          if (order.inventoryConsumed) {
+            order.inventoryConsumed = false;
+            order.inventoryConsumedAt = null;
+          }
+        } else if (bulkConsumeStatuses.includes(status) && !order.inventoryConsumed) {
+          await consumeReservedForOrder({
+            order,
+            actor: { userId: req.user.userId, name: actor.performedByName, role: req.user.role },
+            reason: `Bulk ${status} (#${String(order._id).slice(-6)})`,
+          });
+          order.inventoryConsumed = true;
+          order.inventoryConsumedAt = new Date();
         }
         order.status = status;
         await order.save();

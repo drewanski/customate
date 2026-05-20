@@ -25,6 +25,7 @@ import {
 import { formatPeso } from '../utils/format';
 import { RestockModal } from '../components/inventory/RestockModal';
 import { StockHistoryModal } from '../components/inventory/StockHistoryModal';
+import { InventoryAuditLogModal } from '../components/inventory/InventoryAuditLogModal';
 import { AdjustStockModal } from '../components/inventory/AdjustStockModal';
 import { SuppliersManagerModal } from '../components/inventory/SuppliersManagerModal';
 import { AIRestockPanel } from '../components/inventory/AIRestockPanel';
@@ -60,6 +61,7 @@ export function AdminInventory() {
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
   const [suppliersModalOpen, setSuppliersModalOpen] = useState(false);
+  const [auditLogOpen, setAuditLogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
 
   const [formData, setFormData] = useState({
@@ -379,6 +381,13 @@ export function AdminInventory() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setAuditLogOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
+            >
+              <Receipt className="w-4 h-4" />
+              Audit Log
+            </button>
             <button
               onClick={() => setSuppliersModalOpen(true)}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
@@ -719,6 +728,10 @@ export function AdminInventory() {
           isOpen={suppliersModalOpen}
           onClose={() => setSuppliersModalOpen(false)}
           onChanged={fetchAll}
+        />
+        <InventoryAuditLogModal
+          isOpen={auditLogOpen}
+          onClose={() => setAuditLogOpen(false)}
         />
       </div>
     </div>
