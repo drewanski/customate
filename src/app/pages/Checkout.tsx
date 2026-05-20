@@ -8,7 +8,7 @@ import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
 import { apiRequest, getProfile, validateCouponCode, quoteDelivery as quoteDeliveryApi } from '../api';
 import { formatPeso } from '../utils/format';
-import { MapPin, Phone, User as UserIcon, ChevronDown, Check, Wallet, Smartphone, Landmark, Loader2 } from 'lucide-react';
+import { MapPin, Phone, User as UserIcon, ChevronDown, Check, Wallet, Smartphone, Landmark, Loader2, ShoppingCart, Truck, CreditCard, Package, ShieldCheck, Lock, Clock, Tag, ChevronLeft, BadgeCheck } from 'lucide-react';
 
 import { PaymentModal } from '../components/PaymentModal';
 import { createGCashPayment, createMayaPayment } from '../api/paymongo';
@@ -320,27 +320,93 @@ export function Checkout() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-      <div className="max-w-6xl mx-auto px-6 lg:px-8 py-8 md:py-12">
-      <div className="flex items-end justify-between mb-8">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight">Checkout</h1>
-          <p className="text-slate-500 mt-1">
-            {totalQty} {totalQty === 1 ? 'item' : 'items'} ready to ship
-          </p>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-10">
+
+      {/* Back link */}
+      <button
+        onClick={() => navigate('/cart')}
+        className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-900 mb-5 transition-colors"
+      >
+        <ChevronLeft className="w-4 h-4" />
+        Back to cart
+      </button>
+
+      {/* Header + Stepper */}
+      <div className="mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-6">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight">Checkout</h1>
+            <p className="text-slate-500 mt-1 text-sm">
+              {totalQty} {totalQty === 1 ? 'item' : 'items'} · Almost there!
+            </p>
+          </div>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="inline-flex items-center gap-1.5 font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+              <Lock className="w-3 h-3" />
+              SSL Secured
+            </span>
+            <span className="hidden sm:inline-flex items-center gap-1.5 font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full">
+              <ShieldCheck className="w-3 h-3" />
+              Buyer Protection
+            </span>
+          </div>
         </div>
-        <div className="hidden md:flex items-center gap-1.5 text-xs font-bold text-emerald-600">
-          <Check className="w-3.5 h-3.5" />
-          Secure checkout
+
+        {/* Step indicator: Cart → Checkout → Confirmation */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 sm:px-6 py-3.5">
+          <div className="flex items-center justify-between gap-1 sm:gap-3">
+            {[
+              { n: 1, label: 'Cart', icon: ShoppingCart, done: true },
+              { n: 2, label: 'Checkout', icon: CreditCard, active: true },
+              { n: 3, label: 'Confirmation', icon: BadgeCheck },
+            ].map((s, i, arr) => (
+              <React.Fragment key={s.n}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className={`shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center font-black text-xs border-2 transition-all ${
+                      s.done
+                        ? 'bg-emerald-500 border-emerald-500 text-white'
+                        : s.active
+                        ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-200 scale-110'
+                        : 'bg-white border-slate-200 text-slate-400'
+                    }`}
+                  >
+                    {s.done ? <Check className="w-4 h-4" /> : <s.icon className="w-4 h-4" />}
+                  </div>
+                  <span
+                    className={`text-xs sm:text-sm font-bold truncate ${
+                      s.active ? 'text-blue-600' : s.done ? 'text-emerald-700' : 'text-slate-400'
+                    }`}
+                  >
+                    {s.label}
+                  </span>
+                </div>
+                {i < arr.length - 1 && (
+                  <div
+                    className={`flex-1 h-0.5 rounded-full ${
+                      s.done ? 'bg-emerald-400' : 'bg-slate-200'
+                    }`}
+                  />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
+      <div className="grid lg:grid-cols-3 gap-6 lg:gap-8">
+        <div className="lg:col-span-2 space-y-5">
+          {/* Section 1: Shipping */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Shipping Details</CardTitle>
+                <CardTitle>
+                  <span className="inline-flex items-center gap-2.5">
+                    <span className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-xs flex items-center justify-center shadow-md shadow-blue-200">1</span>
+                    <span className="inline-flex items-center gap-1.5"><Truck className="w-4 h-4 text-blue-600" /> Shipping Details</span>
+                  </span>
+                </CardTitle>
                 {userProfile?.savedAddresses?.length > 0 && (
                   <div className="relative">
                     <Button 
@@ -451,81 +517,117 @@ export function Checkout() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Payment Method</CardTitle>
+              <CardTitle>
+                <span className="inline-flex items-center gap-2.5">
+                  <span className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-xs flex items-center justify-center shadow-md shadow-blue-200">2</span>
+                  <span className="inline-flex items-center gap-1.5"><CreditCard className="w-4 h-4 text-blue-600" /> Payment Method</span>
+                </span>
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* COD */}
                 <button
                   type="button"
                   disabled={isBulk}
                   onClick={() => setPaymentMethod('cod')}
-                  className={`p-4 border-2 rounded-xl text-left transition-all ${
+                  className={`relative p-4 border-2 rounded-2xl text-left transition-all group ${
                     paymentMethod === 'cod'
-                      ? 'border-green-600 bg-green-50'
+                      ? 'border-emerald-500 bg-emerald-50/60 shadow-md shadow-emerald-100 scale-[1.01]'
                       : isBulk
-                      ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed'
-                      : 'border-gray-200 hover:border-green-300'
+                      ? 'border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed'
+                      : 'border-slate-200 hover:border-emerald-400 hover:shadow-md bg-white'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center text-white text-xs font-bold">COD</div>
-                    <div>
-                      <div className="font-semibold text-gray-900">Cash on Delivery</div>
-                      <div className="text-xs text-gray-500">Pay when you receive</div>
+                  {paymentMethod === 'cod' && (
+                    <span className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center">
+                      <Check className="w-3 h-3" />
+                    </span>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-emerald-200">
+                      <Wallet className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                        Cash on Delivery
+                        <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">POPULAR</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">Pay in cash when you receive</div>
                     </div>
                   </div>
-                  {isBulk && <div className="text-[10px] text-red-500 mt-2">Not available for bulk orders</div>}
+                  {isBulk && <div className="text-[10px] text-rose-500 mt-2 font-semibold">Not available for bulk orders (20+)</div>}
                 </button>
 
+                {/* GCash */}
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('gcash')}
-                  className={`p-4 border-2 rounded-xl text-left transition-all ${
+                  className={`relative p-4 border-2 rounded-2xl text-left transition-all ${
                     paymentMethod === 'gcash'
-                      ? 'border-blue-600 bg-blue-50'
-                      : 'border-gray-200 hover:border-blue-300'
+                      ? 'border-blue-500 bg-blue-50/60 shadow-md shadow-blue-100 scale-[1.01]'
+                      : 'border-slate-200 hover:border-blue-400 hover:shadow-md bg-white'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-xs font-bold">GC</div>
-                    <div>
-                      <div className="font-semibold text-gray-900">GCash</div>
-                      <div className="text-xs text-gray-500">Philippine e-Wallet</div>
+                  {paymentMethod === 'gcash' && (
+                    <span className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center">
+                      <Check className="w-3 h-3" />
+                    </span>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 bg-gradient-to-br from-sky-500 to-blue-600 rounded-xl flex items-center justify-center text-white font-black text-xs shadow-md shadow-blue-200">
+                      GC
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                        GCash
+                        <span className="text-[9px] font-black text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded">INSTANT</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">Pay via GCash e-Wallet</div>
                     </div>
                   </div>
                 </button>
 
+                {/* Maya */}
                 <button
                   type="button"
                   disabled
-                  className="p-4 border-2 rounded-xl text-left transition-all border-gray-200 opacity-50 cursor-not-allowed relative"
+                  className="relative p-4 border-2 rounded-2xl text-left border-slate-200 opacity-60 cursor-not-allowed bg-white"
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center text-white text-xs font-bold">MY</div>
-                    <div>
-                      <div className="font-semibold text-gray-900">Maya</div>
-                      <div className="text-xs text-gray-500">Digital Wallet</div>
+                  <span className="absolute top-2.5 right-2.5 text-[9px] font-black bg-gradient-to-r from-orange-500 to-amber-500 text-white px-2 py-0.5 rounded-full">SOON</span>
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 bg-gradient-to-br from-purple-500 to-fuchsia-600 rounded-xl flex items-center justify-center text-white shadow-md">
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-slate-900 text-sm">Maya</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">Digital Wallet</div>
                     </div>
                   </div>
-                  <span className="absolute top-2 right-2 text-[8px] bg-orange-500 text-white px-1.5 py-0.5 rounded">SOON</span>
                 </button>
 
+                {/* Bank Transfer */}
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('bank')}
-                  className={`p-4 border-2 rounded-xl text-left transition-all ${
+                  className={`relative p-4 border-2 rounded-2xl text-left transition-all ${
                     paymentMethod === 'bank'
-                      ? 'border-orange-600 bg-orange-50'
-                      : 'border-gray-200 hover:border-orange-300'
+                      ? 'border-orange-500 bg-orange-50/60 shadow-md shadow-orange-100 scale-[1.01]'
+                      : 'border-slate-200 hover:border-orange-400 hover:shadow-md bg-white'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center text-white">
+                  {paymentMethod === 'bank' && (
+                    <span className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center">
+                      <Check className="w-3 h-3" />
+                    </span>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 bg-gradient-to-br from-orange-500 to-amber-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-orange-200">
                       <Landmark className="w-5 h-5" />
                     </div>
-                    <div>
-                      <div className="font-semibold text-gray-900">Bank Transfer</div>
-                      <div className="text-xs text-gray-500">BDO, BPI, Metrobank, etc.</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-slate-900 text-sm">Bank Transfer</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">BDO · BPI · Metrobank · UnionBank</div>
                     </div>
                   </div>
                 </button>
@@ -585,49 +687,98 @@ export function Checkout() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Items</CardTitle>
+              <CardTitle>
+                <span className="inline-flex items-center gap-2.5">
+                  <span className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-xs flex items-center justify-center shadow-md shadow-blue-200">3</span>
+                  <span className="inline-flex items-center gap-1.5"><Package className="w-4 h-4 text-blue-600" /> Review Items ({totalQty})</span>
+                </span>
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3">
               {items.map((item) => (
-                <div key={item.id} className="flex gap-4 border-b border-gray-100 pb-4 last:border-0 last:pb-0">
-                  <img
-                    src={item.product.image}
-                    alt={item.product.name}
-                    className="w-20 h-20 object-cover rounded"
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-semibold text-gray-900">{item.product.name}</p>
-                        <p className="text-sm text-gray-600">Qty: {item.quantity}</p>
-                        <p className="text-sm text-gray-600">Size: {item.customization.size}</p>
-                        <p className="text-sm text-gray-600">Placement: {item.customization.placement}</p>
-                        {item.customization.text && <p className="text-sm text-gray-600">Text: {item.customization.text}</p>}
+                <div key={item.id} className="flex gap-3 p-3 rounded-xl bg-slate-50/60 border border-slate-100 hover:border-slate-200 transition-colors">
+                  <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-white border border-slate-100">
+                    <img
+                      src={item.product.image}
+                      alt={item.product.name}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-900 text-sm leading-tight truncate">{item.product.name}</p>
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-bold text-slate-700">
+                            ×{item.quantity}
+                          </span>
+                          {item.customization.size && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-bold text-slate-700">
+                              {item.customization.size}
+                            </span>
+                          )}
+                          {item.customization.placement && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-bold text-slate-700">
+                              {item.customization.placement}
+                            </span>
+                          )}
+                          {item.customization.text && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-[10px] font-bold text-blue-700 max-w-[14ch] truncate">
+                              "{item.customization.text}"
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-gray-900">{formatPeso(item.totalPrice)}</p>
-                      </div>
+                      <p className="font-black text-slate-900 text-sm whitespace-nowrap">{formatPeso(item.totalPrice)}</p>
                     </div>
                   </div>
                 </div>
               ))}
             </CardContent>
           </Card>
+
+          {/* Trust badges row */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            {[
+              { icon: ShieldCheck, label: 'Buyer Protection', sub: '100% safe', color: 'emerald' },
+              { icon: Truck, label: 'Fast Shipping', sub: 'Nationwide', color: 'blue' },
+              { icon: BadgeCheck, label: 'Quality Promise', sub: 'Hand-checked', color: 'violet' },
+            ].map((b) => (
+              <div key={b.label} className="flex items-center gap-2 p-2.5 sm:p-3 rounded-xl bg-white border border-slate-100 shadow-sm">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                  b.color === 'emerald' ? 'bg-emerald-100 text-emerald-600' :
+                  b.color === 'blue' ? 'bg-blue-100 text-blue-600' :
+                  'bg-violet-100 text-violet-600'
+                }`}>
+                  <b.icon className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold text-slate-900 leading-tight truncate">{b.label}</p>
+                  <p className="text-[10px] text-slate-500 truncate">{b.sub}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div>
-          <Card className="sticky top-24">
-            <CardHeader>
-              <CardTitle>Order Summary</CardTitle>
+          <Card className="sticky top-24 overflow-hidden shadow-lg border-slate-100">
+            <CardHeader className="bg-gradient-to-br from-slate-50 to-blue-50/40 border-b border-slate-100">
+              <CardTitle>
+                <span className="inline-flex items-center gap-2">
+                  <Tag className="w-4 h-4 text-blue-600" />
+                  Order Summary
+                </span>
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3.5">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Subtotal</span>
-                <span>{formatPeso(totalAmount)}</span>
+                <span className="text-slate-600">Subtotal ({totalQty} {totalQty === 1 ? 'item' : 'items'})</span>
+                <span className="font-bold text-slate-900">{formatPeso(totalAmount)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Shipping</span>
-                <span>Free</span>
+                <span className="text-slate-600 inline-flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" /> Shipping</span>
+                <span className="font-bold text-emerald-600">FREE</span>
               </div>
 
               {/* ─── Delivery date / urgency picker ─────────────────────── */}
@@ -773,36 +924,63 @@ export function Checkout() {
                 </div>
               )}
 
-              <div className="flex justify-between font-semibold border-t pt-3">
-                <span>Total</span>
-                <span className="text-blue-600">{formatPeso(finalTotal)}</span>
+              <div className="border-t border-dashed border-slate-200 pt-3.5 mt-1">
+                <div className="flex items-baseline justify-between">
+                  <span className="font-bold text-slate-900">Total</span>
+                  <div className="text-right">
+                    <p className="text-2xl font-black text-slate-900">{formatPeso(finalTotal)}</p>
+                    <p className="text-[10px] text-slate-500 font-semibold">VAT included</p>
+                  </div>
+                </div>
               </div>
-              {error && <p className="text-sm text-red-600">{error}</p>}
-              <Button 
-                className="w-full" 
+              {error && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200">
+                  <p className="text-xs text-rose-700 font-semibold">{error}</p>
+                </div>
+              )}
+              <Button
+                className="w-full !py-3.5 !rounded-xl !text-sm !font-black tracking-wide shadow-lg shadow-blue-200 hover:shadow-xl hover:shadow-blue-300 hover:-translate-y-0.5 transition-all"
                 onClick={() => {
-                  // For GCash/Maya with real PayMongo: create order first, then redirect
                   if (paymentMethod === 'gcash' || paymentMethod === 'paymaya') {
                     handlePlaceOrder(undefined, true);
                   } else {
-                    // For COD and Bank Transfer: use original flow
                     handlePlaceOrder();
                   }
-                }} 
+                }}
                 disabled={loading || !!deliveryError || deliveryQuote?.capacity?.available === false}
               >
                 {loading ? (
-                  <span className="flex items-center gap-2">
+                  <span className="flex items-center justify-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    {(paymentMethod === 'gcash' || paymentMethod === 'paymaya') ? 'Redirecting to payment...' : 'Placing order...'}
+                    {(paymentMethod === 'gcash' || paymentMethod === 'paymaya') ? 'Redirecting…' : 'Placing order…'}
                   </span>
                 ) : (
-                  (paymentMethod === 'gcash' || paymentMethod === 'paymaya') ? 'Pay with ' + (paymentMethod === 'gcash' ? 'GCash' : 'Maya') : 'Place Order'
+                  <span className="flex items-center justify-center gap-2">
+                    <Lock className="w-3.5 h-3.5" />
+                    {(paymentMethod === 'gcash' || paymentMethod === 'paymaya')
+                      ? 'Pay with ' + (paymentMethod === 'gcash' ? 'GCash' : 'Maya')
+                      : `Place Order · ${formatPeso(finalTotal)}`}
+                  </span>
                 )}
               </Button>
-              <Button variant="outline" className="w-full" onClick={() => navigate('/cart')} disabled={loading}>
-                Back to Cart
-              </Button>
+
+              <p className="text-[10px] text-slate-500 text-center leading-relaxed">
+                By placing this order, you agree to our <span className="font-bold text-slate-700">Terms</span> & <span className="font-bold text-slate-700">Refund Policy</span>.
+              </p>
+
+              <div className="flex items-center justify-center gap-3 pt-1 border-t border-slate-100">
+                <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                  <Lock className="w-3 h-3 text-emerald-600" /> SSL
+                </div>
+                <span className="text-slate-300">·</span>
+                <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                  <ShieldCheck className="w-3 h-3 text-blue-600" /> PayMongo
+                </div>
+                <span className="text-slate-300">·</span>
+                <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                  <Clock className="w-3 h-3 text-violet-600" /> 24/7 Support
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>

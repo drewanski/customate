@@ -157,7 +157,7 @@ TONE: Professional, helpful, concise. Use bullet points for lists. Be data-drive
 IMPORTANT: You have access to the real system data shown above. Reference it when answering questions.`;
 
     // Initialize model
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     // Start chat with history
     const chat = model.startChat({
@@ -245,7 +245,7 @@ router.get('/insights', authMiddleware, async (req, res) => {
       });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
     const prompt = `As CustoMate Admin AI, analyze this business data and provide 3 actionable insights:
 
@@ -357,7 +357,7 @@ router.post('/suggest-response', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Customer message is required' });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
     const prompt = `You are a customer service expert for CustoMate, a print-on-demand business.
 
@@ -411,7 +411,7 @@ router.post('/optimize-production', authMiddleware, async (req, res) => {
       paymentStatus: { $in: ['paid', 'partial', 'pending'] }
     }).populate('items.product');
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
     const orderSummary = approvedOrders.map(o => ({
       id: o._id.toString().slice(-6),
@@ -526,7 +526,7 @@ router.post('/predict-inventory', authMiddleware, async (req, res) => {
       });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
     const prompt = `As an inventory management AI, analyze this data and provide predictive insights:
 
@@ -655,7 +655,7 @@ router.post('/sentiment-analysis', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Text to analyze is required' });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
     const prompt = `Analyze this customer communication for sentiment, intent, and urgency:
 
@@ -771,7 +771,7 @@ router.post('/pricing-suggestions', authMiddleware, async (req, res) => {
     const topProducts = sortedByRevenue.slice(0, 3);
     const bottomProducts = sortedByRevenue.slice(-3).filter(p => p.totalSold > 0);
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
     const prompt = `As a pricing strategy AI, analyze this sales data and suggest pricing optimizations:
 
@@ -843,7 +843,7 @@ router.post('/marketing-ideas', authMiddleware, async (req, res) => {
       createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
     }).populate('customer');
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
     const prompt = `Generate marketing campaign ideas for a Philippine print-on-demand business:
 
@@ -926,7 +926,7 @@ router.post('/batch-sentiment', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Messages array required' });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
     const prompt = `Analyze sentiment for these ${messages.length} customer communications:
 
