@@ -287,8 +287,16 @@ router.post('/otp/send', async (req, res) => {
         // Explicit timeouts so a flaky Gmail handshake fails in seconds
         // instead of hanging the whole request behind nodemailer's generous
         // ~2 min defaults (which is what makes the UI stick on "Sending...").
+        //
+        // Render free tier blocks outbound port 465 (Gmail's implicit-TLS
+        // port) on most plans. Switch to 587 + STARTTLS which they DO allow.
+        // If SMTP_HOST/PORT are explicitly set we honour those (lets us
+        // swap to Brevo / Mailgun / Resend SMTP later without code changes).
         const otpTransport = nodemailer.createTransport({
-          service: 'gmail',
+          host: process.env.SMTP_HOST || 'smtp.gmail.com',
+          port: Number(process.env.SMTP_PORT) || 587,
+          secure: false,            // false = STARTTLS upgrade after connect
+          requireTLS: true,
           auth: {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS,
@@ -296,6 +304,12 @@ router.post('/otp/send', async (req, res) => {
           connectionTimeout: 8000,  // 8 s to open TCP socket
           greetingTimeout: 8000,    // 8 s for SMTP greeting
           socketTimeout: 12000,     // 12 s for the whole conversation
+          tls: {
+            // Render's egress sometimes presents weird cert chains; this
+            // lets the handshake finish without weakening verification of
+            // gmail.com itself (Gmail's cert is still verified by name).
+            servername: process.env.SMTP_HOST || 'smtp.gmail.com',
+          },
         });
 
         // Race the sendMail against a hard timeout so even if the underlying

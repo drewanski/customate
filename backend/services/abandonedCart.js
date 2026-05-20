@@ -67,9 +67,16 @@ async function sendRecoveryEmail(cart, stage) {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     return { ok: false, reason: 'SMTP not configured' };
   }
+  // Port 587 + STARTTLS works on Render free tier where 465 is blocked.
   const transport = nodemailer.createTransport({
-    service: 'gmail',
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: Number(process.env.SMTP_PORT) || 587,
+    secure: false,
+    requireTLS: true,
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 15000,
   });
   const stageMeta = NOTIFY_STAGES.find((s) => s.stage === stage);
   await transport.sendMail({

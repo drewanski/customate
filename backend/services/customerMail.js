@@ -18,9 +18,18 @@ const BRAND_COLOR = '#2563eb';
 
 function getTransport() {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
+  // Explicit host/port + STARTTLS — Render free tier blocks port 465 so
+  // we use 587. Honour SMTP_HOST/PORT overrides so we can swap to Brevo
+  // / Mailgun / Resend SMTP later without touching code.
   return nodemailer.createTransport({
-    service: 'gmail',
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: Number(process.env.SMTP_PORT) || 587,
+    secure: false,
+    requireTLS: true,
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 15000,
   });
 }
 
