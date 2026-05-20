@@ -9,6 +9,8 @@ import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
 import { RotateCw, ZoomIn, Upload, Save, ChevronLeft, ChevronRight, Type, Image as ImageIcon, Settings2, Trash2, Maximize2, Move, LogIn, Box, Wand2, Sparkles, Eraser, Crop as CropIcon } from 'lucide-react';
 import { ImageRefineModal } from '../components/customizer/ImageRefineModal';
+import { ShapesPanel } from '../components/customizer/ShapesPanel';
+import { useRecentColors } from '../hooks/useRecentColors';
 import { AIDesignAssistant } from '../components/AIDesignAssistant';
 import { AIDesignCritique } from '../components/AIDesignCritique';
 import { ProductCustomizer3D, EnvironmentPreset, CameraPreset } from '../components/ProductCustomizer3D';
@@ -64,6 +66,11 @@ export function CustomizationStudio() {
   const [activeSidebarTab, setActiveSidebarTab] = useState<'text' | 'image' | 'ai' | 'options'>('text');
   const [refineModalOpen, setRefineModalOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  // Cross-session palette of the colors this user has actually used.
+  // Updated whenever they pick a text/stroke/shadow color so they don't
+  // have to re-pick the brand colors on every design session.
+  const { colors: recentColors, remember: rememberColor } = useRecentColors();
   // AI design critique modal — gives 3 tips on the current design
   const [critiqueOpen, setCritiqueOpen] = useState(false);
   // ─── AI Lifestyle Mockup ──────────────────────────────────────────────
@@ -953,10 +960,36 @@ export function CustomizationStudio() {
                         setCustomization({ ...customization, color: e.target.value });
                         setActiveDesignElement('text_1');
                       }}
+                      onBlur={(e) => rememberColor(e.target.value)}
                       className="w-6 h-6 rounded-md border-none cursor-pointer"
                     />
                     <span className="text-[10px] font-mono text-slate-500 uppercase">{customization.color}</span>
                   </div>
+                  {/* Recently-used color swatches — persistent across sessions */}
+                  {recentColors.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Recent</p>
+                      <div className="flex flex-wrap gap-1">
+                        {recentColors.map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => {
+                              setCustomization({ ...customization, color: c });
+                              setActiveDesignElement('text_1');
+                              rememberColor(c);
+                            }}
+                            className={`w-5 h-5 rounded-md border-2 transition-transform hover:scale-110 ${
+                              customization.color.toLowerCase() === c.toLowerCase()
+                                ? 'border-blue-600 ring-1 ring-blue-200'
+                                : 'border-white shadow-sm'
+                            }`}
+                            style={{ backgroundColor: c }}
+                            title={c}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 block">Rotation</label>
@@ -1092,6 +1125,7 @@ export function CustomizationStudio() {
                           type="color"
                           value={customization.textStrokeColor || '#ffffff'}
                           onChange={(e) => setCustomization({ ...customization, textStrokeColor: e.target.value })}
+                          onBlur={(e) => rememberColor(e.target.value)}
                           className="w-10 h-10 rounded-lg border border-slate-200 cursor-pointer"
                         />
                         <input
@@ -1101,6 +1135,19 @@ export function CustomizationStudio() {
                           className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono font-bold uppercase"
                         />
                       </div>
+                      {recentColors.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {recentColors.map((c) => (
+                            <button
+                              key={c}
+                              onClick={() => setCustomization({ ...customization, textStrokeColor: c })}
+                              className="w-4 h-4 rounded border border-white shadow-sm hover:scale-110 transition-transform"
+                              style={{ backgroundColor: c }}
+                              title={c}
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1172,6 +1219,19 @@ export function CustomizationStudio() {
                   customer knows immediately if their upload is too small.
                   When the design is clean we show a green "Print-ready" tile. */}
               <DesignQualityPanel issues={qualityIssues} />
+
+              {/* Quick Shapes — built-in library that renders to PNG and
+                  applies like an uploaded image. One-click variety. */}
+              <ShapesPanel
+                initialColor={customization.color}
+                onApply={(dataUrl) => {
+                  setCustomization({ ...customization, image: dataUrl });
+                  setActiveDesignElement('image_1');
+                  rememberColor(customization.color);
+                  addToast('Shape added — drag to position', 'success');
+                }}
+              />
+
               <FileUpload
                 currentImage={customization.image}
                 onUpload={(url: string, thumbnailUrl: string) => {
@@ -1427,10 +1487,31 @@ export function CustomizationStudio() {
                     type="color"
                     value={customization.productColor || '#ffffff'}
                     onChange={(e) => setCustomization({ ...customization, productColor: e.target.value })}
+                    onBlur={(e) => rememberColor(e.target.value)}
                     className="w-8 h-8 rounded-lg border border-slate-200 cursor-pointer"
                   />
                   <span className="text-[10px] font-mono text-slate-500 uppercase">{customization.productColor || '#ffffff'}</span>
                 </div>
+                {recentColors.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Your recent colors</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {recentColors.map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => setCustomization({ ...customization, productColor: c })}
+                          className={`w-6 h-6 rounded-md border-2 transition-transform hover:scale-110 ${
+                            (customization.productColor || '').toLowerCase() === c.toLowerCase()
+                              ? 'border-blue-600 ring-1 ring-blue-200'
+                              : 'border-white shadow-sm'
+                          }`}
+                          style={{ backgroundColor: c }}
+                          title={c}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>
