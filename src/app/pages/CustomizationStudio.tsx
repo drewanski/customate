@@ -7,7 +7,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '../components/Card';
 import { apiRequest } from '../api';
 import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
-import { RotateCw, ZoomIn, Upload, Save, ChevronLeft, ChevronRight, Type, Image as ImageIcon, Settings2, Trash2, Maximize2, Move, LogIn, Box, Wand2, Sparkles } from 'lucide-react';
+import { RotateCw, ZoomIn, Upload, Save, ChevronLeft, ChevronRight, Type, Image as ImageIcon, Settings2, Trash2, Maximize2, Move, LogIn, Box, Wand2, Sparkles, Eraser, Crop as CropIcon } from 'lucide-react';
+import { ImageRefineModal } from '../components/customizer/ImageRefineModal';
 import { AIDesignAssistant } from '../components/AIDesignAssistant';
 import { AIDesignCritique } from '../components/AIDesignCritique';
 import { ProductCustomizer3D, EnvironmentPreset, CameraPreset } from '../components/ProductCustomizer3D';
@@ -61,6 +62,7 @@ export function CustomizationStudio() {
   const [justAdded, setJustAdded] = useState(false);
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: ToastType }>>([]);
   const [activeSidebarTab, setActiveSidebarTab] = useState<'text' | 'image' | 'ai' | 'options'>('text');
+  const [refineModalOpen, setRefineModalOpen] = useState(false);
   // AI design critique modal — gives 3 tips on the current design
   const [critiqueOpen, setCritiqueOpen] = useState(false);
   // ─── AI Lifestyle Mockup ──────────────────────────────────────────────
@@ -970,11 +972,39 @@ export function CustomizationStudio() {
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <h3 className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Artwork Controls</h3>
-                    <button 
+                    <button
                       onClick={() => setCustomization({ ...customization, image: '' })}
                       className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Refine image — opens the in-browser image editor: bg
+                      removal, crop, feather, color polish. The single most
+                      important upload-quality lever. */}
+                  <button
+                    onClick={() => setRefineModalOpen(true)}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-black text-white bg-gradient-to-br from-violet-600 via-fuchsia-600 to-pink-600 hover:from-violet-700 hover:via-fuchsia-700 hover:to-pink-700 shadow-lg shadow-fuchsia-200 hover:shadow-xl transition-all hover:-translate-y-0.5"
+                  >
+                    <Wand2 className="w-4 h-4" />
+                    Refine Image
+                    <span className="ml-1 text-[9px] font-black bg-white/25 px-1.5 py-0.5 rounded-full uppercase tracking-wider">Sticker</span>
+                  </button>
+                  <div className="grid grid-cols-2 gap-2 -mt-3">
+                    <button
+                      onClick={() => setRefineModalOpen(true)}
+                      className="inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-[10px] font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-violet-300 transition"
+                    >
+                      <Eraser className="w-3 h-3 text-violet-600" />
+                      Remove BG
+                    </button>
+                    <button
+                      onClick={() => setRefineModalOpen(true)}
+                      className="inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-[10px] font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-blue-300 transition"
+                    >
+                      <CropIcon className="w-3 h-3 text-blue-600" />
+                      Crop
                     </button>
                   </div>
 
@@ -1565,6 +1595,16 @@ export function CustomizationStudio() {
           to { opacity: 1; }
         }
       `}</style>
+
+      <ImageRefineModal
+        isOpen={refineModalOpen}
+        onClose={() => setRefineModalOpen(false)}
+        imageDataUrl={customization.image}
+        onApply={(newUrl) => {
+          setCustomization((prev) => ({ ...prev, image: newUrl }));
+          addToast('Image refined and applied!', 'success');
+        }}
+      />
     </div>
   );
 }

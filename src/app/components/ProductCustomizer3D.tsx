@@ -898,13 +898,16 @@ function ProjectedDecal({
       //   - The renderer's ACES Filmic tone mapping further desaturates
       //     highlights, making whites look gray and reds look brick.
       //
-      // alphaTest: pixels with alpha < 0.1 are discarded. Without this the
+      // alphaTest: pixels with alpha < 0.05 are discarded. Without this the
       // PNG's transparent rectangle still claims depth-buffer space,
-      // producing the square halo around uploaded logos.
+      // producing the square halo around uploaded logos. We keep the
+      // threshold low (5%) so feathered edges from the in-studio image
+      // refiner survive as a clean alpha gradient rather than getting
+      // chopped to a hard outline.
       const material = new THREE.MeshBasicMaterial({
         map: texture,
         transparent: true,
-        alphaTest: 0.1,
+        alphaTest: 0.05,
         depthTest: true,
         depthWrite: false,
         polygonOffset: true,

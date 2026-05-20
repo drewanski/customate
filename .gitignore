@@ -60,3 +60,4 @@ test-results/
 # These have Windows path-length issues and don't change between deploys.
 public/models/Universal*/
 dist/models/Universal*/
+customate-frontend.zip
