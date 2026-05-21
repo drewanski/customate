@@ -29,8 +29,14 @@ export type ShapeKind =
   | 'cross'
   | 'lightning';
 
-const SIZE = 1024;
-const PAD = 64; // inner padding so shapes don't kiss the canvas edge
+// Shapes are simple geometry with hard edges, so we render them at print
+// resolution rather than screen resolution — the customer can scale a
+// shape decal up to 30cm without it getting fuzzy, and the print-quality
+// analyzer (which checks pixel-density against physical print size) now
+// passes its 300 DPI bar on a typical t-shirt printable area (~12 in).
+// 3000 / 12 in = 250 DPI ✓
+const SIZE = 3000;
+const PAD = 180; // inner padding so shapes don't kiss the canvas edge
 
 /**
  * Render one of the built-in shapes to a PNG dataURL.

@@ -907,7 +907,7 @@ export function CustomizationStudio() {
         )}
         <div
           className={`
-            bg-white border-r border-slate-200 overflow-y-auto p-6 z-50
+            bg-white border-r border-slate-200 overflow-y-auto p-4 md:p-5 z-50
             md:relative md:w-80 md:translate-y-0 md:max-h-none
             fixed bottom-0 left-0 right-0 max-h-[75vh] rounded-t-3xl shadow-2xl
             transition-transform duration-300 ease-out
@@ -926,7 +926,7 @@ export function CustomizationStudio() {
             </button>
           </div>
           {activeSidebarTab === 'text' && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-left-2 duration-300">
+            <div className="space-y-4 animate-in fade-in slide-in-from-left-2 duration-300">
               {/* Design Templates — one-click presets that wire font + color
                   + stroke + shadow + product color in a single bundle.
                   Lives at the top of the Text tab as the "I don't know where
@@ -1246,7 +1246,7 @@ export function CustomizationStudio() {
           )}
 
           {activeSidebarTab === 'image' && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-left-2 duration-300">
+            <div className="space-y-4 animate-in fade-in slide-in-from-left-2 duration-300">
               {/* Print-quality panel — always visible on the image tab so the
                   customer knows immediately if their upload is too small.
                   When the design is clean we show a green "Print-ready" tile. */}
@@ -1527,7 +1527,7 @@ export function CustomizationStudio() {
           )}
 
           {activeSidebarTab === 'options' && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-left-2 duration-300">
+            <div className="space-y-4 animate-in fade-in slide-in-from-left-2 duration-300">
               <div>
                 <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-3 block">Product Color</label>
                 <div className="grid grid-cols-4 gap-2">
