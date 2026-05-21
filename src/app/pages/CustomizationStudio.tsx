@@ -10,6 +10,7 @@ import { useAuth } from '../hooks/useAuth';
 import { RotateCw, ZoomIn, Upload, Save, ChevronLeft, ChevronRight, Type, Image as ImageIcon, Settings2, Trash2, Maximize2, Move, LogIn, Box, Wand2, Sparkles, Eraser, Crop as CropIcon } from 'lucide-react';
 import { ImageRefineModal } from '../components/customizer/ImageRefineModal';
 import { ShapesPanel } from '../components/customizer/ShapesPanel';
+import { TemplatesPanel } from '../components/customizer/TemplatesPanel';
 import { useRecentColors } from '../hooks/useRecentColors';
 import { AIDesignAssistant } from '../components/AIDesignAssistant';
 import { AIDesignCritique } from '../components/AIDesignCritique';
@@ -443,7 +444,12 @@ export function CustomizationStudio() {
   useEffect(() => {
     setDesignElements(prev => {
       const findPrev = (id: string) => prev.find(e => e.id === id);
-      const next: DesignElement[] = [];
+      // Layers other than the sidebar-managed defaults (text_1 / image_1)
+      // were created via the LayersPanel "+ Add" buttons. They have their
+      // own content + transform, so we keep them untouched and only
+      // refresh the two sidebar-default slots from the customization state.
+      const extras = prev.filter(e => e.id !== 'text_1' && e.id !== 'image_1');
+      const next: DesignElement[] = [...extras];
 
       if (customization.text) {
         const existing = findPrev('text_1');
@@ -909,6 +915,20 @@ export function CustomizationStudio() {
           </div>
           {activeSidebarTab === 'text' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-left-2 duration-300">
+              {/* Design Templates — one-click presets that wire font + color
+                  + stroke + shadow + product color in a single bundle.
+                  Lives at the top of the Text tab as the "I don't know where
+                  to start" entry point. */}
+              <TemplatesPanel
+                onApply={(t) => {
+                  setCustomization((prev) => ({ ...prev, ...t }));
+                  setActiveDesignElement('text_1');
+                  if (t.color) rememberColor(t.color);
+                  if (t.productColor) rememberColor(t.productColor);
+                  addToast('Template applied!', 'success');
+                }}
+              />
+
               <div>
                 <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-3 block">Your Message</label>
                 <Textarea

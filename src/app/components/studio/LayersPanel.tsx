@@ -102,6 +102,36 @@ export function LayersPanel({ elements, activeId, onSelect, onChange, onClose }:
     onSelect(layer.id);
   };
 
+  // Upload picker for adding additional image layers. Each upload becomes
+  // its own DesignElement, so users can stack a logo + accent graphic + a
+  // photo without overwriting the sidebar's primary image_1 slot.
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const addImage = () => fileInputRef.current?.click();
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      if (!dataUrl) return;
+      const layer: DesignElement = {
+        id: `image_${Date.now()}`,
+        type: 'image',
+        content: dataUrl,
+        position: { x: 0, y: 0, z: 0 },
+        scale: 1,
+        rotation: 0,
+        color: '#000000',
+        opacity: 1,
+      };
+      onChange([...elements, layer]);
+      onSelect(layer.id);
+    };
+    reader.readAsDataURL(file);
+    // Reset so the same file can be picked twice in a row
+    e.target.value = '';
+  };
+
   return (
     <div className="fixed md:absolute top-20 left-4 md:left-32 z-30 w-72 max-h-[60vh] flex flex-col bg-white rounded-2xl border border-slate-200 shadow-2xl">
       <div className="flex items-center justify-between p-3 border-b border-slate-100">
@@ -121,6 +151,21 @@ export function LayersPanel({ elements, activeId, onSelect, onChange, onClose }:
             <Plus className="w-3 h-3" />
             Text
           </button>
+          <button
+            onClick={addImage}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 transition"
+            title="Add image layer"
+          >
+            <Plus className="w-3 h-3" />
+            Image
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFile}
+            className="hidden"
+          />
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1" title="Close">
             <X className="w-4 h-4" />
           </button>

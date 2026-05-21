@@ -800,6 +800,70 @@ function ProductMesh({
   );
 }
 
+/**
+ * Removes triangles from a DecalGeometry whose face normal points opposite
+ * to the projection direction.
+ *
+ * Why: DecalGeometry projects through the full bounding-box depth and
+ * relies on backface culling to hide the far side. But on double-sided
+ * meshes (typical for t-shirts / totes where THREE imports the GLB with
+ * material.side = DoubleSide), the back face is still rendered, producing
+ * a mirrored decal on the opposite side of the product.
+ *
+ * Returns a NEW BufferGeometry with only forward-facing triangles, or
+ * null if every triangle was facing away.
+ */
+function filterDecalByFacing(
+  geometry: any,
+  projectionDir: THREE.Vector3,
+  minDot: number,
+): THREE.BufferGeometry | null {
+  const posAttr = geometry.getAttribute('position');
+  const normAttr = geometry.getAttribute('normal');
+  const uvAttr = geometry.getAttribute('uv');
+  if (!posAttr || !normAttr) return geometry;
+
+  const dir = projectionDir.clone().normalize();
+  const triCount = posAttr.count / 3;
+  const keepPos: number[] = [];
+  const keepNorm: number[] = [];
+  const keepUv: number[] = [];
+
+  for (let t = 0; t < triCount; t++) {
+    // Average the three vertex normals to get a stable face direction.
+    // DecalGeometry copies the source mesh's vertex normals which is
+    // good enough for orientation testing.
+    const i = t * 3;
+    let nx = 0, ny = 0, nz = 0;
+    for (let v = 0; v < 3; v++) {
+      nx += normAttr.getX(i + v);
+      ny += normAttr.getY(i + v);
+      nz += normAttr.getZ(i + v);
+    }
+    nx /= 3; ny /= 3; nz /= 3;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    const dot = (nx * dir.x + ny * dir.y + nz * dir.z) / len;
+    if (dot < minDot) continue; // facing away — drop the triangle
+
+    for (let v = 0; v < 3; v++) {
+      const k = i + v;
+      keepPos.push(posAttr.getX(k), posAttr.getY(k), posAttr.getZ(k));
+      keepNorm.push(normAttr.getX(k), normAttr.getY(k), normAttr.getZ(k));
+      if (uvAttr) keepUv.push(uvAttr.getX(k), uvAttr.getY(k));
+    }
+  }
+
+  if (keepPos.length === 0) return null;
+
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(keepPos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(keepNorm, 3));
+  if (uvAttr && keepUv.length) {
+    out.setAttribute('uv', new THREE.Float32BufferAttribute(keepUv, 2));
+  }
+  return out;
+}
+
 // ─── decal projected onto target mesh using DecalGeometry ──────────────────
 interface ProjectedDecalProps {
   element: DesignElement;
@@ -928,6 +992,25 @@ function ProjectedDecal({
         geometry.dispose();
         continue;
       }
+
+      // ─── Front/back duplication fix ─────────────────────────────────
+      // The projection box deliberately extends through the full mesh
+      // depth so curved areas (sleeves, neck) get captured cleanly. But
+      // on flat double-sided meshes like a t-shirt body, that means the
+      // back face also lands inside the projection box and renders a
+      // mirrored copy of the design.
+      //
+      // Solution: walk every triangle in the freshly-generated decal
+      // geometry, compute its face normal, and keep only triangles whose
+      // normal aligns with the user's chosen surface normal (front-
+      // facing relative to where the decal was placed). Anything pointing
+      // the opposite direction is the unwanted "back-side" geometry.
+      const filtered = filterDecalByFacing(geometry, pose.normal, 0.15);
+      if (!filtered) {
+        geometry.dispose();
+        continue;
+      }
+      geometry = filtered as DecalGeometry;
       // MeshBasicMaterial is unlit — it shows the texture exactly as it is
       // in the source PNG, with zero interaction with scene lighting, tone
       // mapping, or shadows. For a printed decal that's what you want:
