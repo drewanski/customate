@@ -12,6 +12,7 @@ import { ImageRefineModal } from '../components/customizer/ImageRefineModal';
 import { ShapesPanel } from '../components/customizer/ShapesPanel';
 import { TemplatesPanel } from '../components/customizer/TemplatesPanel';
 import { useRecentColors } from '../hooks/useRecentColors';
+import { autoStickerize } from '../utils/autoStickerize';
 import { AIDesignAssistant } from '../components/AIDesignAssistant';
 import { AIDesignCritique } from '../components/AIDesignCritique';
 import { ProductCustomizer3D, EnvironmentPreset, CameraPreset } from '../components/ProductCustomizer3D';
@@ -844,37 +845,45 @@ export function CustomizationStudio() {
       <div className="flex-1 flex overflow-hidden relative">
         {/* Left Toolbar — icon tabs with active highlight + indicator bar.
             Hidden on mobile (<md); replaced by bottom tab bar at end of file. */}
-        <div className="hidden md:flex w-20 bg-white border-r border-slate-200 flex-col items-center py-4 gap-2 z-20">
+        <div className="hidden md:flex w-20 bg-gradient-to-b from-white via-slate-50/70 to-white border-r border-slate-200 flex-col items-center py-5 gap-1 z-20">
           {([
-            { key: 'text' as const, Icon: Type, label: 'Text' },
-            { key: 'image' as const, Icon: ImageIcon, label: 'Image' },
-            { key: 'ai' as const, Icon: Wand2, label: 'AI' },
-            { key: 'options' as const, Icon: Settings2, label: 'Options' },
-          ]).map(({ key, Icon, label }) => {
+            { key: 'text' as const, Icon: Type, label: 'Text', tint: 'from-blue-500 to-indigo-600' },
+            { key: 'image' as const, Icon: ImageIcon, label: 'Image', tint: 'from-violet-500 to-fuchsia-600' },
+            { key: 'ai' as const, Icon: Wand2, label: 'AI', tint: 'from-fuchsia-500 to-pink-600' },
+            { key: 'options' as const, Icon: Settings2, label: 'Options', tint: 'from-slate-500 to-slate-700' },
+          ]).map(({ key, Icon, label, tint }) => {
             const active = activeSidebarTab === key;
             return (
               <button
                 key={key}
                 onClick={() => setActiveSidebarTab(key)}
-                className={`relative w-full flex flex-col items-center gap-1 py-2.5 transition-colors ${
-                  active ? 'text-blue-600' : 'text-slate-400 hover:text-slate-700'
+                className={`relative w-full flex flex-col items-center gap-1.5 py-3 group transition-colors ${
+                  active ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700'
                 }`}
                 title={label}
+                aria-label={label}
+                aria-pressed={active}
               >
-                {/* Active indicator bar on the left edge */}
+                {/* Active indicator pill on the left edge */}
                 <span
-                  className={`absolute left-0 top-1/2 -translate-y-1/2 w-0.5 rounded-r transition-all ${
-                    active ? 'h-7 bg-blue-600' : 'h-0 bg-transparent'
+                  className={`absolute left-0 top-1/2 -translate-y-1/2 w-1 rounded-r-full transition-all ${
+                    active
+                      ? `h-9 bg-gradient-to-b ${tint} shadow-sm`
+                      : 'h-0 bg-transparent group-hover:h-4 group-hover:bg-slate-300'
                   }`}
                 />
                 <div
-                  className={`p-2.5 rounded-xl transition-all ${
-                    active ? 'bg-blue-50 scale-110' : 'bg-transparent group-hover:bg-slate-50'
+                  className={`p-2.5 rounded-2xl transition-all ${
+                    active
+                      ? `bg-gradient-to-br ${tint} text-white shadow-lg shadow-blue-200/50 scale-110`
+                      : 'bg-transparent group-hover:bg-white group-hover:shadow-sm'
                   }`}
                 >
                   <Icon className="w-5 h-5" />
                 </div>
-                <span className={`text-[10px] font-semibold uppercase tracking-wide ${active ? 'text-blue-600' : ''}`}>
+                <span className={`text-[10px] font-bold uppercase tracking-wide transition-colors ${
+                  active ? 'text-slate-900' : 'text-slate-400 group-hover:text-slate-700'
+                }`}>
                   {label}
                 </span>
               </button>
@@ -1240,6 +1249,24 @@ export function CustomizationStudio() {
                   When the design is clean we show a green "Print-ready" tile. */}
               <DesignQualityPanel issues={qualityIssues} />
 
+              {/* Sticker-mode hint banner — sets the expectation that
+                  uploaded/AI images get their backgrounds removed
+                  automatically. Sells the magic before they even act. */}
+              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-50 via-fuchsia-50 to-pink-50 border border-fuchsia-200 p-3.5">
+                <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-fuchsia-200/40 blur-2xl pointer-events-none" />
+                <div className="relative flex items-start gap-2.5">
+                  <div className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 via-fuchsia-600 to-pink-600 flex items-center justify-center text-white shadow-md shadow-fuchsia-200">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[12px] font-black text-slate-900 leading-tight">Smart Sticker Mode</p>
+                    <p className="text-[10px] text-slate-600 leading-snug mt-0.5">
+                      Upload anything — we'll auto-remove white backgrounds so it lands clean. Use Refine for full control.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* Quick Shapes — built-in library that renders to PNG and
                   applies like an uploaded image. One-click variety. */}
               <ShapesPanel
@@ -1254,10 +1281,23 @@ export function CustomizationStudio() {
 
               <FileUpload
                 currentImage={customization.image}
-                onUpload={(url: string, thumbnailUrl: string) => {
+                onUpload={async (url: string, thumbnailUrl: string) => {
+                  // Auto-detect solid-colour backgrounds and convert to
+                  // transparent sticker before applying. No-op if the image
+                  // already has transparency or looks like a photo.
                   setCustomization({ ...customization, image: url });
                   setActiveDesignElement('image_1');
-                  addToast('Design uploaded successfully!', 'success');
+                  addToast('Design uploaded — analyzing…', 'success');
+                  try {
+                    const result = await autoStickerize(url);
+                    if (result.changed) {
+                      setCustomization((prev) => ({ ...prev, image: result.dataUrl }));
+                      addToast('✨ Background auto-removed — looks like a sticker!', 'success');
+                    }
+                  } catch (err) {
+                    // Auto-stickerize is best-effort; original upload still works.
+                    console.warn('autoStickerize failed', err);
+                  }
                 }}
                 onClear={() => {
                   setCustomization({ ...customization, image: '' });
@@ -1459,13 +1499,25 @@ export function CustomizationStudio() {
             <div className="animate-in fade-in slide-in-from-left-2 duration-300">
               <AIDesignAssistant
                 productCategory={product?.category}
-                onApply={(dataUrl, meta) => {
+                onApply={async (dataUrl, meta) => {
                   // Apply the generated image as the decal. Switch to the
                   // Image tab so the user can position/scale it immediately.
                   setCustomization((prev) => ({ ...prev, image: dataUrl }));
                   setActiveDesignElement('image_1');
                   setActiveSidebarTab('image');
                   addToast(`AI design applied (${meta.style})`, 'success');
+                  // Gemini almost always returns a solid white background.
+                  // Run auto-stickerize so the decal lands transparent and
+                  // sticker-shaped instead of as a square white tile.
+                  try {
+                    const result = await autoStickerize(dataUrl);
+                    if (result.changed) {
+                      setCustomization((prev) => ({ ...prev, image: result.dataUrl }));
+                      addToast('✨ Background auto-removed', 'success');
+                    }
+                  } catch (err) {
+                    console.warn('autoStickerize failed', err);
+                  }
                 }}
               />
             </div>

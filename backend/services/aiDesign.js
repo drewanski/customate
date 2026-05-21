@@ -98,13 +98,14 @@ function buildImagePrompt(userPrompt, style = 'minimalist') {
   const styleDesc = stylePresets[style] || stylePresets.minimalist;
 
   return [
-    `Create a high-quality decal/sticker design suitable for printing on apparel or merchandise.`,
+    `Create a die-cut sticker design suitable for screen-printing or heat-transfer onto apparel.`,
     `Concept: ${String(userPrompt).slice(0, 200).trim()}`,
     `Style: ${styleDesc}.`,
-    `Composition: centered, symmetrical when possible, with clear silhouette readable at a glance.`,
-    `Background: solid white or transparent. The artwork must be printable: high contrast, no photographic detail, no gradients that won't survive heat transfer.`,
-    `Output a square image with the design occupying ~80% of the frame.`,
-    `Avoid: text unless explicitly requested, watermarks, signatures, photo-realism, busy backgrounds.`,
+    `Composition: a single, centered subject with a CLEAN SILHOUETTE — readable at a glance, no scene around it.`,
+    `Background: PURE WHITE only (RGB 255,255,255), no gradient, no shadow, no texture. The white area will be removed in post-processing to produce a transparent-background sticker.`,
+    `Edges: hard, well-defined outlines so the cutout edge is crisp.`,
+    `Output a square image with the design occupying ~75% of the frame, surrounded by clean white margin.`,
+    `Avoid: text unless explicitly requested, photographic detail, gradients into the background, drop shadows, watermarks, busy compositions, multiple subjects, frames/borders.`,
   ].join('\n');
 }
 
