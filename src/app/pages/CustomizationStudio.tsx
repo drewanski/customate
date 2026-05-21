@@ -1645,7 +1645,48 @@ export function CustomizationStudio() {
 
         {/* Main Canvas Area — full width on mobile, with bottom padding for the
             mobile tab bar; constrained next to sidebar on md+. */}
-        <div ref={studioContainerRef} className="flex-1 bg-[#F1F5F9] relative flex items-center justify-center p-4 md:p-8 pb-20 md:pb-8 overflow-hidden">
+        <div
+          ref={studioContainerRef}
+          className="flex-1 relative flex items-center justify-center p-4 md:p-8 pb-20 md:pb-8 overflow-hidden bg-gradient-to-br from-slate-100 via-slate-50 to-blue-50/40"
+        >
+          {/* ─── Studio backdrop layers ─────────────────────────────────────
+              Three stacked decorative layers behind the 3D canvas to make
+              the workspace feel like a real product-photography studio
+              instead of a flat grey rectangle. All pointer-events: none
+              so they never interfere with orbit / drag interactions.
+          ─────────────────────────────────────────────────────────────── */}
+          {/* Soft coloured blobs — slow ambient motion gives the area life
+              without distracting from the product. */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="absolute -top-24 -left-32 w-[420px] h-[420px] rounded-full bg-blue-300/25 blur-3xl animate-pulse-slow" />
+            <div className="absolute top-1/3 -right-24 w-[360px] h-[360px] rounded-full bg-fuchsia-300/20 blur-3xl animate-pulse-slow" style={{ animationDelay: '2s' }} />
+            <div className="absolute -bottom-24 left-1/3 w-[460px] h-[460px] rounded-full bg-indigo-300/25 blur-3xl animate-pulse-slow" style={{ animationDelay: '4s' }} />
+          </div>
+          {/* Subtle dot grid for depth — barely visible but adds texture. */}
+          <div
+            className="pointer-events-none absolute inset-0 opacity-[0.18]"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle at center, rgba(15, 23, 42, 0.35) 1px, transparent 1.5px)',
+              backgroundSize: '24px 24px',
+              maskImage: 'radial-gradient(ellipse at center, rgba(0,0,0,0.95) 30%, rgba(0,0,0,0) 80%)',
+              WebkitMaskImage: 'radial-gradient(ellipse at center, rgba(0,0,0,0.95) 30%, rgba(0,0,0,0) 80%)',
+            }}
+          />
+          {/* Centered spotlight halo — lifts the product visually. */}
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                'radial-gradient(circle at 50% 45%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.6) 30%, rgba(255,255,255,0) 60%)',
+            }}
+          />
+          {/* Floor shadow strip — anchors the product to the ground plane. */}
+          <div
+            className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-[12%] w-[60%] max-w-[600px] h-12 rounded-[100%] bg-slate-900/15 blur-2xl"
+            aria-hidden="true"
+          />
+
           {/* Pro Studio floating toolbar — environment, camera, showcase,
               history, save, layers, fullscreen. Lives on top of the 3D scene. */}
           {isPreview3D && (
@@ -2085,11 +2126,19 @@ export function CustomizationStudio() {
         productName={product?.name}
       />
 
-      {/* fadeIn keyframe for the mobile backdrop animation */}
+      {/* fadeIn keyframe for the mobile backdrop animation +
+          slow-pulse for the studio backdrop blobs. */}
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; }
           to { opacity: 1; }
+        }
+        @keyframes pulse-slow {
+          0%, 100% { opacity: 0.85; transform: scale(1); }
+          50%      { opacity: 1;    transform: scale(1.08); }
+        }
+        .animate-pulse-slow {
+          animation: pulse-slow 9s ease-in-out infinite;
         }
       `}</style>
 
