@@ -711,7 +711,10 @@ export function CustomizationStudio() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col">
+    // h-screen + overflow-hidden on the root locks the studio to the
+    // viewport so the customer never has to scroll the page itself.
+    // The sidebar scrolls internally, the 3D viewer stays put.
+    <div className="h-screen overflow-hidden bg-[#F8FAFC] flex flex-col">
       <ToastContainer toasts={toasts} removeToast={removeToast} />
       
       {/* Top Navigation Bar — back, title, breadcrumb, save indicator, price + CTA */}
@@ -1647,43 +1650,56 @@ export function CustomizationStudio() {
             mobile tab bar; constrained next to sidebar on md+. */}
         <div
           ref={studioContainerRef}
-          className="flex-1 relative flex items-center justify-center p-4 md:p-8 pb-20 md:pb-8 overflow-hidden bg-gradient-to-br from-slate-100 via-slate-50 to-blue-50/40"
+          className="flex-1 relative flex items-center justify-center p-4 md:p-8 pb-20 md:pb-8 overflow-hidden bg-slate-900"
         >
-          {/* ─── Studio backdrop layers ─────────────────────────────────────
-              Three stacked decorative layers behind the 3D canvas to make
-              the workspace feel like a real product-photography studio
-              instead of a flat grey rectangle. All pointer-events: none
-              so they never interfere with orbit / drag interactions.
+          {/* ─── Studio backdrop ─────────────────────────────────────────
+              Three layers stacked behind the 3D canvas to mimic a real
+              photo-studio cyc wall: deep gradient floor, vibrant aurora
+              mesh in the upper half, then a soft spotlight + grid texture
+              on top. All pointer-events: none so 3D orbit / decal clicks
+              go through cleanly.
           ─────────────────────────────────────────────────────────────── */}
-          {/* Soft coloured blobs — slow ambient motion gives the area life
-              without distracting from the product. */}
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute -top-24 -left-32 w-[420px] h-[420px] rounded-full bg-blue-300/25 blur-3xl animate-pulse-slow" />
-            <div className="absolute top-1/3 -right-24 w-[360px] h-[360px] rounded-full bg-fuchsia-300/20 blur-3xl animate-pulse-slow" style={{ animationDelay: '2s' }} />
-            <div className="absolute -bottom-24 left-1/3 w-[460px] h-[460px] rounded-full bg-indigo-300/25 blur-3xl animate-pulse-slow" style={{ animationDelay: '4s' }} />
-          </div>
-          {/* Subtle dot grid for depth — barely visible but adds texture. */}
+          {/* Layer 1 — base mesh gradient (no animation, the lighting). */}
           <div
-            className="pointer-events-none absolute inset-0 opacity-[0.18]"
+            className="pointer-events-none absolute inset-0"
             style={{
-              backgroundImage:
-                'radial-gradient(circle at center, rgba(15, 23, 42, 0.35) 1px, transparent 1.5px)',
-              backgroundSize: '24px 24px',
-              maskImage: 'radial-gradient(ellipse at center, rgba(0,0,0,0.95) 30%, rgba(0,0,0,0) 80%)',
-              WebkitMaskImage: 'radial-gradient(ellipse at center, rgba(0,0,0,0.95) 30%, rgba(0,0,0,0) 80%)',
+              background: `
+                radial-gradient(ellipse 80% 60% at 20% 0%,  rgba(59, 130, 246, 0.55), transparent 60%),
+                radial-gradient(ellipse 70% 60% at 80% 5%,  rgba(217, 70, 239, 0.45), transparent 60%),
+                radial-gradient(ellipse 90% 70% at 50% 100%, rgba(99, 102, 241, 0.45), transparent 65%),
+                linear-gradient(180deg, #0f172a 0%, #1e1b4b 55%, #0f172a 100%)
+              `,
             }}
           />
-          {/* Centered spotlight halo — lifts the product visually. */}
+          {/* Layer 2 — animated aurora blobs that pulse in/out slowly. */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="absolute -top-24 left-1/4 w-[520px] h-[520px] rounded-full bg-fuchsia-500/40 blur-[120px] animate-pulse-slow" />
+            <div className="absolute top-1/3 -right-16 w-[480px] h-[480px] rounded-full bg-blue-500/45 blur-[120px] animate-pulse-slow" style={{ animationDelay: '2s' }} />
+            <div className="absolute -bottom-20 left-1/3 w-[560px] h-[560px] rounded-full bg-indigo-500/40 blur-[120px] animate-pulse-slow" style={{ animationDelay: '4s' }} />
+            <div className="absolute top-10 right-1/3 w-[260px] h-[260px] rounded-full bg-cyan-400/30 blur-[100px] animate-pulse-slow" style={{ animationDelay: '6s' }} />
+          </div>
+          {/* Layer 3 — subtle dot grid texture for depth. */}
+          <div
+            className="pointer-events-none absolute inset-0 opacity-[0.18] mix-blend-screen"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle at center, rgba(255,255,255,0.9) 1px, transparent 1.5px)',
+              backgroundSize: '28px 28px',
+              maskImage: 'radial-gradient(ellipse at center, rgba(0,0,0,0.9) 25%, rgba(0,0,0,0) 80%)',
+              WebkitMaskImage: 'radial-gradient(ellipse at center, rgba(0,0,0,0.9) 25%, rgba(0,0,0,0) 80%)',
+            }}
+          />
+          {/* Layer 4 — centre spotlight that lifts the product visually. */}
           <div
             className="pointer-events-none absolute inset-0"
             style={{
               background:
-                'radial-gradient(circle at 50% 45%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.6) 30%, rgba(255,255,255,0) 60%)',
+                'radial-gradient(ellipse 50% 55% at 50% 45%, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.06) 35%, rgba(255,255,255,0) 65%)',
             }}
           />
-          {/* Floor shadow strip — anchors the product to the ground plane. */}
+          {/* Floor shadow — anchors the product to the ground plane. */}
           <div
-            className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-[12%] w-[60%] max-w-[600px] h-12 rounded-[100%] bg-slate-900/15 blur-2xl"
+            className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-[12%] w-[60%] max-w-[600px] h-14 rounded-[100%] bg-black/40 blur-2xl"
             aria-hidden="true"
           />
 
