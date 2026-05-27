@@ -116,6 +116,24 @@ router.delete('/me/addresses/:addressId', authMiddleware, async (req, res) => {
   }
 });
 
+// Save Expo push token — called from mobile after notification permission is granted.
+// Idempotent: safe to call on every login (skips DB write if token unchanged).
+router.put('/me/push-token', authMiddleware, async (req, res) => {
+  try {
+    const { pushToken } = req.body;
+    // Accept null/empty to clear the token (e.g. user disabled notifications)
+    if (pushToken !== null && (typeof pushToken !== 'string' || !pushToken.trim())) {
+      return res.status(400).json({ message: 'pushToken must be a non-empty string or null' });
+    }
+    await User.findByIdAndUpdate(req.user.userId, {
+      expoPushToken: pushToken ? pushToken.trim() : null,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get all users (admin only)
 router.get('/', authMiddleware, adminMiddleware, async (req, res) => {
   try {

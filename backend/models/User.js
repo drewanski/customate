@@ -37,7 +37,10 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   // True once the user has completed an email OTP flow (either during
   // password registration or during first-time Google sign-in).
-  isEmailVerified: { type: Boolean, default: false }
+  isEmailVerified: { type: Boolean, default: false },
+  // Expo push token — stored after the mobile app requests notification permission.
+  // Cleared automatically when the device unregisters (DeviceNotRegistered error).
+  expoPushToken: { type: String, default: null },
 });
 
 export default mongoose.model('User', userSchema);

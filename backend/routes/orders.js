@@ -34,6 +34,7 @@ import {
 } from '../services/urgency.js';
 import { markRecovered } from '../services/abandonedCart.js';
 import { uploadImage } from '../services/imageUpload.js';
+import { sendPushToUser, getPushContentForStatus } from '../services/pushNotification.js';
 
 const router = express.Router();
 
@@ -654,6 +655,16 @@ router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
     User.findById(order.customer).select('name email').lean()
       .then((customer) => sendOrderStatusUpdate({ user: customer, order, from: previousStatus, to: status }))
       .catch((err) => console.error('Status email failed:', err?.message));
+
+    // Mobile push notification — fire-and-forget, never blocks the response
+    const pushContent = getPushContentForStatus(status);
+    if (pushContent) {
+      const customerId = order.customer?._id ?? order.customer;
+      sendPushToUser(customerId, {
+        ...pushContent,
+        data: { orderId: String(order._id), screen: 'OrderDetails' },
+      });
+    }
     
     // Populate customer before sending notification
     await order.populate('customer');
