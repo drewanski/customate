@@ -10,10 +10,16 @@ console.log('Inventory routes module loaded');
 const router = express.Router();
 
 // Public: Get all active inventory (no auth required)
+// Optional ?search=query — case-insensitive substring match on name, category, description
 router.get('/public', async (req, res) => {
   try {
     console.log('GET /inventory/public called');
-    const inventory = await Inventory.find({ isActive: true }).sort({ createdAt: -1 });
+    const filter = { isActive: true };
+    if (req.query.search) {
+      const rx = new RegExp(req.query.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [{ name: rx }, { category: rx }, { description: rx }];
+    }
+    const inventory = await Inventory.find(filter).sort({ createdAt: -1 });
     console.log('Found inventory items:', inventory.length);
     res.json(inventory);
   } catch (err) {

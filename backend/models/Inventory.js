@@ -9,6 +9,8 @@ const inventorySchema = new mongoose.Schema({
   minStock: { type: Number, default: 10, min: 0 }, // Minimum stock threshold for alerts
   price: { type: Number, required: true, min: 0 },
   image: { type: String },
+  gltfUrl: { type: String },      // URL to the hosted GLB file for 3D preview
+  productKey: { type: String },   // App-side key: 'tshirt' | 'hoodie' | 'cap' | 'mug' | 'tote' | 'jersey' | 'mousepad' | 'handfan'
   description: { type: String },
   isActive: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now },

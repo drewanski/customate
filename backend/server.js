@@ -7,6 +7,10 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
 dotenv.config({ path: 'backend/.env' });
 
 // Validate environment BEFORE we import routes — fail fast on misconfiguration
@@ -36,6 +40,7 @@ import aiRoutes from './routes/ai.js';
 import aiDesignRoutes from './routes/aiDesign.js';
 import adminInsightsRoutes from './routes/adminInsights.js';
 import notificationRoutes from './routes/notifications.js';
+import designRoutes from './routes/designs.js';
 import productionRoutes from './routes/production.js';
 import productionPublicRoutes from './routes/productionPublic.js';
 import NotificationService from './services/notificationService.js';
@@ -132,6 +137,17 @@ app.use(cors({
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
+// ─── Static 3-D model files ───────────────────────────────────────────────
+// Serve GLB files from public/models/ at GET /models/<sku>.glb
+// cross-origin allowed so the mobile WebView (different origin) can fetch them.
+// 1-day cache so repeated loads don't re-download 10-30 MB files.
+app.use('/models', express.static(path.join(__dirname, 'public/models'), {
+  setHeaders(res) {
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.set('Access-Control-Allow-Origin', '*');
+  },
+}));
+
 // ─── NoSQL injection defense ──────────────────────────────────────────────
 // Strip keys starting with `$` or containing `.` from req.body / req.query /
 // req.params. Without this, a payload like { email: { "$gt": "" } } sent to
@@ -224,6 +240,7 @@ console.log('Routes registered');
 app.use('/api/admin-ai', adminAIRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/designs', designRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/production-public', productionPublicRoutes);
 app.use('/api/paymongo', paymongoRoutes);
