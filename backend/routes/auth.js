@@ -163,6 +163,54 @@ router.post('/register', async (req, res) => {
   }
 });
 
+// Phone-based registration (OTP verified via /phone-otp/verify first)
+router.post('/register-by-phone', async (req, res) => {
+  try {
+    const { name, contactNumber, password } = req.body;
+    if (!name || !contactNumber || !password) {
+      return res.status(400).json({ message: 'Name, contact number, and password are required' });
+    }
+    if (String(password).length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters' });
+    }
+
+    const normalized = String(contactNumber).trim();
+
+    // Require phone OTP to have been verified
+    const otpRecord = await PhoneOtp.findOne({ contactNumber: normalized });
+    if (!otpRecord || !otpRecord.verified) {
+      return res.status(400).json({
+        message: 'Phone number must be verified via OTP before creating an account',
+      });
+    }
+
+    // Uniqueness check
+    const existing = await User.findOne({ contactNumber: normalized });
+    if (existing) {
+      return res.status(400).json({ message: 'An account with this phone number already exists' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({
+      name: String(name).trim(),
+      email: `phone_${normalized.replace(/\D/g, '')}@customate.local`,
+      contactNumber: normalized,
+      password: hashedPassword,
+      role: 'customer',
+      notificationPreference: 'sms',
+      isEmailVerified: false,
+    });
+    await user.save();
+
+    await PhoneOtp.deleteOne({ _id: otpRecord._id });
+    console.log('✅ User registered with verified phone:', normalized);
+    res.status(201).json({ message: 'User registered successfully' });
+  } catch (err) {
+    console.error('Phone registration error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Guest login
 router.post('/guest', async (req, res) => {
   try {
@@ -387,8 +435,7 @@ router.post('/login', async (req, res) => {
     const now = Date.now();
     if (attemptRec.lockedUntil && now < attemptRec.lockedUntil) {
       const seconds = Math.max(1, Math.ceil((attemptRec.lockedUntil - now) / 1000));
-      const lockedAt = attemptRec.lockedUntil - LOGIN_LOCK_MS;
-      return res.status(429).json({ 
+      return res.status(429).json({
         message: `Too many login attempts. Try again in ${seconds}s.`,
         locked: true,
         lockedUntil: attemptRec.lockedUntil,
@@ -397,7 +444,21 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email });
+    // Support login by email OR phone (contactNumber).
+    // The mobile app sends the phone number in the `email` field when the
+    // user types a phone number — match against both fields.
+    const normalizedId  = String(email || '').trim().toLowerCase();
+    const cleanPhone    = normalizedId.replace(/\D/g, '');
+    const phoneVariants = cleanPhone.length >= 7
+      ? [normalizedId, cleanPhone, `+${cleanPhone}`]
+      : [];
+
+    const user = await User.findOne({
+      $or: [
+        { email: normalizedId },
+        ...(phoneVariants.length ? [{ contactNumber: { $in: phoneVariants } }] : []),
+      ],
+    });
 
     if (!user || !user.password) {
       const next = {
@@ -552,6 +613,41 @@ router.post('/reset-password', async (req, res) => {
       return res.status(400).json({ message: 'Invalid token' });
     }
     res.status(500).json({ message: 'Failed to reset password' });
+  }
+});
+
+// OTP-verified password reset (mobile forgot-password flow)
+// The client generates + sends the OTP itself (EmailJS / Semaphore) and verifies
+// it locally. After verification it hits this endpoint to persist the new password.
+router.post('/change-password-by-contact', async (req, res) => {
+  try {
+    const { contact, newPassword } = req.body;
+    if (!contact || !newPassword) {
+      return res.status(400).json({ message: 'contact and newPassword are required' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters' });
+    }
+
+    const normalized = contact.trim().toLowerCase();
+    const cleanPhone  = contact.replace(/\D/g, '');
+
+    const user = await User.findOne({
+      $or: [
+        { email: normalized },
+        { contactNumber: { $in: [contact.trim(), cleanPhone, `+${cleanPhone}`] } },
+      ],
+    });
+
+    if (!user) return res.status(404).json({ message: 'No account found with this contact' });
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.json({ ok: true, message: 'Password updated successfully' });
+  } catch (err) {
+    console.error('[change-password-by-contact]', err);
+    res.status(500).json({ message: 'Failed to update password' });
   }
 });
 
