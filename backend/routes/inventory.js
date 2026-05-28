@@ -43,9 +43,9 @@ router.get('/:id', async (req, res) => {
 });
 
 // Get all inventory (admin only)
-// Read access: production_staff + production_manager + admin all need
-// to see what's on hand (staff for production prep, manager for planning,
-// admin for everything).
+// Read access: production_staff + admin (= Production Manager). Staff
+// need stock levels for production prep; the Production Manager (admin)
+// sees everything including pricing + supplier info.
 router.get('/', authMiddleware, requireProductionStaff, async (req, res) => {
   const inventory = await Inventory.find().sort({ createdAt: -1 });
   res.json(inventory);

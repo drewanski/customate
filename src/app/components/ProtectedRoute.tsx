@@ -2,12 +2,14 @@ import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
+// Two operator roles + customer + guest.
+// admin = Production Manager / business owner (full access).
+// production_staff = floor worker (limited).
 export type Role =
   | 'admin'
   | 'customer'
   | 'guest'
-  | 'production_staff'
-  | 'production_manager';
+  | 'production_staff';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -36,10 +38,11 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     const allowedWithAdmin = allowed.includes('admin') ? allowed : [...allowed, 'admin'];
     if (!allowedWithAdmin.includes(user.role as Role)) {
       // Send each role to its natural landing page when they hit a forbidden
-      // route, so a production_staff user that accidentally clicks an admin
-      // link lands on their own dashboard instead of the customer homepage.
+      // route, so a production_staff user that accidentally clicks an
+      // admin-only link lands on their own dashboard instead of the
+      // customer homepage.
       const fallback =
-        user.role === 'production_staff' || user.role === 'production_manager'
+        user.role === 'production_staff'
           ? '/admin/production'
           : user.role === 'customer'
           ? '/dashboard'

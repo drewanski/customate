@@ -36,23 +36,23 @@ export function AdminLayout() {
     navigate('/login');
   };
 
-  // Role-aware nav. `roles` is the allow-list per item — admin sees
-  // everything, production_manager sees ops + reviews, production_staff
-  // sees the bare minimum (production queue + calendar + inventory read).
-  // Items missing for the current role are silently dropped below.
+  // Role-aware nav. admin (= Production Manager / owner) sees everything.
+  // production_staff sees just their floor-work surface: Production queue,
+  // Calendar, and read-only Inventory. Items missing for the current role
+  // are silently dropped below.
   const role = (user?.role || 'customer') as
-    | 'admin' | 'production_manager' | 'production_staff' | 'customer';
+    | 'admin' | 'production_staff' | 'customer';
 
   const allNavLinks = [
-    { to: '/admin',           label: 'Overview',   icon: LayoutDashboard, roles: ['admin', 'production_manager'] },
-    { to: '/admin/orders',    label: 'Orders',     icon: Package,         roles: ['admin', 'production_manager'] },
-    { to: '/admin/production',label: 'Production', icon: ListTodo,        roles: ['admin', 'production_manager', 'production_staff'] },
-    { to: '/admin/calendar',  label: 'Calendar',   icon: CalendarIcon,    roles: ['admin', 'production_manager', 'production_staff'] },
+    { to: '/admin',           label: 'Overview',   icon: LayoutDashboard, roles: ['admin'] },
+    { to: '/admin/orders',    label: 'Orders',     icon: Package,         roles: ['admin'] },
+    { to: '/admin/production',label: 'Production', icon: ListTodo,        roles: ['admin', 'production_staff'] },
+    { to: '/admin/calendar',  label: 'Calendar',   icon: CalendarIcon,    roles: ['admin', 'production_staff'] },
     { to: '/admin/users',     label: 'Accounts',   icon: Users,           roles: ['admin'] },
-    { to: '/admin/inventory', label: 'Inventory',  icon: Boxes,           roles: ['admin', 'production_manager', 'production_staff'] },
+    { to: '/admin/inventory', label: 'Inventory',  icon: Boxes,           roles: ['admin', 'production_staff'] },
     { to: '/admin/reports',   label: 'Reports',    icon: BarChart3,       roles: ['admin'] },
     { to: '/admin/coupons',   label: 'Coupons',    icon: Tag,             roles: ['admin'] },
-    { to: '/admin/reviews',   label: 'Reviews',    icon: Star,            roles: ['admin', 'production_manager'] },
+    { to: '/admin/reviews',   label: 'Reviews',    icon: Star,            roles: ['admin'] },
   ];
   const navLinks = allNavLinks.filter((link) => link.roles.includes(role));
 
@@ -125,7 +125,7 @@ export function AdminLayout() {
               <div className="leading-tight">
                 <div className="font-bold text-white text-sm">CustoMate</div>
                 <div className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">
-                  Admin Panel
+                  {role === 'production_staff' ? 'Production Floor' : 'Production Manager'}
                 </div>
               </div>
             )}
@@ -206,13 +206,11 @@ export function AdminLayout() {
                 {initials}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-bold text-white truncate">{user.name || 'Admin'}</div>
-                <div className="text-[10px] text-slate-400 truncate">{user.email || 'admin@customate.app'}</div>
-                {role !== 'admin' && (
-                  <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-gradient-to-r from-blue-500 to-indigo-600 text-white">
-                    {role === 'production_manager' ? 'Manager' : 'Production Staff'}
-                  </div>
-                )}
+                <div className="text-xs font-bold text-white truncate">{user.name || 'Production Manager'}</div>
+                <div className="text-[10px] text-slate-400 truncate">{user.email || 'manager@customate.app'}</div>
+                <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-gradient-to-r from-blue-500 to-indigo-600 text-white">
+                  {role === 'production_staff' ? 'Production Staff' : 'Production Manager'}
+                </div>
               </div>
             </div>
           )}

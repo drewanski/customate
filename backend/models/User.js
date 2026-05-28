@@ -23,11 +23,14 @@ const userSchema = new mongoose.Schema({
   //   guest             — pre-registration placeholder
   //   customer          — public shoppers
   //   production_staff  — floor workers; queue-only access, no PII / no $
-  //   production_manager— supervisor; bridges floor + admin (no $ either)
-  //   admin             — full system access including finance + accounts
+  //   admin             — the business owner / "Production Manager".
+  //                       Full system access — orders, refunds, finance,
+  //                       accounts, AI quota, coupons, everything.
+  // Note: admin is shown as "Production Manager" in the UI. The string is
+  // kept as 'admin' for backward compatibility with existing JWTs.
   role: {
     type: String,
-    enum: ['customer', 'admin', 'guest', 'production_staff', 'production_manager'],
+    enum: ['customer', 'admin', 'guest', 'production_staff'],
     default: 'customer',
     index: true,
   },

@@ -134,7 +134,7 @@ const AdminLayoutProtected = () =>
   React.createElement(
     ProtectedRoute,
     {
-      requiredRole: ['admin', 'production_manager', 'production_staff'],
+      requiredRole: ['admin', 'production_staff'],
       children: React.createElement(AdminLayout),
     }
   );
@@ -185,21 +185,21 @@ export const router = createBrowserRouter([
       {
         path: 'orders',
         Component: () => React.createElement(ProtectedRoute, {
-          requiredRole: ['admin', 'production_manager'],
+          requiredRole: ['admin'],
           children: React.createElement(withSuspense(AdminOrders)),
         }),
       },
       {
         path: 'orders/:orderId',
         Component: () => React.createElement(ProtectedRoute, {
-          requiredRole: ['admin', 'production_manager'],
+          requiredRole: ['admin'],
           children: React.createElement(withSuspense(OrderTracking)),
         }),
       },
       {
         path: 'orders/:orderId/design',
         Component: () => React.createElement(ProtectedRoute, {
-          requiredRole: ['admin', 'production_manager', 'production_staff'],
+          requiredRole: ['admin', 'production_staff'],
           children: React.createElement(withSuspense(AdminDesignPrint)),
         }),
       },
@@ -229,7 +229,7 @@ export const router = createBrowserRouter([
       {
         path: 'reviews',
         Component: () => React.createElement(ProtectedRoute, {
-          requiredRole: ['admin', 'production_manager'],
+          requiredRole: ['admin'],
           children: React.createElement(withSuspense(AdminReviewsPage)),
         }),
       },

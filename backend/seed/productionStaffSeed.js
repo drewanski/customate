@@ -1,14 +1,18 @@
 /**
- * Seeds two production-team accounts used to demo + verify the role split:
+ * Seeds the operator team:
  *
- *   production.manager@customate.com / manager123  → production_manager
- *   production.staff@customate.com   / staff123    → production_staff
+ *   manager@customate.com           / manager123  → admin (= Production Manager / owner)
+ *   production.staff@customate.com  / staff123    → production_staff (floor worker)
+ *
+ * The role 'production_manager' is intentionally NOT used — the business
+ * owner / Production Manager IS the admin role. Older accounts that were
+ * seeded with role: 'production_manager' get auto-migrated to 'admin' so
+ * existing operators don't lose access when the schema collapses.
  *
  * Idempotent: re-running just ensures the records exist with the right
- * role. Existing accounts are left alone (so passwords aren't silently
- * rotated on every seed).
+ * role. Existing accounts keep their password.
  *
- * Run from project root:  node backend/seed/productionStaffSeed.js
+ * Run from the backend directory:  node seed/productionStaffSeed.js
  */
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
@@ -20,9 +24,9 @@ dotenv.config();
 const SEEDS = [
   {
     name: 'Production Manager',
-    email: 'production.manager@customate.com',
+    email: 'manager@customate.com',
     password: 'manager123',
-    role: 'production_manager',
+    role: 'admin',
     contactNumber: '+639000000010',
   },
   {
@@ -39,11 +43,26 @@ async function run() {
     await mongoose.connect(process.env.MONGO_URI);
     console.log('Connected to MongoDB');
 
+    // Migration: any leftover production_manager users from the
+    // previous schema are promoted to admin so they keep their access.
+    const migrated = await User.updateMany(
+      { role: 'production_manager' },
+      { $set: { role: 'admin' } },
+    );
+    if (migrated.modifiedCount > 0) {
+      console.log(`Migrated ${migrated.modifiedCount} production_manager user(s) -> admin`);
+    }
+
+    // Rename the legacy "production.manager@" seed (if present) so the
+    // newer manager@ account becomes the canonical owner login.
+    await User.updateOne(
+      { email: 'production.manager@customate.com' },
+      { $set: { role: 'admin' } },
+    );
+
     for (const seed of SEEDS) {
       const existing = await User.findOne({ email: seed.email });
       if (existing) {
-        // Re-stamp the role in case the schema enum changed and this user
-        // was created before production roles existed.
         if (existing.role !== seed.role) {
           existing.role = seed.role;
           await existing.save();

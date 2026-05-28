@@ -48,17 +48,18 @@ function timeAgo(iso?: string | null) {
 
 export function AdminInventory() {
   // Role-aware UI:
-  //   admin             — full CRUD + price visibility
-  //   production_manager— stock adjustments + supplier reads, no price edit, no create/delete
-  //   production_staff  — read-only — no buttons, no modals, just see what's on hand
+  //   admin            — Production Manager / business owner. Full CRUD,
+  //                      price visibility, all exports, supplier mgmt.
+  //   production_staff — Floor worker. Read-only — no buttons, no modals,
+  //                      just see what's on hand for production prep.
   const { user } = useAuth();
   const role = (user?.role || 'customer') as string;
   const canCreate = role === 'admin';
   const canEditMeta = role === 'admin';
   const canDelete = role === 'admin';
-  const canMoveStock = role === 'admin' || role === 'production_manager';
-  const canSeePrice = role === 'admin' || role === 'production_manager';
-  const canExport = role === 'admin' || role === 'production_manager';
+  const canMoveStock = role === 'admin';
+  const canSeePrice = role === 'admin';
+  const canExport = role === 'admin';
 
   // ─── Pagination & search ────────────────────────────────────────────────
   const [currentPage, setCurrentPage] = useState(1);

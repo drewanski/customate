@@ -25,7 +25,7 @@ export function adminMiddleware(req, res, next) {
 /**
  * Generic role allow-list middleware factory.
  *
- *   router.get('/foo', authMiddleware, requireRoles('admin', 'production_manager'), handler);
+ *   router.get('/foo', authMiddleware, requireRoles('admin', 'production_staff'), handler);
  *
  * Returns 403 with a list of accepted roles in the response body so the
  * frontend can surface a useful error instead of "Forbidden".
@@ -51,11 +51,11 @@ export function requireRoles(...roles) {
   };
 }
 
-// Convenience aliases used by the production routes. Keep these named so
-// route files read as English: requireProductionStaff, requireManager, etc.
-export const requireManager = requireRoles('admin', 'production_manager');
-export const requireProductionStaff = requireRoles(
-  'admin',
-  'production_manager',
-  'production_staff',
-);
+// Convenience aliases used by the production routes.
+//
+// admin IS the Production Manager / business owner — there is no separate
+// intermediate role. Keep requireManager exported as an alias for
+// adminMiddleware so existing route files don't need a sweeping rename
+// (they still read like English: "require the manager for this route").
+export const requireManager = adminMiddleware;
+export const requireProductionStaff = requireRoles('admin', 'production_staff');

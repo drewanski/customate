@@ -18,31 +18,15 @@ router.use(authMiddleware);
 
 /**
  * Strip customer PII from a populated order document based on the caller's
- * role. Production staff have no business reason to see contact info; the
- * manager sees a partial address for logistics; admin sees the full record.
+ * role. Production staff have no business reason to see contact info or
+ * pricing. The admin (= business owner / Production Manager) sees the
+ * full record.
  *
  * Mutates a plain object (call .toObject() first if you have a Mongoose doc).
  */
 function sanitizeOrderForRole(order, role) {
   if (!order || typeof order !== 'object') return order;
-  if (role === 'admin' || role === 'production_manager') {
-    // Manager sees name + city/region only — not email, not phone, not the
-    // full street address.
-    if (role === 'production_manager' && order.customer && typeof order.customer === 'object') {
-      const { email, phone, ...rest } = order.customer;
-      order.customer = rest;
-    }
-    if (role === 'production_manager') {
-      // Mask the second half of the shipping address so the manager sees
-      // only the city/region for logistics planning.
-      if (typeof order.shippingAddress === 'string') {
-        const parts = order.shippingAddress.split(',').map((s) => s.trim()).filter(Boolean);
-        // Keep last two segments only (typically city, province/region)
-        order.shippingAddress = parts.length > 2 ? parts.slice(-2).join(', ') : order.shippingAddress;
-      }
-    }
-    return order;
-  }
+  if (role === 'admin') return order; // owner — sees everything
   if (role === 'production_staff') {
     // Staff see ONLY: design preview, item specs, status. Everything else
     // is redacted — including pricing, payment, and customer contact.
