@@ -19,7 +19,18 @@ const userSchema = new mongoose.Schema({
   password: { type: String },
   avatar: { type: String },
   googleId: { type: String },
-  role: { type: String, enum: ['customer', 'admin', 'guest'], default: 'customer' },
+  // Role hierarchy (ascending privilege):
+  //   guest             — pre-registration placeholder
+  //   customer          — public shoppers
+  //   production_staff  — floor workers; queue-only access, no PII / no $
+  //   production_manager— supervisor; bridges floor + admin (no $ either)
+  //   admin             — full system access including finance + accounts
+  role: {
+    type: String,
+    enum: ['customer', 'admin', 'guest', 'production_staff', 'production_manager'],
+    default: 'customer',
+    index: true,
+  },
   status: { type: String, enum: ['active', 'inactive', 'suspended'], default: 'active' },
   notificationPreference: { type: String, enum: ['sms', 'email'], default: 'email' },
   savedAddresses: [{

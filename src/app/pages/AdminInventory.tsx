@@ -31,6 +31,7 @@ import { PrintablePage } from '../components/admin/PrintablePage';
 import { AdjustStockModal } from '../components/inventory/AdjustStockModal';
 import { SuppliersManagerModal } from '../components/inventory/SuppliersManagerModal';
 import { AIRestockPanel } from '../components/inventory/AIRestockPanel';
+import { useAuth } from '../hooks/useAuth';
 
 function timeAgo(iso?: string | null) {
   if (!iso) return '—';
@@ -46,6 +47,19 @@ function timeAgo(iso?: string | null) {
 }
 
 export function AdminInventory() {
+  // Role-aware UI:
+  //   admin             — full CRUD + price visibility
+  //   production_manager— stock adjustments + supplier reads, no price edit, no create/delete
+  //   production_staff  — read-only — no buttons, no modals, just see what's on hand
+  const { user } = useAuth();
+  const role = (user?.role || 'customer') as string;
+  const canCreate = role === 'admin';
+  const canEditMeta = role === 'admin';
+  const canDelete = role === 'admin';
+  const canMoveStock = role === 'admin' || role === 'production_manager';
+  const canSeePrice = role === 'admin' || role === 'production_manager';
+  const canExport = role === 'admin' || role === 'production_manager';
+
   // ─── Pagination & search ────────────────────────────────────────────────
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
@@ -316,14 +330,16 @@ export function AdminInventory() {
       header: 'Actions',
       render: (item) => (
         <div className="flex gap-1 flex-wrap">
-          <button
-            onClick={() => openRestock(item)}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition"
-            title="Restock from supplier"
-          >
-            <PackagePlus className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Restock</span>
-          </button>
+          {canMoveStock && (
+            <button
+              onClick={() => openRestock(item)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition"
+              title="Restock from supplier"
+            >
+              <PackagePlus className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Restock</span>
+            </button>
+          )}
           <button
             onClick={() => openHistory(item)}
             className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition"
@@ -331,27 +347,33 @@ export function AdminInventory() {
           >
             <Clock className="w-3.5 h-3.5" />
           </button>
-          <button
-            onClick={() => openAdjust(item)}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-amber-600 hover:bg-amber-50 border border-transparent hover:border-amber-200 transition"
-            title="Adjust / record damage"
-          >
-            <Wrench className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => openEditModal(item)}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-600 hover:bg-slate-100 border border-transparent hover:border-slate-200 transition"
-            title="Edit details"
-          >
-            <Edit2 className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => handleDelete(item._id)}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition"
-            title="Delete"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          {canMoveStock && (
+            <button
+              onClick={() => openAdjust(item)}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-amber-600 hover:bg-amber-50 border border-transparent hover:border-amber-200 transition"
+              title="Adjust / record damage"
+            >
+              <Wrench className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {canEditMeta && (
+            <button
+              onClick={() => openEditModal(item)}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-600 hover:bg-slate-100 border border-transparent hover:border-slate-200 transition"
+              title="Edit details"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={() => handleDelete(item._id)}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition"
+              title="Delete"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       ),
     },
@@ -391,27 +413,33 @@ export function AdminInventory() {
               <Receipt className="w-4 h-4" />
               Audit Log
             </button>
-            <button
-              onClick={() => setSuppliersModalOpen(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
-            >
-              <Truck className="w-4 h-4" />
-              Suppliers
-            </button>
-            <button
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
-            >
-              <Download className="w-4 h-4" />
-              Export PDF
-            </button>
-            <button
-              onClick={() => openEditModal()}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold text-blue-600 bg-white hover:bg-slate-50 shadow-xl shadow-black/10 transition-all hover:-translate-y-0.5"
-            >
-              <Plus className="w-4 h-4" />
-              New Product
-            </button>
+            {canMoveStock && (
+              <button
+                onClick={() => setSuppliersModalOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
+              >
+                <Truck className="w-4 h-4" />
+                Suppliers
+              </button>
+            )}
+            {canExport && (
+              <button
+                onClick={() => window.print()}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
+              >
+                <Download className="w-4 h-4" />
+                Export PDF
+              </button>
+            )}
+            {canCreate && (
+              <button
+                onClick={() => openEditModal()}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold text-blue-600 bg-white hover:bg-slate-50 shadow-xl shadow-black/10 transition-all hover:-translate-y-0.5"
+              >
+                <Plus className="w-4 h-4" />
+                New Product
+              </button>
+            )}
           </div>
         </div>
       </div>

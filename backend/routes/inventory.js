@@ -3,7 +3,7 @@ import Inventory from '../models/Inventory.js';
 import Product from '../models/Product.js';
 import StockMovement from '../models/StockMovement.js';
 import User from '../models/User.js';
-import { authMiddleware, adminMiddleware } from '../middleware/auth.js';
+import { authMiddleware, adminMiddleware, requireManager, requireProductionStaff } from '../middleware/auth.js';
 
 console.log('Inventory routes module loaded');
 
@@ -43,7 +43,10 @@ router.get('/:id', async (req, res) => {
 });
 
 // Get all inventory (admin only)
-router.get('/', authMiddleware, adminMiddleware, async (req, res) => {
+// Read access: production_staff + production_manager + admin all need
+// to see what's on hand (staff for production prep, manager for planning,
+// admin for everything).
+router.get('/', authMiddleware, requireProductionStaff, async (req, res) => {
   const inventory = await Inventory.find().sort({ createdAt: -1 });
   res.json(inventory);
 });

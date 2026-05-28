@@ -4,13 +4,89 @@ import Order, { PRODUCTION_STAGES } from '../models/Order.js';
 import User from '../models/User.js';
 import ProductionLog from '../models/ProductionLog.js';
 import ProductionCapacity from '../models/ProductionCapacity.js';
-import { authMiddleware, adminMiddleware } from '../middleware/auth.js';
+import { authMiddleware, adminMiddleware, requireRoles, requireManager, requireProductionStaff } from '../middleware/auth.js';
 import { consumeReservedForOrder } from '../services/inventory.js';
 
 const router = express.Router();
 
-// Every production endpoint is admin-only. No more public bypass.
-router.use(authMiddleware, adminMiddleware);
+// Production routes are split across THREE access tiers:
+//   * requireProductionStaff: read-only queue access + status nudges
+//   * requireManager:         scheduling, approvals, rejections, capacity
+//   * adminMiddleware:        none here (kept for finance/account routes)
+// authMiddleware always runs first so req.user is populated.
+router.use(authMiddleware);
+
+/**
+ * Strip customer PII from a populated order document based on the caller's
+ * role. Production staff have no business reason to see contact info; the
+ * manager sees a partial address for logistics; admin sees the full record.
+ *
+ * Mutates a plain object (call .toObject() first if you have a Mongoose doc).
+ */
+function sanitizeOrderForRole(order, role) {
+  if (!order || typeof order !== 'object') return order;
+  if (role === 'admin' || role === 'production_manager') {
+    // Manager sees name + city/region only — not email, not phone, not the
+    // full street address.
+    if (role === 'production_manager' && order.customer && typeof order.customer === 'object') {
+      const { email, phone, ...rest } = order.customer;
+      order.customer = rest;
+    }
+    if (role === 'production_manager') {
+      // Mask the second half of the shipping address so the manager sees
+      // only the city/region for logistics planning.
+      if (typeof order.shippingAddress === 'string') {
+        const parts = order.shippingAddress.split(',').map((s) => s.trim()).filter(Boolean);
+        // Keep last two segments only (typically city, province/region)
+        order.shippingAddress = parts.length > 2 ? parts.slice(-2).join(', ') : order.shippingAddress;
+      }
+    }
+    return order;
+  }
+  if (role === 'production_staff') {
+    // Staff see ONLY: design preview, item specs, status. Everything else
+    // is redacted — including pricing, payment, and customer contact.
+    delete order.customer;
+    delete order.customerEmail;
+    delete order.customerPhone;
+    delete order.shippingAddress;
+    delete order.recipientName;
+    delete order.totalPrice;
+    delete order.subtotal;
+    delete order.discountAmount;
+    delete order.rushFeeAmount;
+    delete order.requiredPayment;
+    delete order.paidAmount;
+    delete order.refundedAmount;
+    delete order.paymentMethod;
+    delete order.paymentStatus;
+    delete order.paymentDetails;
+    delete order.couponCode;
+    delete order.notes; // customer-facing notes
+    // Keep these — staff DO need to see what to make:
+    //   items (with customization + preview + sku + qty)
+    //   status, productionDate, productionDueDate, productionStage
+    //   productionPriority, productionNotes (internal)
+    //   assignedTo, urgencyTier
+    return order;
+  }
+  return order;
+}
+
+// Helper used by every route handler: apply the role filter before
+// res.json() so we don't have to thread `req` into every helper.
+function jsonForRole(req, res, payload) {
+  if (Array.isArray(payload)) {
+    return res.json(payload.map((o) => sanitizeOrderForRole({ ...o }, req.user.role)));
+  }
+  if (payload && typeof payload === 'object' && Array.isArray(payload.orders)) {
+    return res.json({
+      ...payload,
+      orders: payload.orders.map((o) => sanitizeOrderForRole({ ...o }, req.user.role)),
+    });
+  }
+  return res.json(sanitizeOrderForRole({ ...payload }, req.user.role));
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -86,7 +162,7 @@ function dateKey(d) {
  * priority (urgent → high → medium → low) then by age (oldest first) so
  * the admin sees what needs scheduling most urgently at the top.
  */
-router.get('/queue', async (req, res) => {
+router.get('/queue', requireProductionStaff, async (req, res) => {
   try {
     // Queue = anything waiting to be scheduled into production. Two groups:
     //   1. status='pending'   → just placed by customer, awaiting admin review
@@ -128,7 +204,7 @@ router.get('/queue', async (req, res) => {
     });
 
     const populated = await attachUsers(orders);
-    res.json(populated);
+    jsonForRole(req, res, populated);
   } catch (err) {
     console.error('GET /production/queue error:', err);
     res.status(500).json({ message: 'Server error' });
@@ -142,7 +218,7 @@ router.get('/queue', async (req, res) => {
  * Returns scheduled orders inside the given range, plus per-day workload
  * vs. capacity so the UI can render heatmap-style indicators.
  */
-router.get('/schedule', async (req, res) => {
+router.get('/schedule', requireProductionStaff, async (req, res) => {
   try {
     const { date, from, to } = req.query;
 
@@ -229,7 +305,7 @@ router.get('/schedule', async (req, res) => {
       cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
 
-    res.json({ orders: populated, days: workloadDays, range: { from: start, to: end } });
+    jsonForRole(req, res, { orders: populated, days: workloadDays, range: { from: start, to: end } });
   } catch (err) {
     console.error('GET /production/schedule error:', err);
     res.status(500).json({ message: 'Server error' });
@@ -241,7 +317,7 @@ router.get('/schedule', async (req, res) => {
  * All orders currently mid-production grouped by stage — used to power the
  * Kanban view.
  */
-router.get('/active', async (req, res) => {
+router.get('/active', requireProductionStaff, async (req, res) => {
   try {
     const orders = await Order.find({ status: 'in_production' })
       .sort({ productionPriority: -1, productionDate: 1 });
@@ -253,7 +329,12 @@ router.get('/active', async (req, res) => {
       const stage = o.productionStage || 'queued';
       if (byStage[stage]) byStage[stage].push(o);
     }
-    res.json({ stages: PRODUCTION_STAGES, byStage });
+    // byStage holds order objects — run them through the PII filter.
+    const byStageFiltered = {};
+    for (const k of Object.keys(byStage)) {
+      byStageFiltered[k] = byStage[k].map((o) => sanitizeOrderForRole({ ...o }, req.user.role));
+    }
+    res.json({ stages: PRODUCTION_STAGES, byStage: byStageFiltered });
   } catch (err) {
     console.error('GET /production/active error:', err);
     res.status(500).json({ message: 'Server error' });
@@ -264,7 +345,7 @@ router.get('/active', async (req, res) => {
  * GET /api/production/stats
  * Top-line metrics for the dashboard tiles.
  */
-router.get('/stats', async (req, res) => {
+router.get('/stats', requireManager, async (req, res) => {
   try {
     const startOfToday = new Date();
     startOfToday.setUTCHours(0, 0, 0, 0);
@@ -315,7 +396,7 @@ router.get('/stats', async (req, res) => {
  * GET /api/production/team
  * Users that can be assigned work (admin + future "production" role).
  */
-router.get('/team', async (req, res) => {
+router.get('/team', requireManager, async (req, res) => {
   try {
     const team = await User.find({ role: { $in: ['admin', 'production'] } })
       .select('name email role')
@@ -342,7 +423,7 @@ router.get('/team', async (req, res) => {
  *   - Writes 'scheduled' or 'rescheduled' log entry (+ priority/assignee logs
  *     if those changed in the same call)
  */
-router.put('/:id/schedule', async (req, res) => {
+router.put('/:id/schedule', requireManager, async (req, res) => {
   try {
     const { productionDate, productionDueDate, estimatedDurationDays,
             productionPriority, productionNotes, assignedTo } = req.body;
@@ -496,7 +577,7 @@ router.put('/:id/schedule', async (req, res) => {
     }
 
     const populated = await attachUsers(order);
-    res.json(populated);
+    jsonForRole(req, res, populated);
   } catch (err) {
     console.error('PUT /production/schedule error:', err);
     res.status(500).json({ message: 'Server error' });
@@ -511,7 +592,7 @@ router.put('/:id/schedule', async (req, res) => {
  *
  * Body: { orderIds: [...], productionDate, productionPriority? }
  */
-router.post('/schedule/bulk', async (req, res) => {
+router.post('/schedule/bulk', requireManager, async (req, res) => {
   try {
     const { orderIds, productionDate, productionPriority } = req.body;
     if (!Array.isArray(orderIds) || orderIds.length === 0) {
@@ -576,7 +657,7 @@ router.post('/schedule/bulk', async (req, res) => {
  * Move to the next stage. Body: { direction: 'forward' | 'backward' (default forward) }
  * On reaching 'ready', status flips to 'ready' and productionCompletedAt is stamped.
  */
-router.post('/:id/advance', async (req, res) => {
+router.post('/:id/advance', requireProductionStaff, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found' });
@@ -629,7 +710,7 @@ router.post('/:id/advance', async (req, res) => {
     });
 
     const populated = await attachUsers(order);
-    res.json(populated);
+    jsonForRole(req, res, populated);
   } catch (err) {
     console.error('POST /production/advance error:', err);
     res.status(500).json({ message: 'Server error' });
@@ -640,7 +721,7 @@ router.post('/:id/advance', async (req, res) => {
  * POST /api/production/:id/note
  * Add a free-form note to the production audit log without changing state.
  */
-router.post('/:id/note', async (req, res) => {
+router.post('/:id/note', requireProductionStaff, async (req, res) => {
   try {
     const { note } = req.body;
     if (!note || !String(note).trim()) {
@@ -667,7 +748,7 @@ router.post('/:id/note', async (req, res) => {
  * GET /api/production/:id/history
  * Full audit trail for one order, newest first.
  */
-router.get('/:id/history', async (req, res) => {
+router.get('/:id/history', requireProductionStaff, async (req, res) => {
   try {
     const logs = await ProductionLog.find({ order: req.params.id })
       .sort({ createdAt: -1 })
@@ -680,7 +761,7 @@ router.get('/:id/history', async (req, res) => {
 
 // ─── Capacity management ────────────────────────────────────────────────────
 
-router.get('/capacity', async (req, res) => {
+router.get('/capacity', requireManager, async (req, res) => {
   try {
     const cap = await ProductionCapacity.getOrCreate();
     res.json(cap);
@@ -689,7 +770,7 @@ router.get('/capacity', async (req, res) => {
   }
 });
 
-router.put('/capacity', async (req, res) => {
+router.put('/capacity', adminMiddleware, async (req, res) => {
   try {
     const cap = await ProductionCapacity.getOrCreate();
     const { defaultDailyCapacity, workingDays, overrides } = req.body;

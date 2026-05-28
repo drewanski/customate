@@ -29,6 +29,7 @@ import {
 } from '../../api';
 import { formatPeso } from '../../utils/format';
 import { RefundModal } from './RefundModal';
+import { useAuth } from '../../hooks/useAuth';
 import { AIOrderSummaryPanel } from './AIOrderSummaryPanel';
 
 interface Props {
@@ -114,6 +115,10 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
   const [savingNote, setSavingNote] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
+  // Refund is admin-only on the backend; hide the UI button for managers
+  // and staff to match the policy and avoid 403 dead-ends in the UI.
+  const { user: currentUser } = useAuth();
+  const canRefund = currentUser?.role === 'admin';
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; msg: string } | null>(null);
 
   const orderId = order?._id || order?.id;
@@ -192,7 +197,7 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
       footer={
         <>
           <Button variant="outline" onClick={onClose}>Close</Button>
-          {refundable > 0 && !['refunded'].includes(order.status) && (
+          {canRefund && refundable > 0 && !['refunded'].includes(order.status) && (
             <Button variant="danger" onClick={() => setRefundOpen(true)}>
               <RotateCcw className="w-4 h-4 mr-1.5" /> Refund
             </Button>

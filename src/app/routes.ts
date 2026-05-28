@@ -126,11 +126,15 @@ const ProfileProtected = () =>
     }
   );
 
+// Any staff-level role can reach the admin layout itself — the AdminLayout
+// hides nav items the current role can't use, and each inner page enforces
+// its own role gate. This keeps the shell consistent across all 3 internal
+// roles instead of building three separate layouts.
 const AdminLayoutProtected = () =>
   React.createElement(
     ProtectedRoute,
     {
-      requiredRole: 'admin',
+      requiredRole: ['admin', 'production_manager', 'production_staff'],
       children: React.createElement(AdminLayout),
     }
   );
@@ -167,17 +171,68 @@ export const router = createBrowserRouter([
     path: '/admin',
     Component: AdminLayoutProtected,
     children: [
+      // Default landing: production-only roles go straight to /production
+      // (handled by the dashboard component itself). All others see KPIs.
       { index: true, Component: withSuspense(AdminDashboard) },
-      { path: 'orders', Component: withSuspense(AdminOrders) },
-      { path: 'orders/:orderId', Component: withSuspense(OrderTracking) },
-      { path: 'users', Component: withSuspense(AdminUsers) },
-      { path: 'inventory', Component: withSuspense(AdminInventory) },
+
+      // Operations pages — manager + staff + admin.
       { path: 'production', Component: withSuspense(AdminProduction) },
-      { path: 'reports', Component: withSuspense(AdminReports) },
-      { path: 'coupons', Component: withSuspense(AdminCoupons) },
       { path: 'calendar', Component: withSuspense(AdminCalendar) },
-      { path: 'orders/:orderId/design', Component: withSuspense(AdminDesignPrint) },
-      { path: 'reviews', Component: withSuspense(AdminReviewsPage) },
+      { path: 'inventory', Component: withSuspense(AdminInventory) },
+
+      // Orders — manager + admin can manage; staff redirected to production
+      // because they don't see financial data.
+      {
+        path: 'orders',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: ['admin', 'production_manager'],
+          children: React.createElement(withSuspense(AdminOrders)),
+        }),
+      },
+      {
+        path: 'orders/:orderId',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: ['admin', 'production_manager'],
+          children: React.createElement(withSuspense(OrderTracking)),
+        }),
+      },
+      {
+        path: 'orders/:orderId/design',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: ['admin', 'production_manager', 'production_staff'],
+          children: React.createElement(withSuspense(AdminDesignPrint)),
+        }),
+      },
+
+      // Admin-only finance + account configuration.
+      {
+        path: 'users',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: 'admin',
+          children: React.createElement(withSuspense(AdminUsers)),
+        }),
+      },
+      {
+        path: 'reports',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: 'admin',
+          children: React.createElement(withSuspense(AdminReports)),
+        }),
+      },
+      {
+        path: 'coupons',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: 'admin',
+          children: React.createElement(withSuspense(AdminCoupons)),
+        }),
+      },
+      {
+        path: 'reviews',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: ['admin', 'production_manager'],
+          children: React.createElement(withSuspense(AdminReviewsPage)),
+        }),
+      },
     ],
   },
 ]);

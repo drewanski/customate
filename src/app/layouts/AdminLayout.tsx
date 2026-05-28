@@ -36,17 +36,25 @@ export function AdminLayout() {
     navigate('/login');
   };
 
-  const navLinks = [
-    { to: '/admin', label: 'Overview', icon: LayoutDashboard },
-    { to: '/admin/orders', label: 'Orders', icon: Package },
-    { to: '/admin/production', label: 'Production', icon: ListTodo },
-    { to: '/admin/calendar', label: 'Calendar', icon: CalendarIcon },
-    { to: '/admin/users', label: 'Accounts', icon: Users },
-    { to: '/admin/inventory', label: 'Inventory', icon: Boxes },
-    { to: '/admin/reports', label: 'Reports', icon: BarChart3 },
-    { to: '/admin/coupons', label: 'Coupons', icon: Tag },
-    { to: '/admin/reviews', label: 'Reviews', icon: Star },
+  // Role-aware nav. `roles` is the allow-list per item — admin sees
+  // everything, production_manager sees ops + reviews, production_staff
+  // sees the bare minimum (production queue + calendar + inventory read).
+  // Items missing for the current role are silently dropped below.
+  const role = (user?.role || 'customer') as
+    | 'admin' | 'production_manager' | 'production_staff' | 'customer';
+
+  const allNavLinks = [
+    { to: '/admin',           label: 'Overview',   icon: LayoutDashboard, roles: ['admin', 'production_manager'] },
+    { to: '/admin/orders',    label: 'Orders',     icon: Package,         roles: ['admin', 'production_manager'] },
+    { to: '/admin/production',label: 'Production', icon: ListTodo,        roles: ['admin', 'production_manager', 'production_staff'] },
+    { to: '/admin/calendar',  label: 'Calendar',   icon: CalendarIcon,    roles: ['admin', 'production_manager', 'production_staff'] },
+    { to: '/admin/users',     label: 'Accounts',   icon: Users,           roles: ['admin'] },
+    { to: '/admin/inventory', label: 'Inventory',  icon: Boxes,           roles: ['admin', 'production_manager', 'production_staff'] },
+    { to: '/admin/reports',   label: 'Reports',    icon: BarChart3,       roles: ['admin'] },
+    { to: '/admin/coupons',   label: 'Coupons',    icon: Tag,             roles: ['admin'] },
+    { to: '/admin/reviews',   label: 'Reviews',    icon: Star,            roles: ['admin', 'production_manager'] },
   ];
+  const navLinks = allNavLinks.filter((link) => link.roles.includes(role));
 
   // Match active route — exact match for /admin, prefix match for sub-routes
   const isActiveRoute = (to: string) =>
@@ -200,6 +208,11 @@ export function AdminLayout() {
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-bold text-white truncate">{user.name || 'Admin'}</div>
                 <div className="text-[10px] text-slate-400 truncate">{user.email || 'admin@customate.app'}</div>
+                {role !== 'admin' && (
+                  <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-gradient-to-r from-blue-500 to-indigo-600 text-white">
+                    {role === 'production_manager' ? 'Manager' : 'Production Staff'}
+                  </div>
+                )}
               </div>
             </div>
           )}
