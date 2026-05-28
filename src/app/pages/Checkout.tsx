@@ -202,6 +202,11 @@ export function Checkout() {
           text: item.customization.text,
           font: item.customization.font,
           image: item.customization.image,
+          // Forward the 3D snapshot + full design config so the production
+          // team (admin) and the customer (order tracking) both have the
+          // exact preview the customer signed off on when ordering.
+          previewImage: (item.customization as any).previewImage || '',
+          designConfig: (item.customization as any).designConfig || null,
         }
       })),
     [items]

@@ -69,13 +69,20 @@ export function Cart() {
                   className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow p-4 md:p-5"
                 >
                   <div className="flex gap-4">
-                    {/* Image */}
-                    <div className="shrink-0 w-20 h-20 md:w-28 md:h-28 rounded-xl overflow-hidden bg-gradient-to-br from-slate-50 to-blue-50/50 border border-slate-100">
+                    {/* Image — prefer the captured 3D design snapshot so the
+                        customer sees exactly what they designed; fall back
+                        to the base product photo only when no snapshot exists. */}
+                    <div className="relative shrink-0 w-20 h-20 md:w-28 md:h-28 rounded-xl overflow-hidden bg-gradient-to-br from-slate-50 to-blue-50/50 border border-slate-100">
                       <img
-                        src={item.product.image}
+                        src={(item.customization as any).previewImage || item.product.image}
                         alt={item.product.name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain"
                       />
+                      {(item.customization as any).previewImage && (
+                        <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-sm">
+                          Custom
+                        </span>
+                      )}
                     </div>
 
                     {/* Info */}

@@ -135,10 +135,24 @@ export function OrderTracking() {
                   const isCustom = !!c.isCustomized;
                   return (
                     <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                      {/* Use the saved design preview as the thumbnail when available */}
-                      <div className="w-16 h-16 bg-blue-100 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                      {/* Use the saved design preview as the thumbnail when available.
+                          Click opens it full-size in a new tab. */}
+                      <div className="w-16 h-16 bg-blue-100 rounded flex items-center justify-center overflow-hidden flex-shrink-0 relative group">
                         {hasPreview ? (
-                          <img src={c.previewImage} alt="Design" className="w-full h-full object-cover" />
+                          <>
+                            <a
+                              href={c.previewImage}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block w-full h-full"
+                              title="Open design at full size"
+                            >
+                              <img src={c.previewImage} alt="Design" className="w-full h-full object-cover" />
+                            </a>
+                            <span className="absolute bottom-0 left-0 right-0 text-center px-1 py-0.5 text-[8px] font-black uppercase tracking-wider bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white opacity-0 group-hover:opacity-100 transition">
+                              Open
+                            </span>
+                          </>
                         ) : (
                           <Package className="w-8 h-8 text-blue-600" />
                         )}
@@ -161,6 +175,16 @@ export function OrderTracking() {
                             {c.placement && <span>Placement: {c.placement}</span>}
                             {c.text && <p>Text: "{c.text}"</p>}
                           </div>
+                        )}
+                        {hasPreview && (
+                          <a
+                            href={c.previewImage}
+                            download={`design-${order._id?.slice(-6)}-${idx + 1}.png`}
+                            className="inline-flex items-center gap-1 mt-1.5 px-2 py-1 rounded-md text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition"
+                          >
+                            <Printer className="w-3 h-3" />
+                            Download design
+                          </a>
                         )}
                       </div>
                       <div className="font-medium">{formatPeso(it.quantity * it.unitPrice)}</div>

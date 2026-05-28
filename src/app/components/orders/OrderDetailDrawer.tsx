@@ -20,6 +20,7 @@ import {
   Plus,
   Send,
   Receipt,
+  Download,
 } from 'lucide-react';
 import {
   updateOrderStatus,
@@ -332,27 +333,79 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
             <Package className="w-3.5 h-3.5" /> Items ({order.items?.length || 0})
           </p>
           <div className="rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
-            {(order.items || []).map((item: any, idx: number) => (
-              <div key={idx} className="flex items-start justify-between p-3 gap-3">
-                <div className="min-w-0">
-                  <p className="font-semibold text-slate-900 text-sm truncate">{item.name}</p>
-                  <p className="text-[11px] font-mono text-slate-500">{item.sku}</p>
-                  {(item.customization?.size || item.customization?.color || item.customization?.text) && (
-                    <p className="text-[11px] text-slate-600 mt-0.5">
-                      {[
-                        item.customization?.size && `Size: ${item.customization.size}`,
-                        item.customization?.color && `Color: ${item.customization.color}`,
-                        item.customization?.text && `Text: "${item.customization.text}"`,
-                      ].filter(Boolean).join(' • ')}
-                    </p>
-                  )}
+            {(order.items || []).map((item: any, idx: number) => {
+              const preview = item.customization?.previewImage;
+              const customText = item.customization?.text;
+              const customImage = item.customization?.image;
+              return (
+                <div key={idx} className="p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    {/* Design thumbnail — what the customer designed */}
+                    {preview ? (
+                      <a
+                        href={preview}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block shrink-0 w-20 h-20 rounded-xl overflow-hidden bg-gradient-to-br from-slate-50 to-blue-50/40 border border-slate-200 hover:border-blue-400 hover:shadow-md transition relative group"
+                        title="Open design preview at full size"
+                      >
+                        <img src={preview} alt="Design preview" className="w-full h-full object-contain" />
+                        <span className="absolute bottom-0 left-0 right-0 text-center text-[8px] font-black uppercase tracking-wider py-0.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white opacity-0 group-hover:opacity-100 transition">
+                          Open
+                        </span>
+                      </a>
+                    ) : (
+                      <div className="shrink-0 w-20 h-20 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center">
+                        <Package className="w-7 h-7 text-slate-400" />
+                      </div>
+                    )}
+
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-slate-900 text-sm truncate">{item.name}</p>
+                      <p className="text-[11px] font-mono text-slate-500">{item.sku}</p>
+                      {(item.customization?.size || item.customization?.color || item.customization?.placement || customText) && (
+                        <p className="text-[11px] text-slate-600 mt-0.5">
+                          {[
+                            item.customization?.size && `Size: ${item.customization.size}`,
+                            item.customization?.color && `Color: ${item.customization.color}`,
+                            item.customization?.placement && `Placement: ${item.customization.placement}`,
+                            customText && `Text: "${customText}"`,
+                          ].filter(Boolean).join(' • ')}
+                        </p>
+                      )}
+                      {(preview || customImage) && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {preview && (
+                            <a
+                              href={preview}
+                              download={`order-${String(order._id || '').slice(-6)}-item-${idx + 1}-preview.png`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition"
+                            >
+                              <Download className="w-3 h-3" />
+                              Preview PNG
+                            </a>
+                          )}
+                          {customImage && (
+                            <a
+                              href={customImage}
+                              download={`order-${String(order._id || '').slice(-6)}-item-${idx + 1}-artwork.png`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold text-violet-700 bg-violet-50 border border-violet-200 hover:bg-violet-100 transition"
+                            >
+                              <Download className="w-3 h-3" />
+                              Artwork PNG
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-bold text-slate-900">×{item.quantity}</p>
+                      <p className="text-[11px] text-slate-500">{formatPeso(item.unitPrice * item.quantity)}</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-bold text-slate-900">×{item.quantity}</p>
-                  <p className="text-[11px] text-slate-500">{formatPeso(item.unitPrice * item.quantity)}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
