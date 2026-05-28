@@ -21,11 +21,13 @@ import {
   Receipt,
   Sparkles,
   TrendingUp,
+  Download,
 } from 'lucide-react';
 import { formatPeso } from '../utils/format';
 import { RestockModal } from '../components/inventory/RestockModal';
 import { StockHistoryModal } from '../components/inventory/StockHistoryModal';
 import { InventoryAuditLogModal } from '../components/inventory/InventoryAuditLogModal';
+import { PrintablePage } from '../components/admin/PrintablePage';
 import { AdjustStockModal } from '../components/inventory/AdjustStockModal';
 import { SuppliersManagerModal } from '../components/inventory/SuppliersManagerModal';
 import { AIRestockPanel } from '../components/inventory/AIRestockPanel';
@@ -356,6 +358,7 @@ export function AdminInventory() {
   ];
 
   return (
+    <PrintablePage title="CustoMate — Inventory Report" subtitle="Stock levels, suppliers, and audit-logged actions">
     <div className="min-h-screen bg-slate-50">
       {/* Premium header */}
       <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 text-white">
@@ -380,7 +383,7 @@ export function AdminInventory() {
               Track every restock, sale, adjustment, and supplier interaction with a full audit trail.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 no-print">
             <button
               onClick={() => setAuditLogOpen(true)}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
@@ -394,6 +397,13 @@ export function AdminInventory() {
             >
               <Truck className="w-4 h-4" />
               Suppliers
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
+            >
+              <Download className="w-4 h-4" />
+              Export PDF
             </button>
             <button
               onClick={() => openEditModal()}
@@ -601,8 +611,8 @@ export function AdminInventory() {
                 required
               />
               {selectedItem ? (
-                // Editing — SKU is locked. Auto-generated identifiers should
-                // not be re-keyable mid-life since orders + audit logs reference them.
+                // Editing — SKU stays locked because orders + audit logs
+                // reference it. Cannot be changed mid-life.
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
                     SKU
@@ -610,18 +620,20 @@ export function AdminInventory() {
                   <div className="h-10 px-3 flex items-center rounded-lg bg-slate-100 border border-slate-200 text-sm font-mono text-slate-600">
                     {formData.sku || '—'}
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">Auto-generated · not editable</p>
+                  <p className="text-[10px] text-slate-400 mt-1">SKU is locked once the product exists</p>
                 </div>
               ) : (
-                // Creating — SKU is generated server-side from name + category
-                // at save time, so there's no field to show here at all.
+                // Creating — admin enters SKU manually (compliance item:
+                // "SKU – manual only"). Server validates uniqueness.
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
-                    SKU
-                  </label>
-                  <div className="h-10 px-3 flex items-center rounded-lg bg-slate-50 border border-dashed border-slate-200 text-xs text-slate-400 italic">
-                    Auto-generated on save
-                  </div>
+                  <Input
+                    label="SKU (manual)"
+                    value={formData.sku || ''}
+                    onChange={(e) => setFormData({ ...formData, sku: e.target.value.toUpperCase().trim() })}
+                    placeholder="e.g. TS-CLASSIC-RED-M"
+                    required
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Letters, digits, dashes. Must be unique.</p>
                 </div>
               )}
             </div>
@@ -735,6 +747,7 @@ export function AdminInventory() {
         />
       </div>
     </div>
+    </PrintablePage>
   );
 }
 

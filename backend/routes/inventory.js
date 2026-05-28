@@ -140,21 +140,36 @@ async function generateSku(category, name) {
 
 router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const { name, category, stock, price, image, description, isActive, minStock } = req.body;
+    const { name, category, stock, price, image, description, isActive, minStock, sku: providedSku } = req.body;
     if (!name || !String(name).trim()) {
       return res.status(400).json({ message: 'Product name is required' });
     }
 
-    // SKUs are auto-generated server-side. Even if the client sends one,
-    // we ignore it to keep the format consistent and avoid collisions.
-    let sku = await generateSku(category, name);
-    // Retry once if a concurrent insert grabbed the same number.
-    let attempt = 0;
-    while (attempt < 5) {
-      const exists = await Inventory.findOne({ sku }).select('_id').lean();
-      if (!exists) break;
+    // Compliance: admins now enter SKU manually. We validate format +
+    // uniqueness before accepting; fall back to the auto-generator only
+    // when no SKU was provided (legacy or API callers without UI).
+    let sku;
+    if (providedSku && String(providedSku).trim()) {
+      const cleaned = String(providedSku).trim().toUpperCase().replace(/\s+/g, '-');
+      if (!/^[A-Z0-9][A-Z0-9-]{1,39}$/.test(cleaned)) {
+        return res.status(400).json({
+          message: 'SKU must be 2-40 chars: letters, digits, dashes. Must start with letter or digit.',
+        });
+      }
+      const exists = await Inventory.findOne({ sku: cleaned }).select('_id').lean();
+      if (exists) {
+        return res.status(409).json({ message: `SKU "${cleaned}" already exists. Choose a different code.` });
+      }
+      sku = cleaned;
+    } else {
       sku = await generateSku(category, name);
-      attempt++;
+      let attempt = 0;
+      while (attempt < 5) {
+        const exists = await Inventory.findOne({ sku }).select('_id').lean();
+        if (!exists) break;
+        sku = await generateSku(category, name);
+        attempt++;
+      }
     }
 
     const initialStock = Number(stock) || 0;

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
+import { PrintablePage } from '../components/admin/PrintablePage';
 import {
   Percent,
   DollarSign,
@@ -130,9 +131,10 @@ export function AdminCoupons() {
   };
 
   return (
+    <PrintablePage title="CustoMate — Coupons Report" subtitle="Active promo codes and redemption history">
     <div className="min-h-screen bg-slate-50">
       {/* Hero header */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 text-white">
+      <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 text-white no-print">
         <div className="absolute -top-32 -left-24 w-80 h-80 rounded-full bg-blue-400/30 blur-3xl pointer-events-none" />
         <div className="absolute -bottom-32 -right-24 w-80 h-80 rounded-full bg-purple-400/40 blur-3xl pointer-events-none" />
         <div className="absolute inset-0 opacity-[0.06] pointer-events-none" style={{
@@ -150,13 +152,19 @@ export function AdminCoupons() {
               Create and manage promo codes. Track redemptions and discount spend in real time.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 no-print">
             <button
               onClick={handleExport}
               disabled={exporting}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition disabled:opacity-50"
             >
               <Download className="w-4 h-4" /> {exporting ? 'Exporting…' : 'Export CSV'}
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
+            >
+              <Download className="w-4 h-4" /> Export PDF
             </button>
             <button
               onClick={openCreate}
@@ -336,6 +344,7 @@ export function AdminCoupons() {
         coupon={viewingCoupon}
       />
     </div>
+    </PrintablePage>
   );
 }
 

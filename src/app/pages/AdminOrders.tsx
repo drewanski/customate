@@ -23,6 +23,7 @@ import {
 import { apiRequest, getOrderStats, bulkUpdateOrderStatus, downloadOrderCsv } from '../api';
 import { formatPeso } from '../utils/format';
 import { OrderDetailDrawer } from '../components/orders/OrderDetailDrawer';
+import { PrintablePage, ExportPdfButton } from '../components/admin/PrintablePage';
 
 const STATUS_TINT: Record<string, string> = {
   pending: 'bg-amber-100 text-amber-700 border-amber-200',
@@ -173,9 +174,10 @@ export function AdminOrders() {
   const goToPage = (page: number) => setCurrentPage(Math.max(1, Math.min(page, totalPages)));
 
   return (
+    <PrintablePage title="CustoMate — Orders Report" subtitle="All orders, statuses, payment, and totals">
     <div className="min-h-screen bg-slate-50">
       {/* Hero header */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 text-white">
+      <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 text-white no-print">
         <div className="absolute -top-32 -left-24 w-80 h-80 rounded-full bg-blue-400/30 blur-3xl pointer-events-none" />
         <div className="absolute -bottom-32 -right-24 w-80 h-80 rounded-full bg-purple-400/40 blur-3xl pointer-events-none" />
         <div
@@ -196,7 +198,7 @@ export function AdminOrders() {
               Review, approve, refund and ship every order with full audit history.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 no-print">
             <button
               onClick={handleExport}
               disabled={exporting}
@@ -204,6 +206,13 @@ export function AdminOrders() {
             >
               <Download className="w-4 h-4" />
               {exporting ? 'Exporting…' : 'Export CSV'}
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
+            >
+              <Download className="w-4 h-4" />
+              Export PDF
             </button>
             <button
               onClick={fetchAll}
@@ -467,6 +476,7 @@ export function AdminOrders() {
         }}
       />
     </div>
+    </PrintablePage>
   );
 }
 

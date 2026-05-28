@@ -198,6 +198,14 @@ export function InventoryAuditLogModal({ isOpen, onClose }: Props) {
               >
                 <Download className="w-3 h-3" /> CSV
               </button>
+              <button
+                onClick={() => window.print()}
+                disabled={!movements.length}
+                className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
+                title="Open the print dialog → save as PDF"
+              >
+                <Download className="w-3 h-3" /> PDF
+              </button>
             </div>
           </div>
         </div>
