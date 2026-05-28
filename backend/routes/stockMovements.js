@@ -4,14 +4,13 @@ import StockMovement from '../models/StockMovement.js';
 import Inventory from '../models/Inventory.js';
 import Supplier from '../models/Supplier.js';
 import User from '../models/User.js';
-import { authMiddleware, adminMiddleware, requireManager, requireProductionStaff } from '../middleware/auth.js';
+import { authMiddleware, adminMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Read endpoints: staff + manager + admin (they all need to know stock state).
-// Write endpoints (restock, adjust, damage): manager + admin only — these
-// generate audit-log entries and only supervisors should be authoring them.
-router.use(authMiddleware);
+// Per updated spec: stock movements (read + write) are admin-only.
+// Production staff cannot access the inventory ledger at all.
+router.use(authMiddleware, adminMiddleware);
 
 /**
  * Atomically apply a stock delta and write the audit log entry.
@@ -97,7 +96,7 @@ async function applyMovement({
  *   limit — default 50, max 200
  *   offset — for pagination
  */
-router.get('/', requireProductionStaff, async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const filter = {};
     if (req.query.inventoryId) filter.inventory = req.query.inventoryId;
@@ -133,7 +132,7 @@ router.get('/', requireProductionStaff, async (req, res) => {
  * GET /api/stock-movements/summary/:inventoryId
  * Aggregated totals for one item — used by the History modal header.
  */
-router.get('/summary/:inventoryId', requireProductionStaff, async (req, res) => {
+router.get('/summary/:inventoryId', async (req, res) => {
   try {
     const { inventoryId } = req.params;
     if (!mongoose.Types.ObjectId.isValid(inventoryId)) {
@@ -189,7 +188,7 @@ router.get('/summary/:inventoryId', requireProductionStaff, async (req, res) => 
  *   unitCost (optional, >= 0)
  *   invoiceNumber, batchNumber, expiryDate, notes (all optional)
  */
-router.post('/restock', requireManager, async (req, res) => {
+router.post('/restock', async (req, res) => {
   try {
     const {
       inventoryId,
@@ -278,7 +277,7 @@ router.post('/restock', requireManager, async (req, res) => {
  *
  * Body: { inventoryId, delta (signed), reason, notes }
  */
-router.post('/adjust', requireManager, async (req, res) => {
+router.post('/adjust', async (req, res) => {
   try {
     const { inventoryId, delta, reason, notes } = req.body;
     if (!inventoryId) return res.status(400).json({ message: 'inventoryId required' });
@@ -323,7 +322,7 @@ router.post('/adjust', requireManager, async (req, res) => {
  * POST /api/stock-movements/damage
  * Record damaged/lost stock. Requires reason.
  */
-router.post('/damage', requireManager, async (req, res) => {
+router.post('/damage', async (req, res) => {
   try {
     const { inventoryId, quantity, reason, notes } = req.body;
     if (!inventoryId) return res.status(400).json({ message: 'inventoryId required' });
@@ -367,7 +366,7 @@ router.post('/damage', requireManager, async (req, res) => {
  * GET /api/stock-movements/dashboard
  * Top-line metrics for the inventory dashboard tiles.
  */
-router.get('/dashboard/summary', requireProductionStaff, async (req, res) => {
+router.get('/dashboard/summary', async (req, res) => {
   try {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);

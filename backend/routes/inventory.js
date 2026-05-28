@@ -43,10 +43,10 @@ router.get('/:id', async (req, res) => {
 });
 
 // Get all inventory (admin only)
-// Read access: production_staff + admin (= Production Manager). Staff
-// need stock levels for production prep; the Production Manager (admin)
-// sees everything including pricing + supplier info.
-router.get('/', authMiddleware, requireProductionStaff, async (req, res) => {
+// Per updated spec: inventory is admin-only. Production staff have no
+// reason to browse the catalog — their work-card already lists the SKU
+// + size + color for each assigned task.
+router.get('/', authMiddleware, adminMiddleware, async (req, res) => {
   const inventory = await Inventory.find().sort({ createdAt: -1 });
   res.json(inventory);
 });

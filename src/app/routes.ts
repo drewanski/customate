@@ -47,6 +47,7 @@ const AdminCoupons = lazy(() => import('./pages/AdminCoupons').then((m) => ({ de
 const AdminCalendar = lazy(() => import('./pages/AdminCalendar').then((m) => ({ default: m.AdminCalendar })));
 const AdminDesignPrint = lazy(() => import('./pages/AdminDesignPrint').then((m) => ({ default: m.AdminDesignPrint })));
 const AdminReviewsPage = lazy(() => import('./pages/AdminReviews').then((m) => ({ default: m.AdminReviews })));
+const StaffTaskBoard = lazy(() => import('./pages/StaffTaskBoard').then((m) => ({ default: m.StaffTaskBoard })));
 
 // ─── Suspense fallback ────────────────────────────────────────────────────
 const PageLoader = () =>
@@ -171,14 +172,50 @@ export const router = createBrowserRouter([
     path: '/admin',
     Component: AdminLayoutProtected,
     children: [
-      // Default landing: production-only roles go straight to /production
-      // (handled by the dashboard component itself). All others see KPIs.
-      { index: true, Component: withSuspense(AdminDashboard) },
+      // Default landing: admin sees the KPI dashboard. Staff would never
+      // reach this URL because their ProtectedRoute fallback redirects to
+      // /admin/my-tasks; if they somehow navigate manually, the index
+      // component is still wrapped in an admin-only gate below.
+      {
+        index: true,
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: 'admin',
+          children: React.createElement(withSuspense(AdminDashboard)),
+        }),
+      },
 
-      // Operations pages — manager + staff + admin.
-      { path: 'production', Component: withSuspense(AdminProduction) },
-      { path: 'calendar', Component: withSuspense(AdminCalendar) },
-      { path: 'inventory', Component: withSuspense(AdminInventory) },
+      // Staff-only task board — exact opposite of the admin dashboard.
+      // Staff sees ONLY this; admin can visit too if they want to test it.
+      {
+        path: 'my-tasks',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: ['admin', 'production_staff'],
+          children: React.createElement(withSuspense(StaffTaskBoard)),
+        }),
+      },
+
+      // Operations pages — admin only. Staff use /my-tasks instead.
+      {
+        path: 'production',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: 'admin',
+          children: React.createElement(withSuspense(AdminProduction)),
+        }),
+      },
+      {
+        path: 'calendar',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: 'admin',
+          children: React.createElement(withSuspense(AdminCalendar)),
+        }),
+      },
+      {
+        path: 'inventory',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: 'admin',
+          children: React.createElement(withSuspense(AdminInventory)),
+        }),
+      },
 
       // Orders — manager + admin can manage; staff redirected to production
       // because they don't see financial data.

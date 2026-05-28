@@ -146,7 +146,58 @@ function dateKey(d) {
  * priority (urgent → high → medium → low) then by age (oldest first) so
  * the admin sees what needs scheduling most urgently at the top.
  */
-router.get('/queue', requireProductionStaff, async (req, res) => {
+/**
+ * GET /api/production/my-tasks
+ *
+ * The Staff Task Board endpoint. Returns ONLY tasks assigned to the calling
+ * production_staff user, grouped into kanban columns:
+ *   todo        — status='approved' (work has not started yet)
+ *   in_progress — status='in_production'
+ *   done        — status='ready' (waiting for admin sign-off + customer
+ *                  notification)
+ *
+ * Staff never sees tasks assigned to other staff members. Admin can hit
+ * this same endpoint but they'll see only THEIR own assignments — for an
+ * across-the-board view they use /queue or /active.
+ *
+ * Customer PII is stripped server-side via sanitizeOrderForRole.
+ */
+router.get('/my-tasks', requireProductionStaff, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const orders = await Order.find({
+      assignedTo: userId,
+      status: { $in: ['approved', 'in_production', 'ready'] },
+    }).sort({ productionPriority: -1, productionDate: 1, createdAt: 1 });
+
+    const populated = await attachUsers(orders);
+
+    const COLUMNS = ['approved', 'in_production', 'ready'];
+    const board = { todo: [], in_progress: [], done: [] };
+    for (const o of populated) {
+      const sanitized = sanitizeOrderForRole({ ...o }, req.user.role);
+      if (o.status === 'approved') board.todo.push(sanitized);
+      else if (o.status === 'in_production') board.in_progress.push(sanitized);
+      else if (o.status === 'ready') board.done.push(sanitized);
+    }
+
+    res.json({
+      columns: COLUMNS,
+      board,
+      counts: {
+        todo: board.todo.length,
+        in_progress: board.in_progress.length,
+        done: board.done.length,
+        total: populated.length,
+      },
+    });
+  } catch (err) {
+    console.error('GET /production/my-tasks error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.get('/queue', adminMiddleware, async (req, res) => {
   try {
     // Queue = anything waiting to be scheduled into production. Two groups:
     //   1. status='pending'   → just placed by customer, awaiting admin review
@@ -202,7 +253,7 @@ router.get('/queue', requireProductionStaff, async (req, res) => {
  * Returns scheduled orders inside the given range, plus per-day workload
  * vs. capacity so the UI can render heatmap-style indicators.
  */
-router.get('/schedule', requireProductionStaff, async (req, res) => {
+router.get('/schedule', adminMiddleware, async (req, res) => {
   try {
     const { date, from, to } = req.query;
 
@@ -301,7 +352,7 @@ router.get('/schedule', requireProductionStaff, async (req, res) => {
  * All orders currently mid-production grouped by stage — used to power the
  * Kanban view.
  */
-router.get('/active', requireProductionStaff, async (req, res) => {
+router.get('/active', adminMiddleware, async (req, res) => {
   try {
     const orders = await Order.find({ status: 'in_production' })
       .sort({ productionPriority: -1, productionDate: 1 });
@@ -645,6 +696,19 @@ router.post('/:id/advance', requireProductionStaff, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    // Task-ownership check for staff: a production_staff user can only
+    // advance an order that's been explicitly assigned to them. Admin
+    // (Production Manager) is exempt and can move anything anywhere.
+    if (req.user.role === 'production_staff') {
+      const assignedToId = order.assignedTo ? String(order.assignedTo) : null;
+      if (!assignedToId || assignedToId !== String(req.user.userId)) {
+        return res.status(403).json({
+          message: 'This task is not assigned to you. Ask your manager to reassign it.',
+        });
+      }
+    }
+
     if (order.status !== 'in_production' && req.body.direction !== 'forward') {
       // Allow advancing FROM approved (kicks off production)
     }
@@ -714,6 +778,14 @@ router.post('/:id/note', requireProductionStaff, async (req, res) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found' });
 
+    // Staff can only note on tasks assigned to them.
+    if (req.user.role === 'production_staff') {
+      const assignedToId = order.assignedTo ? String(order.assignedTo) : null;
+      if (!assignedToId || assignedToId !== String(req.user.userId)) {
+        return res.status(403).json({ message: 'This task is not assigned to you.' });
+      }
+    }
+
     const actor = await actorSnapshot(req);
     const log = await ProductionLog.create({
       order: order._id,
@@ -734,6 +806,16 @@ router.post('/:id/note', requireProductionStaff, async (req, res) => {
  */
 router.get('/:id/history', requireProductionStaff, async (req, res) => {
   try {
+    // Same ownership rule for staff — they can only see history of tasks
+    // assigned to them. Admin can see everything.
+    if (req.user.role === 'production_staff') {
+      const order = await Order.findById(req.params.id).select('assignedTo');
+      if (!order) return res.status(404).json({ message: 'Order not found' });
+      const assignedToId = order.assignedTo ? String(order.assignedTo) : null;
+      if (!assignedToId || assignedToId !== String(req.user.userId)) {
+        return res.status(403).json({ message: 'This task is not assigned to you.' });
+      }
+    }
     const logs = await ProductionLog.find({ order: req.params.id })
       .sort({ createdAt: -1 })
       .limit(200);

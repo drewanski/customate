@@ -444,6 +444,11 @@ export async function getProductionSchedule({ from, to, date } = {}) {
 export async function getProductionActive() {
   return apiRequest('/production/active');
 }
+// Staff Task Board — only tasks assigned to the calling user, grouped by
+// kanban column (todo / in_progress / done).
+export async function getMyTasks() {
+  return apiRequest('/production/my-tasks');
+}
 export async function getProductionStats() {
   return apiRequest('/production/stats');
 }

@@ -43,13 +43,16 @@ export function AdminLayout() {
   const role = (user?.role || 'customer') as
     | 'admin' | 'production_staff' | 'customer';
 
+  // Per updated spec: staff sees ONLY their task board. Everything else is
+  // admin-exclusive. Admin sees the full backstage navigation.
   const allNavLinks = [
+    { to: '/admin/my-tasks',  label: 'My Tasks',   icon: ListTodo,        roles: ['production_staff'] },
     { to: '/admin',           label: 'Overview',   icon: LayoutDashboard, roles: ['admin'] },
     { to: '/admin/orders',    label: 'Orders',     icon: Package,         roles: ['admin'] },
-    { to: '/admin/production',label: 'Production', icon: ListTodo,        roles: ['admin', 'production_staff'] },
-    { to: '/admin/calendar',  label: 'Calendar',   icon: CalendarIcon,    roles: ['admin', 'production_staff'] },
+    { to: '/admin/production',label: 'Production', icon: ListTodo,        roles: ['admin'] },
+    { to: '/admin/calendar',  label: 'Calendar',   icon: CalendarIcon,    roles: ['admin'] },
     { to: '/admin/users',     label: 'Accounts',   icon: Users,           roles: ['admin'] },
-    { to: '/admin/inventory', label: 'Inventory',  icon: Boxes,           roles: ['admin', 'production_staff'] },
+    { to: '/admin/inventory', label: 'Inventory',  icon: Boxes,           roles: ['admin'] },
     { to: '/admin/reports',   label: 'Reports',    icon: BarChart3,       roles: ['admin'] },
     { to: '/admin/coupons',   label: 'Coupons',    icon: Tag,             roles: ['admin'] },
     { to: '/admin/reviews',   label: 'Reviews',    icon: Star,            roles: ['admin'] },
@@ -236,15 +239,19 @@ export function AdminLayout() {
       >
         {/* Floating AI Health pill — sits in the top-right so admins can see
             which provider is responding and how much we're saving via cache.
-            Mounted above the hero gradients via z-index. */}
-        <div className="fixed top-3 right-3 md:top-5 md:right-6 z-30">
-          <AIHealthPill />
-        </div>
+            Mounted above the hero gradients via z-index. Admin only —
+            production staff have no AI quota visibility per the spec. */}
+        {role === 'admin' && (
+          <div className="fixed top-3 right-3 md:top-5 md:right-6 z-30">
+            <AIHealthPill />
+          </div>
+        )}
         <Outlet />
       </main>
 
-      {/* AI ASSISTANT */}
-      <AdminAIAssistant />
+      {/* AI ASSISTANT — admin-only per spec. Staff never sees the floating
+          AI widget at all (matches backend 403 on /api/admin-ai/*). */}
+      {role === 'admin' && <AdminAIAssistant />}
 
       {/* LOGOUT MODAL */}
       <Modal

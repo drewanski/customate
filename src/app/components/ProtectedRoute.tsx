@@ -39,11 +39,11 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     if (!allowedWithAdmin.includes(user.role as Role)) {
       // Send each role to its natural landing page when they hit a forbidden
       // route, so a production_staff user that accidentally clicks an
-      // admin-only link lands on their own dashboard instead of the
+      // admin-only link lands on their own task board instead of the
       // customer homepage.
       const fallback =
         user.role === 'production_staff'
-          ? '/admin/production'
+          ? '/admin/my-tasks'
           : user.role === 'customer'
           ? '/dashboard'
           : '/';
