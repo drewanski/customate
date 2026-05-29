@@ -43,6 +43,7 @@ import notificationRoutes from './routes/notifications.js';
 import designRoutes from './routes/designs.js';
 import productionRoutes from './routes/production.js';
 import productionPublicRoutes from './routes/productionPublic.js';
+import systemConfigRoutes from './routes/systemConfig.js';
 import NotificationService from './services/notificationService.js';
 import { expireStaleReservations } from './services/inventory.js';
 
@@ -243,6 +244,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/designs', designRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/production-public', productionPublicRoutes);
+app.use('/api/system', systemConfigRoutes);
 app.use('/api/paymongo', paymongoRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 
@@ -304,7 +306,7 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 4000;
 
 mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => {
+  .then(async () => {
     console.log('✅ Connected to MongoDB Atlas');
     httpServer.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT} (Accessible on network with Real-time Sync)`));
 
@@ -342,6 +344,17 @@ mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopol
     expireStaleReservations({ olderThanHours: RESERVATION_TIMEOUT_HOURS })
       .then((r) => r.released > 0 && console.log(`[reservation-sweep:boot] released ${r.released} stale reservations`))
       .catch((err) => console.error('[reservation-sweep:boot] failed:', err.message));
+
+    // End-of-day production digest scheduler — fires hourly, dispatches
+    // at the configured local hour (default 18:00). State is kept in
+    // module scope so reruns the same day are no-ops.
+    try {
+      const { startDigestScheduler } = await import('./services/productionDigest.js');
+      startDigestScheduler();
+      console.log('[digest] Production digest scheduler started');
+    } catch (err) {
+      console.error('[digest] Failed to start scheduler:', err.message);
+    }
   })
   .catch(err => {
     console.error('❌ MongoDB Connection Error:', err.message);

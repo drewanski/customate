@@ -35,6 +35,8 @@ import { BulkScheduleModal } from '../components/production/BulkScheduleModal';
 import { OrderDetailDrawer } from '../components/production/OrderDetailDrawer';
 import { CapacitySettingsModal } from '../components/production/CapacitySettingsModal';
 import { AIProductionForecast } from '../components/production/AIProductionForecast';
+import { AdminQcAndBlockerPanel } from '../components/production/AdminQcAndBlockerPanel';
+import { AutoAssignToggle } from '../components/production/AutoAssignToggle';
 
 const STAGES = [
   { id: 'design_review', label: 'Design', tint: 'from-purple-500 to-pink-500', bg: 'bg-purple-50 border-purple-100' },
@@ -254,6 +256,17 @@ export function AdminProduction() {
             the tab switcher so admins see the situation before drilling into
             queue/calendar/pipeline. */}
         <AIProductionForecast refreshKey={stats?.activeCount || 0} />
+
+        {/* QC review + active blockers — the two things the manager needs
+            to act on RIGHT NOW. Auto-hides when both queues are empty. */}
+        <AdminQcAndBlockerPanel onChange={fetchAll} />
+
+        {/* Auto-assign toggle — frees the manager from picking a staff
+            member on every approval. Round-robins to the lowest-load
+            production_staff user. */}
+        <div className="mb-4 flex items-center justify-end">
+          <AutoAssignToggle />
+        </div>
 
         {/* Tab switcher */}
         <div className="mb-6 inline-flex p-1 rounded-full bg-white border border-slate-200 shadow-sm">

@@ -637,6 +637,63 @@ router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
       order.inventoryConsumedAt = new Date();
     }
 
+    // ─── Auto-assign on approval ──────────────────────────────────────
+    // If the system has auto-assign enabled and an order is transitioning
+    // into approved/in_production WITHOUT an existing assignee, pick the
+    // production_staff user with the lowest current load. Falls back
+    // silently when no staff exists — admin can still assign manually.
+    if ((status === 'approved' || status === 'in_production') && !order.assignedTo) {
+      try {
+        const { default: SystemConfig } = await import('../models/SystemConfig.js');
+        const cfg = await SystemConfig.getOrCreate();
+        if (cfg.autoAssignEnabled) {
+          const candidates = await User.find({ role: 'production_staff', status: 'active' })
+            .select('_id name')
+            .lean();
+          if (candidates.length > 0) {
+            // Count active+queued tasks per candidate
+            const ids = candidates.map((c) => c._id);
+            const Order = (await import('../models/Order.js')).default;
+            const loadAgg = await Order.aggregate([
+              {
+                $match: {
+                  assignedTo: { $in: ids },
+                  status: { $in: ['approved', 'in_production'] },
+                  blockerStatus: { $ne: 'active' },
+                },
+              },
+              { $group: { _id: '$assignedTo', n: { $sum: 1 } } },
+            ]);
+            const loadMap = Object.fromEntries(loadAgg.map((r) => [String(r._id), r.n]));
+            // Pick lowest load; tie-break alphabetically by name for determinism
+            const ranked = [...candidates].sort((a, b) => {
+              const la = loadMap[String(a._id)] || 0;
+              const lb = loadMap[String(b._id)] || 0;
+              if (la !== lb) return la - lb;
+              return (a.name || '').localeCompare(b.name || '');
+            });
+            order.assignedTo = ranked[0]._id;
+            // Audit row so admin can see this was algorithmic, not manual
+            try {
+              const ProductionLog = (await import('../models/ProductionLog.js')).default;
+              await ProductionLog.create({
+                order: order._id,
+                orderRef: String(order._id).slice(-6),
+                type: 'assigned',
+                to: ranked[0]._id,
+                note: `Auto-assigned to ${ranked[0].name} (lowest load)`,
+                performedBy: req.user.userId,
+                performedByName: actor.performedByName,
+                performedByRole: req.user.role,
+              });
+            } catch {/* non-fatal */}
+          }
+        }
+      } catch (err) {
+        console.warn('Auto-assign skipped:', err.message);
+      }
+    }
+
     order.status = status;
     await order.save();
 

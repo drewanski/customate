@@ -429,15 +429,85 @@ router.get('/stats', requireManager, async (req, res) => {
 
 /**
  * GET /api/production/team
- * Users that can be assigned work (admin + future "production" role).
+ *
+ * Users that can be assigned work. Returns admin + production_staff with
+ * per-user workload counts so the admin can balance assignments at a
+ * glance — the dropdown in the Schedule modal shows each member's current
+ * load as a color-coded badge (light / medium / heavy).
+ *
+ * Workload columns:
+ *   active   — orders currently in_production assigned to this user
+ *   blocked  — orders flagged as blocked assigned to this user
+ *   qcPending— orders awaiting QC approval (still attributed to the staff
+ *              member that submitted them; admin reviews but staff "owns"
+ *              until ready)
+ *   queued   — orders status='approved' but not yet started, assigned to
+ *              this user
+ *   loadTier — 'light' (0-2) / 'medium' (3-4) / 'heavy' (5+) bucketing
+ *              for UI badges
  */
 router.get('/team', requireManager, async (req, res) => {
   try {
-    const team = await User.find({ role: { $in: ['admin', 'production'] } })
+    const members = await User.find({ role: { $in: ['admin', 'production_staff'] } })
       .select('name email role')
-      .sort({ name: 1 });
-    res.json(team);
+      .sort({ name: 1 })
+      .lean();
+
+    // One aggregation over Order to compute counts per assignedTo + status
+    const counts = await Order.aggregate([
+      {
+        $match: {
+          assignedTo: { $ne: null },
+          status: { $in: ['approved', 'in_production', 'ready'] },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            assignedTo: '$assignedTo',
+            status: '$status',
+            blockerStatus: '$blockerStatus',
+            qcStatus: '$qcStatus',
+          },
+          n: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Roll up by user id
+    const byUser = {};
+    for (const m of members) {
+      byUser[String(m._id)] = { active: 0, blocked: 0, qcPending: 0, queued: 0 };
+    }
+    for (const row of counts) {
+      const uid = String(row._id.assignedTo);
+      if (!byUser[uid]) continue;
+      if (row._id.blockerStatus === 'active') {
+        byUser[uid].blocked += row.n;
+      } else if (row._id.qcStatus === 'pending') {
+        byUser[uid].qcPending += row.n;
+      } else if (row._id.status === 'approved') {
+        byUser[uid].queued += row.n;
+      } else if (row._id.status === 'in_production') {
+        byUser[uid].active += row.n;
+      }
+    }
+
+    const tierFor = (total) => {
+      if (total >= 5) return 'heavy';
+      if (total >= 3) return 'medium';
+      return 'light';
+    };
+
+    const enriched = members.map((m) => {
+      const w = byUser[String(m._id)] || { active: 0, blocked: 0, qcPending: 0, queued: 0 };
+      const total = w.active + w.qcPending + w.queued; // blocked excluded — they can't be worked
+      return { ...m, workload: { ...w, total, loadTier: tierFor(total) } };
+    });
+
+    res.json(enriched);
   } catch (err) {
+    console.error('GET /production/team error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -724,17 +794,55 @@ router.post('/:id/advance', requireProductionStaff, async (req, res) => {
       });
     }
 
+    // Quality-control gate: staff cannot push a task to 'ready' directly.
+    // Their finish-of-work flow is /qc-photo which puts the order in
+    // qcStatus='pending' and the admin approves it via /qc-approve.
+    // Admin (= Production Manager) is exempt — they can advance to ready
+    // even without a QC photo (rare, but allowed for emergency releases).
+    if (req.user.role === 'production_staff' && target === 'ready') {
+      return res.status(400).json({
+        message: 'Use Submit for QC to finish your work. The manager will approve before this can move to Done.',
+        action: 'qc-required',
+      });
+    }
+
     const actor = await actorSnapshot(req);
     order.productionStage = target;
 
-    // Side effects
+    // Side effects:
+    //   - First time we enter in_production, stamp productionStartedAt
+    //     and start the time-tracking clock.
+    //   - Every time we LEAVE in_production (forward or backward),
+    //     accumulate the elapsed time and stop the clock.
     if (currentStage === 'queued' && direction === 'forward' && !order.productionStartedAt) {
       order.productionStartedAt = new Date();
       order.status = 'in_production';
+      order.productionLastStartedAt = new Date();
+      // Admin notification: staff just kicked off this task
+      if (req.user.role === 'production_staff') {
+        try {
+          const notify = req.app.get('notificationService');
+          if (notify?.notifyAdminsOfStaffStart) {
+            await notify.notifyAdminsOfStaffStart(order, req.user);
+          }
+        } catch {/* non-fatal */}
+      }
+    }
+    // Re-enter in_production from backward direction → restart the clock
+    if (target === 'design_review' && order.status !== 'in_production') {
+      order.status = 'in_production';
+      order.productionLastStartedAt = new Date();
     }
     if (target === 'ready') {
       order.productionCompletedAt = new Date();
       order.status = 'ready';
+      // Stop the production-time clock + accumulate
+      if (order.productionLastStartedAt) {
+        const elapsedMs = Date.now() - order.productionLastStartedAt.getTime();
+        order.productionTimeMinutes = (order.productionTimeMinutes || 0)
+          + Math.max(0, Math.round(elapsedMs / 60000));
+        order.productionLastStartedAt = null;
+      }
       await ProductionLog.create({
         order: order._id,
         orderRef: String(order._id).slice(-6),
@@ -859,6 +967,341 @@ router.put('/capacity', adminMiddleware, async (req, res) => {
     cap.updatedBy = req.user.userId;
     await cap.save();
     res.json(cap);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ─── Quality Control endpoints ─────────────────────────────────────────
+//
+// Lifecycle:
+//   Staff: POST /:id/qc-photo  (upload finished-product photo)
+//     -> order.qcStatus = 'pending', awaiting admin review
+//   Admin: POST /:id/qc-approve
+//     -> order.qcStatus = 'approved', status flips to 'ready'
+//   Admin: POST /:id/qc-reject  (with reason)
+//     -> order.qcStatus = 'rejected', status stays 'in_production' so staff retries
+
+/**
+ * POST /api/production/:id/qc-photo
+ * Body: { photo: 'data:image/png;base64,...' }
+ *
+ * Staff uploads a photo of the finished product. Photo is stored as a
+ * dataURL on the order document (Cloudinary integration trips on if the
+ * env vars are set; see services/imageUpload.js).
+ */
+router.post('/:id/qc-photo', requireProductionStaff, async (req, res) => {
+  try {
+    const { photo, note } = req.body;
+    if (!photo || typeof photo !== 'string' || !photo.startsWith('data:image')) {
+      return res.status(400).json({ message: 'A valid image upload is required.' });
+    }
+    if (photo.length > 6 * 1024 * 1024) {
+      return res.status(413).json({ message: 'Photo too large. Keep under ~4 MB.' });
+    }
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    // Ownership check for staff
+    if (req.user.role === 'production_staff') {
+      const assignedToId = order.assignedTo ? String(order.assignedTo) : null;
+      if (!assignedToId || assignedToId !== String(req.user.userId)) {
+        return res.status(403).json({ message: 'This task is not assigned to you.' });
+      }
+    }
+    if (order.status !== 'in_production') {
+      return res.status(400).json({ message: 'Only orders currently in production can be submitted for QC.' });
+    }
+
+    // Optional Cloudinary upload — if configured, swap the dataURL for a
+    // hosted URL so MongoDB doesn't bloat. Otherwise dataURL is stored.
+    let storedPhoto = photo;
+    try {
+      const { uploadImage } = await import('../services/imageUpload.js');
+      const hosted = await uploadImage(photo, { folder: 'customate/qc' });
+      if (hosted && typeof hosted === 'string' && hosted.startsWith('http')) {
+        storedPhoto = hosted;
+      }
+    } catch {
+      // Best-effort; fall through to dataURL storage
+    }
+
+    order.qcPhoto = storedPhoto;
+    order.qcPhotoUploadedAt = new Date();
+    order.qcPhotoUploadedBy = req.user.userId;
+    order.qcStatus = 'pending';
+    order.qcRejectionReason = '';
+    order.qcRejectedAt = null;
+    await order.save();
+
+    const actor = await actorSnapshot(req);
+    await ProductionLog.create({
+      order: order._id,
+      orderRef: String(order._id).slice(-6),
+      type: 'note',
+      note: `QC photo submitted${note ? `: ${note}` : ''}`,
+      ...actor,
+    });
+
+    // Notify admin: there's something waiting for review.
+    try {
+      const notify = req.app.get('notificationService');
+      if (notify?.notifyAdminsOfQcRequest) {
+        await notify.notifyAdminsOfQcRequest(order, req.user);
+      }
+    } catch {
+      /* non-fatal */
+    }
+
+    const populated = await attachUsers(order);
+    jsonForRole(req, res, populated);
+  } catch (err) {
+    console.error('POST /production/qc-photo error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * POST /api/production/:id/qc-approve
+ * Admin marks the QC photo accepted. Order moves to 'ready' and the
+ * customer-notification path kicks in via the normal status flow.
+ */
+router.post('/:id/qc-approve', adminMiddleware, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (order.qcStatus !== 'pending') {
+      return res.status(400).json({ message: 'No QC review pending on this order.' });
+    }
+
+    const actor = await actorSnapshot(req);
+    order.qcStatus = 'approved';
+    order.qcApprovedAt = new Date();
+    order.qcApprovedBy = req.user.userId;
+    order.status = 'ready';
+    order.productionStage = 'ready';
+    if (!order.productionCompletedAt) order.productionCompletedAt = new Date();
+    // Stop time-tracking clock if it was still running
+    if (order.productionLastStartedAt) {
+      const elapsedMs = Date.now() - order.productionLastStartedAt.getTime();
+      order.productionTimeMinutes = (order.productionTimeMinutes || 0)
+        + Math.max(0, Math.round(elapsedMs / 60000));
+      order.productionLastStartedAt = null;
+    }
+    await order.save();
+
+    await ProductionLog.create({
+      order: order._id,
+      orderRef: String(order._id).slice(-6),
+      type: 'completed',
+      note: 'QC approved by manager',
+      ...actor,
+    });
+
+    const populated = await attachUsers(order);
+    res.json(populated);
+  } catch (err) {
+    console.error('POST /production/qc-approve error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * POST /api/production/:id/qc-reject
+ * Body: { reason: string }
+ *
+ * Admin rejects the QC photo. Order stays in_production so the assigned
+ * staff member can retry. Rejection reason surfaces on the staff card.
+ */
+router.post('/:id/qc-reject', adminMiddleware, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    if (!reason || !String(reason).trim()) {
+      return res.status(400).json({ message: 'Provide a rejection reason so staff knows what to fix.' });
+    }
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (order.qcStatus !== 'pending') {
+      return res.status(400).json({ message: 'No QC review pending on this order.' });
+    }
+
+    const actor = await actorSnapshot(req);
+    order.qcStatus = 'rejected';
+    order.qcRejectionReason = String(reason).trim().slice(0, 500);
+    order.qcRejectedAt = new Date();
+    await order.save();
+
+    await ProductionLog.create({
+      order: order._id,
+      orderRef: String(order._id).slice(-6),
+      type: 'note',
+      note: `QC REJECTED: ${order.qcRejectionReason}`,
+      ...actor,
+    });
+
+    const populated = await attachUsers(order);
+    res.json(populated);
+  } catch (err) {
+    console.error('POST /production/qc-reject error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ─── Blocker endpoints ──────────────────────────────────────────────────
+
+/**
+ * POST /api/production/:id/flag-blocker
+ * Body: { reason: enum, note: string }
+ *
+ * Staff flags a task as blocked. Priority auto-bumps to urgent so it
+ * surfaces at the top of the admin queue; the previous priority is
+ * snapshotted on the order so clear-blocker can restore it.
+ */
+const BLOCKER_REASONS = [
+  'material_out_of_stock',
+  'machine_issue',
+  'design_unclear',
+  'customer_change_requested',
+  'damaged_during_production',
+  'other',
+];
+router.post('/:id/flag-blocker', requireProductionStaff, async (req, res) => {
+  try {
+    const { reason, note } = req.body;
+    if (!BLOCKER_REASONS.includes(reason)) {
+      return res.status(400).json({ message: 'Pick a valid blocker reason.' });
+    }
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    if (req.user.role === 'production_staff') {
+      const assignedToId = order.assignedTo ? String(order.assignedTo) : null;
+      if (!assignedToId || assignedToId !== String(req.user.userId)) {
+        return res.status(403).json({ message: 'This task is not assigned to you.' });
+      }
+    }
+
+    const actor = await actorSnapshot(req);
+    if (order.blockerStatus !== 'active') {
+      order.preBlockerPriority = order.productionPriority || 'medium';
+    }
+    order.blockerStatus = 'active';
+    order.blockerReason = reason;
+    order.blockerNote = String(note || '').trim().slice(0, 500);
+    order.blockedAt = new Date();
+    order.blockedBy = req.user.userId;
+    order.productionPriority = 'urgent';
+    // Stop the production-time clock while blocked — paused time should
+    // not count toward "how long does it take to make this product?"
+    if (order.productionLastStartedAt) {
+      const elapsedMs = Date.now() - order.productionLastStartedAt.getTime();
+      order.productionTimeMinutes = (order.productionTimeMinutes || 0)
+        + Math.max(0, Math.round(elapsedMs / 60000));
+      order.productionLastStartedAt = null;
+    }
+    await order.save();
+
+    await ProductionLog.create({
+      order: order._id,
+      orderRef: String(order._id).slice(-6),
+      type: 'note',
+      note: `BLOCKED (${reason}): ${order.blockerNote}`,
+      ...actor,
+    });
+
+    // Push admin notification
+    try {
+      const notify = req.app.get('notificationService');
+      if (notify?.notifyAdminsOfBlocker) {
+        await notify.notifyAdminsOfBlocker(order, req.user);
+      }
+    } catch {/* non-fatal */}
+
+    const populated = await attachUsers(order);
+    jsonForRole(req, res, populated);
+  } catch (err) {
+    console.error('POST /production/flag-blocker error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * POST /api/production/:id/clear-blocker
+ * Body: { reassignTo?: userId, resolution: string }
+ *
+ * Admin marks the blocker resolved. Restores the previous priority,
+ * optionally reassigns the order, and resumes the time-tracking clock.
+ */
+router.post('/:id/clear-blocker', adminMiddleware, async (req, res) => {
+  try {
+    const { reassignTo, resolution } = req.body;
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (order.blockerStatus !== 'active') {
+      return res.status(400).json({ message: 'No active blocker on this order.' });
+    }
+
+    const actor = await actorSnapshot(req);
+    order.blockerStatus = 'cleared';
+    order.productionPriority = order.preBlockerPriority || 'medium';
+    order.preBlockerPriority = '';
+
+    if (reassignTo) {
+      const newStaff = await User.findById(reassignTo).select('role');
+      if (newStaff && (newStaff.role === 'production_staff' || newStaff.role === 'admin')) {
+        order.assignedTo = newStaff._id;
+      }
+    }
+    // Resume the clock if still in production
+    if (order.status === 'in_production' && !order.productionLastStartedAt) {
+      order.productionLastStartedAt = new Date();
+    }
+    await order.save();
+
+    await ProductionLog.create({
+      order: order._id,
+      orderRef: String(order._id).slice(-6),
+      type: 'note',
+      note: `Blocker cleared${resolution ? `: ${resolution}` : ''}`,
+      ...actor,
+    });
+
+    const populated = await attachUsers(order);
+    res.json(populated);
+  } catch (err) {
+    console.error('POST /production/clear-blocker error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ─── Admin QC + Blocker dashboards ──────────────────────────────────────
+
+/**
+ * GET /api/production/qc-pending
+ * Admin view: orders awaiting QC review. Returns the design + finished
+ * photo side-by-side so the admin can compare quickly.
+ */
+router.get('/qc-pending', adminMiddleware, async (req, res) => {
+  try {
+    const orders = await Order.find({ qcStatus: 'pending' })
+      .sort({ qcPhotoUploadedAt: 1 })
+      .populate('qcPhotoUploadedBy', 'name email');
+    res.json(orders);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * GET /api/production/blockers
+ * Admin view: active blockers, sorted by raised-time so oldest are top.
+ */
+router.get('/blockers', adminMiddleware, async (req, res) => {
+  try {
+    const orders = await Order.find({ blockerStatus: 'active' })
+      .sort({ blockedAt: 1 })
+      .populate('blockedBy', 'name email');
+    res.json(orders);
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
   }

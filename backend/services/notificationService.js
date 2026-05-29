@@ -231,6 +231,65 @@ class NotificationService {
       { read: true, readAt: new Date() }
     );
   }
+
+  // ─── Staff → Admin event notifications ─────────────────────────────
+  // These three methods are called from the production routes whenever a
+  // production_staff user takes an action the admin needs to know about.
+  // All three create an admin-target notification (user=null) so every
+  // admin sees it in the bell.
+
+  /**
+   * Staff started physical production on a task. Useful for SLA tracking
+   * and "what's actively being worked on right now" dashboards.
+   */
+  async notifyAdminsOfStaffStart(order, staffUser) {
+    return this.create({
+      user: null,
+      target: 'admin',
+      type: 'production_started',
+      priority: 'normal',
+      title: 'Staff started production',
+      message: `${staffUser?.name || 'A staff member'} started Order #${String(order._id).slice(-6)}.`,
+      relatedData: { orderId: String(order._id), staffId: String(staffUser?.userId || staffUser?._id || '') },
+    });
+  }
+
+  /**
+   * Staff finished work and submitted a QC photo. Admin must approve
+   * before the order moves to ready and the customer is notified.
+   */
+  async notifyAdminsOfQcRequest(order, staffUser) {
+    return this.create({
+      user: null,
+      target: 'admin',
+      type: 'qc_review_requested',
+      priority: 'high',
+      title: 'QC review needed',
+      message: `${staffUser?.name || 'Staff'} finished Order #${String(order._id).slice(-6)} — review the QC photo.`,
+      relatedData: { orderId: String(order._id), staffId: String(staffUser?.userId || staffUser?._id || '') },
+    });
+  }
+
+  /**
+   * Staff flagged a blocker. Priority is auto-bumped on the order and we
+   * push a high-priority alert so admin can unblock fast.
+   */
+  async notifyAdminsOfBlocker(order, staffUser) {
+    return this.create({
+      user: null,
+      target: 'admin',
+      type: 'blocker_raised',
+      priority: 'high',
+      title: 'Blocker raised',
+      message: `${staffUser?.name || 'Staff'} flagged Order #${String(order._id).slice(-6)}: ${order.blockerReason || 'reason missing'}`,
+      relatedData: {
+        orderId: String(order._id),
+        staffId: String(staffUser?.userId || staffUser?._id || ''),
+        reason: order.blockerReason,
+        note: order.blockerNote,
+      },
+    });
+  }
 }
 
 export default NotificationService;

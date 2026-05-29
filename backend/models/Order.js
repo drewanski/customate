@@ -130,6 +130,69 @@ const orderSchema = new mongoose.Schema({
   // return-restock event.
   inventoryConsumed: { type: Boolean, default: false, index: true },
   inventoryConsumedAt: { type: Date, default: null },
+
+  // ─── Quality Control (staff-uploaded finished-product photo) ─────────
+  // The full lifecycle:
+  //   1. Staff finishes the work, clicks "Submit for QC", uploads a photo
+  //      of the finished product. qcStatus → 'pending', qcPhoto stored.
+  //   2. Admin reviews. Approves → order status flips to 'ready',
+  //      qcStatus='approved', qcApprovedBy/At stamped. Rejects → bounces
+  //      to 'in_production' with qcRejectionReason and qcStatus='rejected'.
+  //   3. The previous qcPhoto stays for audit; staff uploads a new one
+  //      to retry, which overwrites it.
+  qcStatus: {
+    type: String,
+    enum: ['none', 'pending', 'approved', 'rejected'],
+    default: 'none',
+    index: true,
+  },
+  qcPhoto: { type: String, default: '' },           // hosted URL OR dataURL
+  qcPhotoUploadedAt: { type: Date, default: null },
+  qcPhotoUploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  qcApprovedAt: { type: Date, default: null },
+  qcApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  qcRejectedAt: { type: Date, default: null },
+  qcRejectionReason: { type: String, default: '' },
+
+  // ─── Blocker tracking ───────────────────────────────────────────────
+  // Staff can flag a task as blocked when they can't continue (out of
+  // material, machine down, design unclear, etc). Auto-bumps priority
+  // to 'urgent' so the admin sees it at the top of the queue. Admin
+  // clears the blocker by calling /clear-blocker which restores the
+  // previous priority and lets work resume.
+  blockerStatus: {
+    type: String,
+    enum: ['none', 'active', 'cleared'],
+    default: 'none',
+    index: true,
+  },
+  blockerReason: {
+    type: String,
+    enum: [
+      'none',
+      'material_out_of_stock',
+      'machine_issue',
+      'design_unclear',
+      'customer_change_requested',
+      'damaged_during_production',
+      'other',
+    ],
+    default: 'none',
+  },
+  blockerNote: { type: String, default: '' },
+  blockedAt: { type: Date, default: null },
+  blockedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  // Snapshot of the priority right before the blocker bumped it to urgent,
+  // so we can restore it on clear.
+  preBlockerPriority: { type: String, default: '' },
+
+  // ─── Production time tracking ───────────────────────────────────────
+  // productionLastStartedAt is set every time the status becomes
+  // 'in_production'. productionTimeMinutes accumulates the elapsed time
+  // each time the status leaves 'in_production' (forward or backward —
+  // even blockers stop the clock so paused time doesn't pollute the metric).
+  productionLastStartedAt: { type: Date, default: null },
+  productionTimeMinutes: { type: Number, default: 0 },
 }, { timestamps: true });
 
 // Useful indexes for the production queue queries

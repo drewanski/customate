@@ -449,6 +449,44 @@ export async function getProductionActive() {
 export async function getMyTasks() {
   return apiRequest('/production/my-tasks');
 }
+// QC photo submission (staff). photoDataUrl is a 'data:image/...' string.
+export async function submitQcPhoto(orderId, photoDataUrl, note = '') {
+  return apiRequest(`/production/${orderId}/qc-photo`, {
+    method: 'POST',
+    body: JSON.stringify({ photo: photoDataUrl, note }),
+  });
+}
+// QC review (admin)
+export async function approveQc(orderId) {
+  return apiRequest(`/production/${orderId}/qc-approve`, { method: 'POST' });
+}
+export async function rejectQc(orderId, reason) {
+  return apiRequest(`/production/${orderId}/qc-reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+// Blocker (staff + admin)
+export async function flagBlocker(orderId, reason, note = '') {
+  return apiRequest(`/production/${orderId}/flag-blocker`, {
+    method: 'POST',
+    body: JSON.stringify({ reason, note }),
+  });
+}
+export async function clearBlocker(orderId, payload = {}) {
+  return apiRequest(`/production/${orderId}/clear-blocker`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+// Admin dashboards for QC + blockers
+export async function getQcPending() { return apiRequest('/production/qc-pending'); }
+export async function getActiveBlockers() { return apiRequest('/production/blockers'); }
+// System config (admin)
+export async function getSystemConfig() { return apiRequest('/system/config'); }
+export async function updateSystemConfig(payload) {
+  return apiRequest('/system/config', { method: 'PUT', body: JSON.stringify(payload) });
+}
 export async function getProductionStats() {
   return apiRequest('/production/stats');
 }

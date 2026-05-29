@@ -215,12 +215,52 @@ export function ScheduleOrderModal({ isOpen, onClose, order, onSuccess }: Props)
             className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm focus:ring-4 focus:ring-blue-500/15 focus:border-blue-500 bg-white"
           >
             <option value="">Unassigned</option>
-            {team.map((m) => (
-              <option key={m._id} value={m._id}>
-                {m.name} ({m.role})
-              </option>
-            ))}
+            {team.map((m) => {
+              const w = (m as any).workload || {};
+              const total = w.total ?? 0;
+              const blocked = w.blocked ?? 0;
+              const tier = w.loadTier || 'light';
+              const tierLabel = tier === 'heavy' ? 'HEAVY' : tier === 'medium' ? 'MEDIUM' : 'LIGHT';
+              const blockedSuffix = blocked > 0 ? ` · ${blocked} blocked` : '';
+              return (
+                <option key={m._id} value={m._id}>
+                  {m.name} ({m.role}) — {total} active [{tierLabel}]{blockedSuffix}
+                </option>
+              );
+            })}
           </select>
+          {/* Visual workload chips below the dropdown so admin can pick by
+              eye instead of reading every option. Click to select. */}
+          {team.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {team.map((m) => {
+                const w = (m as any).workload || {};
+                const total = w.total ?? 0;
+                const tier = w.loadTier || 'light';
+                const tint =
+                  tier === 'heavy' ? 'bg-rose-100 text-rose-700 border-rose-300'
+                  : tier === 'medium' ? 'bg-amber-100 text-amber-700 border-amber-300'
+                  : 'bg-emerald-100 text-emerald-700 border-emerald-300';
+                const isSelected = assignedTo === m._id;
+                return (
+                  <button
+                    key={m._id}
+                    type="button"
+                    onClick={() => setAssignedTo(m._id)}
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border text-[10px] font-bold transition ${
+                      isSelected
+                        ? 'bg-blue-600 border-blue-600 text-white scale-105 shadow-md'
+                        : tint + ' hover:scale-105'
+                    }`}
+                    title={m.role === 'admin' ? 'Production Manager' : 'Production Staff'}
+                  >
+                    <span className="truncate max-w-[120px]">{m.name}</span>
+                    <span className="font-mono">{total}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <Textarea
