@@ -37,6 +37,7 @@ import { CapacitySettingsModal } from '../components/production/CapacitySettings
 import { AIProductionForecast } from '../components/production/AIProductionForecast';
 import { AdminQcAndBlockerPanel } from '../components/production/AdminQcAndBlockerPanel';
 import { AutoAssignToggle } from '../components/production/AutoAssignToggle';
+import { OrderDesignPreview } from '../components/production/OrderDesignPreview';
 
 const STAGES = [
   { id: 'design_review', label: 'Design', tint: 'from-purple-500 to-pink-500', bg: 'bg-purple-50 border-purple-100' },
@@ -387,6 +388,9 @@ export function AdminProduction() {
                             onChange={() => toggleSelect(o._id)}
                             className="w-4 h-4 rounded border-slate-300 flex-shrink-0"
                           />
+                          {/* Design thumbnail — visible BEFORE admin clicks
+                              the row. Sparkles badge marks customized items. */}
+                          <OrderDesignPreview order={o} size="sm" />
                           <button onClick={() => openDetail(o)} className="flex-1 min-w-0 text-left">
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <span className="font-mono text-[11px] text-slate-500">#{String(o._id).slice(-6)}</span>
@@ -670,7 +674,11 @@ export function AdminProduction() {
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-xs font-semibold text-slate-900 truncate">{o.customer?.name || '—'}</p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  {/* Tiny design preview so the day cell shows what's being made */}
+                                  <OrderDesignPreview order={o} size="xs" />
+                                  <p className="text-xs font-semibold text-slate-900 truncate">{o.customer?.name || '—'}</p>
+                                </div>
                                 <div className="flex items-center justify-between mt-0.5">
                                   <p className="text-[10px] text-slate-500">{o.totalQty} units</p>
                                   {/* progress bar showing how far this order is through its span */}
@@ -729,8 +737,13 @@ export function AdminProduction() {
                                     o.productionPriority === 'medium' ? 'bg-amber-500' : 'bg-slate-400'
                                   }`} />
                                 </div>
-                                <p className="text-xs font-bold text-slate-900 truncate">{o.customer?.name || '—'}</p>
-                                <p className="text-[10px] text-slate-500">{o.totalQty} units</p>
+                                <div className="flex items-center gap-2">
+                                  <OrderDesignPreview order={o} size="xs" />
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-bold text-slate-900 truncate">{o.customer?.name || '—'}</p>
+                                    <p className="text-[10px] text-slate-500">{o.totalQty} units</p>
+                                  </div>
+                                </div>
                                 {o.assignedTo?.name && (
                                   <p className="text-[10px] text-slate-600 mt-1 flex items-center gap-0.5">
                                     <UserIcon className="w-2.5 h-2.5" /> {o.assignedTo.name}

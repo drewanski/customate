@@ -20,6 +20,7 @@ import {
 } from '../api';
 import { formatPeso } from '../utils/format';
 import { ScheduleOrderModal } from '../components/production/ScheduleOrderModal';
+import { OrderDesignPreview } from '../components/production/OrderDesignPreview';
 
 /**
  * AdminCalendar — production priority view.
@@ -613,12 +614,10 @@ export function AdminCalendar() {
                       className="p-2.5 rounded-xl border border-slate-100 hover:border-slate-300 hover:bg-slate-50/50 transition-colors"
                     >
                       <div className="flex items-start gap-2">
-                        <div
-                          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-                          style={{ backgroundColor: `${meta.color}20`, color: meta.color }}
-                        >
-                          <Icon className="w-3.5 h-3.5" />
-                        </div>
+                        {/* Design preview thumbnail — surfaces customized
+                            orders so manager sees what's being made before
+                            opening the drawer. */}
+                        <OrderDesignPreview order={o} size="sm" />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span
@@ -713,12 +712,9 @@ export function AdminCalendar() {
                       to={`/admin/orders/${o.id}`}
                       className="block px-4 py-3 hover:bg-slate-50 flex items-center gap-3"
                     >
-                      <div
-                        className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: `${meta.color}20`, color: meta.color }}
-                      >
-                        <Icon className="w-4 h-4" />
-                      </div>
+                      {/* Compact design preview — sparkles badge marks
+                          customized orders, placeholder for stock items. */}
+                      <OrderDesignPreview order={o} size="sm" />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span

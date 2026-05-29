@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { scheduleProductionOrder, getProductionTeam } from '../../api';
+import { OrderDesignPreview } from './OrderDesignPreview';
 
 interface Props {
   isOpen: boolean;
@@ -123,12 +124,27 @@ export function ScheduleOrderModal({ isOpen, onClose, order, onSuccess }: Props)
         {/* Order summary */}
         <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">
-                Order #{String(order._id).slice(-6)}
-              </p>
-              <p className="font-bold text-slate-900 truncate">{order.customer?.name || 'Customer'}</p>
-              <p className="text-xs text-slate-600 truncate">{order.customer?.email}</p>
+            <div className="flex items-start gap-3 min-w-0">
+              {/* Design preview thumbnail + download link — so the manager
+                  can see (and grab) the exact artwork before scheduling. */}
+              <OrderDesignPreview order={order} size="lg" showDownload filenamePrefix="schedule" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">
+                  Order #{String(order._id).slice(-6)}
+                </p>
+                <p className="font-bold text-slate-900 truncate">{order.customer?.name || 'Customer'}</p>
+                <p className="text-xs text-slate-600 truncate">{order.customer?.email}</p>
+                {/* Per-item specs surfaced for quick verification */}
+                {(order.items || []).slice(0, 2).map((it: any, idx: number) => (
+                  <div key={idx} className="mt-1 text-[10px] text-slate-600 truncate">
+                    <span className="font-bold">{it.name}</span>
+                    {it.customization?.size && <> · {it.customization.size}</>}
+                    {it.customization?.color && <> · {it.customization.color}</>}
+                    {it.customization?.placement && <> · {it.customization.placement}</>}
+                    {it.customization?.text && <> · "{it.customization.text}"</>}
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="text-right flex-shrink-0">
               <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Total</p>
