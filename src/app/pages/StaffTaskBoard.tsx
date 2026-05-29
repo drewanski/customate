@@ -63,6 +63,118 @@ const COLUMNS: Array<{
     Icon: CheckCircle2,  tint: 'text-emerald-700', accent: 'border-emerald-300',bg: 'bg-emerald-50/60' },
 ];
 
+// ─── Urgency helpers ─────────────────────────────────────────────────
+//
+// All the deadline-presentation logic in one place so the card stays simple.
+// Buckets used everywhere:
+//   overdue          — due date is in the past
+//   due_today        — due date is today
+//   due_tomorrow     — due date is tomorrow
+//   due_soon         — due date is within 3 days
+//   on_schedule      — due date is more than 3 days away
+//   no_deadline      — no due date set (rare; treated as on_schedule)
+
+interface UrgencyInfo {
+  bucket: 'overdue' | 'due_today' | 'due_tomorrow' | 'due_soon' | 'on_schedule' | 'no_deadline';
+  daysUntil: number | null;
+  label: string;
+  /** Tailwind colour bundle used by the deadline badge + card ring. */
+  tint: { bg: string; text: string; ring: string; border: string };
+  /** Sort weight (lower = more urgent). Used to sort cards within a column. */
+  weight: number;
+  /** Loud animated pulse for the truly urgent (overdue + due today + urgent priority). */
+  pulse: boolean;
+}
+
+function classifyDeadline(task: any): UrgencyInfo {
+  const due = task.productionDueDate ? new Date(task.productionDueDate) : null;
+  if (!due) {
+    return {
+      bucket: 'no_deadline',
+      daysUntil: null,
+      label: 'No deadline',
+      tint: { bg: 'bg-slate-50', text: 'text-slate-600', ring: '', border: 'border-slate-200' },
+      weight: 9999,
+      pulse: false,
+    };
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dueDay = new Date(due);
+  dueDay.setHours(0, 0, 0, 0);
+  const days = Math.round((dueDay.getTime() - today.getTime()) / 86400000);
+
+  if (days < 0) {
+    const n = Math.abs(days);
+    return {
+      bucket: 'overdue',
+      daysUntil: days,
+      label: n === 1 ? 'OVERDUE BY 1 DAY' : `OVERDUE BY ${n} DAYS`,
+      tint: { bg: 'bg-rose-600', text: 'text-white', ring: 'ring-2 ring-rose-400', border: 'border-rose-500' },
+      weight: -1000 + days,
+      pulse: true,
+    };
+  }
+  if (days === 0) {
+    return {
+      bucket: 'due_today',
+      daysUntil: 0,
+      label: 'DUE TODAY',
+      tint: { bg: 'bg-amber-500', text: 'text-white', ring: 'ring-2 ring-amber-300', border: 'border-amber-500' },
+      weight: 0,
+      pulse: true,
+    };
+  }
+  if (days === 1) {
+    return {
+      bucket: 'due_tomorrow',
+      daysUntil: 1,
+      label: 'Due tomorrow',
+      tint: { bg: 'bg-orange-100', text: 'text-orange-800', ring: 'ring-1 ring-orange-300', border: 'border-orange-300' },
+      weight: 1,
+      pulse: false,
+    };
+  }
+  if (days <= 3) {
+    return {
+      bucket: 'due_soon',
+      daysUntil: days,
+      label: `Due in ${days} days`,
+      tint: { bg: 'bg-yellow-100', text: 'text-yellow-800', ring: '', border: 'border-yellow-300' },
+      weight: 5 + days,
+      pulse: false,
+    };
+  }
+  return {
+    bucket: 'on_schedule',
+    daysUntil: days,
+    label: dueDay.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+    tint: { bg: 'bg-slate-50', text: 'text-slate-700', ring: '', border: 'border-slate-200' },
+    weight: 100 + days,
+    pulse: false,
+  };
+}
+
+const PRIORITY_WEIGHTS: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+
+/**
+ * Sort tasks within a column so the work that needs ASAP attention is on top.
+ * Overdue tasks always win, then due-today, then urgent-priority, then by
+ * raw deadline + priority + age. Stable for cards with identical metrics.
+ */
+function sortTasksForColumn(tasks: any[]): any[] {
+  return [...tasks].sort((a, b) => {
+    const ua = classifyDeadline(a);
+    const ub = classifyDeadline(b);
+    if (ua.weight !== ub.weight) return ua.weight - ub.weight;
+    const pa = PRIORITY_WEIGHTS[a.productionPriority || 'medium'] ?? 2;
+    const pb = PRIORITY_WEIGHTS[b.productionPriority || 'medium'] ?? 2;
+    if (pa !== pb) return pa - pb;
+    // Older first when everything else is equal
+    return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+  });
+}
+
 const BLOCKER_REASONS: Array<{ value: string; label: string }> = [
   { value: 'material_out_of_stock',   label: 'Material out of stock' },
   { value: 'machine_issue',           label: 'Machine issue / broken' },
@@ -180,11 +292,49 @@ export function StaffTaskBoard() {
           </div>
         )}
 
+        {/* ASAP banner — overdue + due-today tasks across ALL columns, shown
+            at the top so staff sees the fire before they scroll the board. */}
+        {data && (() => {
+          const all = [
+            ...(data.board.todo || []),
+            ...(data.board.in_progress || []),
+          ];
+          const overdue = all.filter((t: any) => classifyDeadline(t).bucket === 'overdue');
+          const dueToday = all.filter((t: any) => classifyDeadline(t).bucket === 'due_today');
+          if (overdue.length === 0 && dueToday.length === 0) return null;
+          return (
+            <div className="mb-4 rounded-2xl border-2 border-rose-300 bg-gradient-to-r from-rose-50 to-orange-50 p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-orange-500 flex items-center justify-center text-white shadow-md animate-pulse">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-black text-rose-900">
+                    {overdue.length > 0
+                      ? `${overdue.length} task${overdue.length === 1 ? '' : 's'} overdue · `
+                      : ''}
+                    {dueToday.length > 0 ? `${dueToday.length} due today` : ''}
+                  </p>
+                  <p className="text-[11px] text-rose-700 font-semibold leading-snug mt-0.5">
+                    These need your attention first. Sorted to the top of each column.
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Kanban */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {COLUMNS.map((col) => {
-            const tasks = data?.board[col.key] || [];
+            const raw = data?.board[col.key] || [];
+            const tasks = sortTasksForColumn(raw);
             const Icon = col.Icon;
+            // Count how many tasks in this column need ASAP work
+            const hotCount = raw.filter((t: any) => {
+              const b = classifyDeadline(t).bucket;
+              return b === 'overdue' || b === 'due_today';
+            }).length;
             return (
               <div key={col.key} className={`rounded-2xl border ${col.accent} ${col.bg} p-3 min-h-[60vh]`}>
                 <div className="flex items-center justify-between mb-3 px-1">
@@ -194,6 +344,12 @@ export function StaffTaskBoard() {
                     <span className="text-[10px] font-bold bg-white border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">
                       {tasks.length}
                     </span>
+                    {hotCount > 0 && col.key !== 'done' && (
+                      <span className="inline-flex items-center gap-0.5 text-[9px] font-black bg-rose-600 text-white px-1.5 py-0.5 rounded-full animate-pulse">
+                        <AlertCircle className="w-2.5 h-2.5" />
+                        {hotCount} HOT
+                      </span>
+                    )}
                   </div>
                 </div>
                 <p className="px-1 text-[10px] text-slate-500 font-semibold mb-3">{col.hint}</p>
@@ -226,6 +382,16 @@ export function StaffTaskBoard() {
           Your task board is private — your manager sees all tasks across the team, but you only see the ones assigned to you.
         </p>
       </div>
+
+      {/* Local keyframe — a gentler pulse than Tailwind's animate-pulse,
+          used on hot cards so the whole card breathes instead of fading. */}
+      <style>{`
+        @keyframes pulse-soft {
+          0%, 100% { box-shadow: 0 4px 12px rgba(225, 29, 72, 0.10); }
+          50%      { box-shadow: 0 8px 24px rgba(225, 29, 72, 0.28); }
+        }
+        .animate-pulse-soft { animation: pulse-soft 2.4s ease-in-out infinite; }
+      `}</style>
 
       {qcModal && (
         <QcPhotoModal
@@ -267,9 +433,10 @@ function TaskCard({ task, column, busy, onAdvance, onSubmitQc, onFlagIssue }: Ta
     low: { color: '#16a34a', label: 'Low' },
   };
   const pri = priorityMeta[priority] || priorityMeta.medium;
-  const dueDate = task.productionDueDate
-    ? new Date(task.productionDueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    : null;
+
+  // Deadline classification — drives badge, ring, glow, and sort order.
+  const urgency = classifyDeadline(task);
+  const isHot = urgency.bucket === 'overdue' || urgency.bucket === 'due_today';
 
   const isBlocked = task.blockerStatus === 'active';
   const isQcPending = task.qcStatus === 'pending';
@@ -285,9 +452,30 @@ function TaskCard({ task, column, busy, onAdvance, onSubmitQc, onFlagIssue }: Ta
     ? `${Math.floor(elapsed / 60)}h ${elapsed % 60}m`
     : `${elapsed}m`;
 
+  // Card outer ring/border: blocker > overdue > due_today > urgency > default
+  const outerCls = isBlocked
+    ? 'border-rose-300 ring-2 ring-rose-200'
+    : urgency.bucket === 'overdue'
+      ? 'border-rose-500 ring-2 ring-rose-300 shadow-md shadow-rose-100'
+      : urgency.bucket === 'due_today'
+        ? 'border-amber-500 ring-2 ring-amber-300 shadow-md shadow-amber-100'
+        : urgency.bucket === 'due_tomorrow'
+          ? 'border-orange-300'
+          : urgency.bucket === 'due_soon'
+            ? 'border-yellow-200'
+            : 'border-slate-200';
+
   return (
-    <div className={`bg-white rounded-xl border ${isBlocked ? 'border-rose-300 ring-2 ring-rose-200' : 'border-slate-200'} shadow-sm overflow-hidden`}>
-      {/* Top strip */}
+    <div className={`relative bg-white rounded-xl border ${outerCls} shadow-sm overflow-hidden transition-shadow ${isHot ? 'animate-pulse-soft' : ''}`}>
+      {/* Hot-strip — solid colour bar along the LEFT edge of overdue / due-today
+          cards so they pop out of a scrolling list at a glance. */}
+      {isHot && (
+        <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
+          urgency.bucket === 'overdue' ? 'bg-rose-600' : 'bg-amber-500'
+        }`} />
+      )}
+
+      {/* Top strip — priority chip, order ref, prominent deadline pill */}
       <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 border-b border-slate-100">
         <div className="flex items-center gap-1.5">
           <span
@@ -299,7 +487,14 @@ function TaskCard({ task, column, busy, onAdvance, onSubmitQc, onFlagIssue }: Ta
           </span>
           <span className="text-[10px] font-mono font-bold text-slate-500">#{refShort}</span>
         </div>
-        {dueDate && <span className="text-[10px] font-bold text-slate-500">Due {dueDate}</span>}
+        {/* Big prominent deadline pill — colour-coded by urgency bucket. */}
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${urgency.tint.bg} ${urgency.tint.text} ${urgency.pulse ? 'animate-pulse' : ''}`}
+          title={task.productionDueDate ? new Date(task.productionDueDate).toLocaleString() : 'No deadline set'}
+        >
+          {isHot && <AlertCircle className="w-2.5 h-2.5" />}
+          {urgency.label}
+        </span>
       </div>
 
       {/* Status banners */}
