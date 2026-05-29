@@ -90,7 +90,12 @@ export function useDashboardData(): UseDashboardDataReturn {
         orderNumber: `CM-${order.id.slice(-8)}`,
         date: order.createdAt,
         totalAmount: order.totalPrice || 0,
-        items: order.items?.length || 0,
+        // Preserve the actual items array — clobbering it with a count
+        // hides every line item's customization (previewImage included).
+        // The customer's recent-orders card needs the array to display
+        // the design thumbnail + per-item Download button.
+        items: order.items || [],
+        itemCount: order.items?.length || 0,
         totalQty: order.totalQty || 0
       }));
 
@@ -121,7 +126,12 @@ export function useDashboardData(): UseDashboardDataReturn {
         orderNumber: `CM-${order.id.slice(-8)}`,
         date: order.createdAt,
         totalAmount: order.totalPrice || 0,
-        items: order.items?.length || 0,
+        // Preserve the actual items array — clobbering it with a count
+        // hides every line item's customization (previewImage included).
+        // The customer's recent-orders card needs the array to display
+        // the design thumbnail + per-item Download button.
+        items: order.items || [],
+        itemCount: order.items?.length || 0,
         totalQty: order.totalQty || 0
       }));
       

@@ -241,10 +241,18 @@ export function CustomerDashboard() {
     }
   };
 
-  const filteredOrders = orders.filter(order =>
+  // Recent orders list: filter by search → newest first → show up to 5.
+  // Anything older shows up via "View all orders" link at the bottom.
+  const RECENT_LIMIT = 5;
+  const matchingOrders = orders.filter((order) =>
     order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
     order.status.toLowerCase().includes(searchTerm.toLowerCase())
   );
+  const sortedOrders = [...matchingOrders].sort(
+    (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
+  );
+  const filteredOrders = searchTerm ? sortedOrders : sortedOrders.slice(0, RECENT_LIMIT);
+  const hasMore = !searchTerm && sortedOrders.length > RECENT_LIMIT;
 
   if (loading) {
     return (
@@ -427,11 +435,47 @@ export function CustomerDashboard() {
               <div className="divide-y divide-gray-200">
                 {filteredOrders.map((order) => {
                   const StatusIcon = getStatusIcon(order.status);
+                  // Pull the design preview off the first customized line
+                  // item so the customer sees the artwork on their own
+                  // recent-orders list (same artwork the production team
+                  // sees on the admin side).
+                  const itemsArray = Array.isArray(order.items) ? order.items : [];
+                  const firstPreview = itemsArray
+                    .map((it: any) => it?.customization?.previewImage as string | undefined)
+                    .find((p?: string) => !!p);
+                  const orderRefShort = String(order.id || '').slice(-6).toUpperCase();
+                  const handleDownload = () => {
+                    if (!firstPreview) return;
+                    const a = document.createElement('a');
+                    a.href = firstPreview;
+                    a.download = `order-${orderRefShort}-design.png`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                  };
                   return (
                     <div key={order.id} className="p-6 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
+                      <div className="flex items-start gap-4">
+                        {/* Design thumbnail (or placeholder for stock items) */}
+                        {firstPreview ? (
+                          <Link
+                            to={`/order-tracking/${order.id}`}
+                            className="shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-gradient-to-br from-slate-50 to-blue-50/40 border border-gray-200 hover:border-blue-400 transition-colors relative group"
+                            title="View order details"
+                          >
+                            <img src={firstPreview} alt="Design" className="w-full h-full object-contain" />
+                            <span className="absolute top-0.5 left-0.5 inline-flex items-center px-1 py-0.5 rounded-sm bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white">
+                              <Sparkles className="w-2.5 h-2.5" />
+                            </span>
+                          </Link>
+                        ) : (
+                          <div className="shrink-0 w-16 h-16 rounded-xl bg-slate-100 border border-gray-200 flex items-center justify-center text-slate-400">
+                            <Package className="w-6 h-6" />
+                          </div>
+                        )}
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-3 mb-2 flex-wrap">
                             <h3 className="font-semibold text-gray-900">{order.orderNumber}</h3>
                             <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(order.status)}`}>
                               <StatusIcon className="w-3 h-3 inline mr-1" />
@@ -443,17 +487,24 @@ export function CustomerDashboard() {
                               </span>
                             )}
                           </div>
-                          <div className="text-sm text-gray-600 mb-3">
-                            <div className="flex items-center gap-4">
-                              <span>{order.totalQty} items</span>
+                          <div className="text-sm text-gray-600 mb-1">
+                            <div className="flex items-center gap-4 flex-wrap">
+                              <span>{order.totalQty || order.itemCount || 0} {(order.totalQty || order.itemCount) === 1 ? 'item' : 'items'}</span>
                               <span>•</span>
                               <span>{new Date(order.date).toLocaleDateString()}</span>
                               <span>•</span>
-                              <span className="font-semibold text-gray-900">₱{order.totalAmount.toFixed(2)}</span>
+                              <span className="font-semibold text-gray-900">₱{Number(order.totalAmount || 0).toFixed(2)}</span>
                             </div>
                           </div>
+                          {/* First item label for context */}
+                          {itemsArray[0]?.name && (
+                            <p className="text-xs text-gray-500 mt-1 truncate">
+                              {itemsArray[0].name}
+                              {itemsArray.length > 1 && <span> · +{itemsArray.length - 1} more</span>}
+                            </p>
+                          )}
                           {order.trackingNumber && (
-                            <div className="text-xs text-gray-500">
+                            <div className="text-xs text-gray-500 mt-1">
                               Tracking: {order.trackingNumber}
                             </div>
                           )}
@@ -463,20 +514,32 @@ export function CustomerDashboard() {
                             </div>
                           )}
                         </div>
-                        
-                        <div className="flex items-center gap-2">
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {/* View → fixed to the actual customer route */}
                           <Link
-                            to={`/orders/${order.id}`}
+                            to={`/order-tracking/${order.id}`}
                             className="p-2 hover:bg-gray-100 rounded-lg"
+                            title="View order details"
                           >
                             <Eye className="w-4 h-4 text-gray-600" />
                           </Link>
-                          <button className="p-2 hover:bg-gray-100 rounded-lg">
+                          {/* Download — wired to the design preview when present */}
+                          <button
+                            onClick={handleDownload}
+                            disabled={!firstPreview}
+                            className="p-2 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={firstPreview ? 'Download design PNG' : 'No design preview'}
+                          >
                             <Download className="w-4 h-4 text-gray-600" />
                           </button>
-                          <button className="p-2 hover:bg-gray-100 rounded-lg">
+                          <Link
+                            to={`/order-tracking/${order.id}`}
+                            className="p-2 hover:bg-gray-100 rounded-lg"
+                            title="More options"
+                          >
                             <MoreVertical className="w-4 h-4 text-gray-600" />
-                          </button>
+                          </Link>
                         </div>
                       </div>
                       
@@ -507,6 +570,20 @@ export function CustomerDashboard() {
                         Place your first order
                       </Link>
                     )}
+                  </div>
+                )}
+
+                {/* View all link — only shows when more orders exist beyond
+                    the recent-5 slice and the user isn't actively searching. */}
+                {hasMore && (
+                  <div className="p-4 border-t border-gray-100 bg-gray-50/40">
+                    <Link
+                      to="/profile?tab=orders"
+                      className="flex items-center justify-center gap-1.5 text-sm font-bold text-blue-600 hover:text-blue-700"
+                    >
+                      View all {sortedOrders.length} orders
+                      <ChevronRight className="w-4 h-4" />
+                    </Link>
                   </div>
                 )}
               </div>
