@@ -16,9 +16,11 @@ import {
   AlertTriangle,
   ShieldAlert,
   TimerReset,
+  MessageSquare,
 } from 'lucide-react';
 import { getMyTasks, advanceProductionStage, submitQcPhoto, flagBlocker } from '../api';
 import { useAuth } from '../hooks/useAuth';
+import { OrderChatPanel } from '../components/chat/OrderChatPanel';
 
 /**
  * Staff Task Board — kanban view of tasks assigned to the logged-in
@@ -426,6 +428,9 @@ function TaskCard({ task, column, busy, onAdvance, onSubmitQc, onFlagIssue }: Ta
   const items = task.items || [];
   const refShort = String(task._id || '').slice(-6).toUpperCase();
   const priority = task.productionPriority || 'medium';
+  // Per-card chat modal — staff opens it from the card footer to reply to
+  // the customer (or read the customer's question + system status updates).
+  const [chatOpen, setChatOpen] = useState(false);
   const priorityMeta: any = {
     urgent: { color: '#dc2626', label: 'Urgent' },
     high: { color: '#ea580c', label: 'High' },
@@ -593,6 +598,15 @@ function TaskCard({ task, column, busy, onAdvance, onSubmitQc, onFlagIssue }: Ta
 
       {/* Actions */}
       <div className="flex border-t border-slate-100">
+        {/* Message customer — always visible so staff can ask clarifying
+            questions without leaving the kanban. */}
+        <button
+          onClick={() => setChatOpen(true)}
+          className="px-3 py-2 text-[11px] font-bold text-blue-700 hover:bg-blue-50 border-r border-slate-100 transition"
+          title="Open chat with the customer"
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+        </button>
         {column !== 'todo' && !isQcPending && (
           <button
             onClick={() => onAdvance('backward')}
@@ -650,6 +664,32 @@ function TaskCard({ task, column, busy, onAdvance, onSubmitQc, onFlagIssue }: Ta
           </div>
         )}
       </div>
+
+      {/* Order chat modal — opens when staff clicks the message icon.
+          Same OrderChatPanel everyone uses so the conversation history is
+          the single source of truth across customer/admin/staff. */}
+      {chatOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setChatOpen(false)}>
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+              <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-blue-600" />
+                Chat for order #{refShort}
+              </h3>
+              <button onClick={() => setChatOpen(false)} className="text-slate-400 hover:text-slate-700" aria-label="Close">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <OrderChatPanel
+              orderId={String(task._id)}
+              initialOrder={task}
+              showHeader
+              heightClass="h-80"
+              hideViewOrderLink
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

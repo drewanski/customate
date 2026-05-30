@@ -673,3 +673,8 @@ export async function customerCancelOrder(orderId, reason) {
 export async function getOrderTimeline(orderId) {
   return apiRequest(`/orders/${orderId}/timeline`);
 }
+
+// ─── Chat inbox (admin/staff) ─────────────────────────────────────────────
+export async function getChatThreads() {
+  return apiRequest('/chat/threads');
+}

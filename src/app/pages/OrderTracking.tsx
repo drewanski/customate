@@ -15,6 +15,7 @@ import {
 import { formatPeso, shortOrderCode } from '../utils/format';
 import { useAuth } from '../hooks/useAuth';
 import { ReviewModal } from '../components/ReviewModal';
+import { OrderChatPanel } from '../components/chat/OrderChatPanel';
 
 // Panel revision #11 — pipeline branches based on delivery method:
 //   delivery: Received → Approved → In Production → Ready → Out for delivery → Completed
@@ -577,34 +578,13 @@ export function OrderTracking() {
       </Card>
 
       {chatOpen && (
-        <Card className="mb-6">
-          <CardHeader><CardTitle>Conversation with the store</CardTitle></CardHeader>
-          <CardContent>
-            <div className="h-72 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-2">
-              {chat.length === 0 && <p className="text-sm text-slate-500 text-center py-8">No messages yet. Say hi 👋</p>}
-              {chat.map((m) => (
-                <div key={m._id} className={`flex ${m.fromRole === 'customer' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm ${m.fromRole === 'customer' ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 text-slate-800'}`}>
-                    <div className="text-xs opacity-80 mb-0.5">{m.fromName || m.fromRole}</div>
-                    {m.body}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 flex gap-2">
-              <input
-                value={chatBody}
-                onChange={(e) => setChatBody(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onChatSend(); } }}
-                placeholder="Write a message…"
-                className="flex-1 px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button onClick={onChatSend} disabled={chatBusy || !chatBody.trim()} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white font-bold disabled:opacity-50">
-                <Send className="w-4 h-4" /> Send
-              </button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="mb-6">
+          <OrderChatPanel
+            orderId={order.id}
+            initialOrder={order}
+            hideViewOrderLink   // already on the order page
+          />
+        </div>
       )}
 
       <Card>

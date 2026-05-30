@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Menu,
   Undo2,
+  MessageSquare,
 } from 'lucide-react';
 
 import { Modal } from '../components/Modal';
@@ -48,6 +49,7 @@ export function AdminLayout() {
   // admin-exclusive. Admin sees the full backstage navigation.
   const allNavLinks = [
     { to: '/admin/my-tasks',  label: 'My Tasks',   icon: ListTodo,        roles: ['production_staff'] },
+    { to: '/admin/messages',  label: 'Messages',   icon: MessageSquare,   roles: ['admin', 'production_staff'] },
     { to: '/admin',           label: 'Overview',   icon: LayoutDashboard, roles: ['admin'] },
     { to: '/admin/orders',    label: 'Orders',     icon: Package,         roles: ['admin'] },
     { to: '/admin/production',label: 'Production', icon: ListTodo,        roles: ['admin'] },

@@ -31,6 +31,7 @@ import { formatPeso } from '../../utils/format';
 import { RefundModal } from './RefundModal';
 import { useAuth } from '../../hooks/useAuth';
 import { AIOrderSummaryPanel } from './AIOrderSummaryPanel';
+import { OrderChatPanel } from '../chat/OrderChatPanel';
 
 interface Props {
   isOpen: boolean;
@@ -340,6 +341,21 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
             </div>
           </div>
         )}
+
+        {/* Order chat — admin can reply to the customer here without leaving
+            the drawer. The panel shows order context + system status messages
+            automatically. */}
+        <div>
+          <p className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1">
+            <Receipt className="w-3.5 h-3.5" /> Conversation
+          </p>
+          <OrderChatPanel
+            orderId={orderId}
+            initialOrder={order}
+            showHeader={false}
+            heightClass="h-72"
+          />
+        </div>
 
         {/* Payment summary */}
         <div className="rounded-2xl border border-slate-200 bg-white p-4">

@@ -120,6 +120,22 @@ export async function notifyCustomerOfStatus(order, to, reason) {
       relatedData: { orderId: String(order._id), status: to, amount: order.totalPrice },
       priority: m.priority,
     });
+
+    // Mirror every status change into the order's chat thread as a
+    // `kind: 'system'` message so the customer (and admin/staff opening the
+    // same chat) see the whole journey in one conversation — no need to
+    // bounce between the bell, the timeline, and the chat.
+    try {
+      const { postSystemMessage } = await import('./chat.js');
+      const friendlyBody = reason
+        ? `${m.title}: ${m.message} — Reason: ${reason}`
+        : `${m.title}: ${m.message}`;
+      await postSystemMessage({
+        orderId: order._id,
+        body: friendlyBody,
+        meta: { status: to, reason: reason || null },
+      });
+    } catch { /* non-fatal */ }
   } catch (e) { /* non-fatal */ }
 }
 
@@ -605,6 +621,17 @@ router.post('/', authMiddleware, async (req, res) => {
       performedByName: req.user.name || '',
       performedByRole: req.user.role || '',
     }).catch(() => {});
+
+    // Kick off the chat thread with a welcoming system message so the
+    // customer can see the chat is live and ready for questions.
+    try {
+      const { postSystemMessage } = await import('./chat.js');
+      await postSystemMessage({
+        orderId: order._id,
+        body: `Welcome! Your order #${String(order._id).slice(-6)} has been received. You can message us here any time about this order — production updates will also appear in this thread automatically.`,
+        meta: { status: 'pending' },
+      });
+    } catch { /* non-fatal */ }
 
     // Fire customer confirmation email — best-effort, never blocks the
     // order from being placed. The mail helper logs but doesn't throw.
