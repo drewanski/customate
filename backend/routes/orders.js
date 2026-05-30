@@ -1164,6 +1164,87 @@ router.get('/:id/history', authMiddleware, adminMiddleware, async (req, res) => 
 });
 
 /**
+ * Customer-safe timeline of an order. The full audit log includes internal
+ * actors and notes that aren't appropriate for the customer to see. This
+ * endpoint returns a curated, plain-English event list:
+ *
+ *   - Order received
+ *   - Approved by the store
+ *   - Production started → finished (with stage transitions)
+ *   - Quality check passed
+ *   - Out for delivery / Ready for pickup
+ *   - Completed
+ *   - Cancelled / Rejected (with the customer-facing reason)
+ *
+ * Available to: the order's owner (always) and admin/staff (for support).
+ */
+router.get('/:id/timeline', authMiddleware, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id).select('customer');
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    const ownsOrder = String(order.customer) === String(req.user.userId);
+    const isStaff = req.user.role === 'admin' || req.user.role === 'production_staff';
+    if (!ownsOrder && !isStaff) {
+      return res.status(403).json({ message: 'Not your order' });
+    }
+
+    const logs = await OrderAuditLog.find({ order: req.params.id })
+      .sort({ createdAt: 1 })
+      .lean();
+
+    // Translate raw audit entries into customer-friendly events. Anything
+    // we don't have a translation for is dropped so the customer doesn't
+    // see internal jargon.
+    const translate = (l) => {
+      const at = l.createdAt;
+      // Admin who performed the action — we only expose the role label
+      // to the customer, never names ("Store team", "Production team").
+      const actorLabel = l.performedByRole === 'production_staff' ? 'Production team' : 'Store team';
+
+      if (l.type === 'created') {
+        return { at, icon: 'receipt', title: 'Order received', body: 'We received your order and will review it shortly.' };
+      }
+      if (l.type === 'cancelled') {
+        return {
+          at,
+          icon: 'x',
+          title: l.performedByRole === 'customer' ? 'You cancelled this order' : 'Order cancelled',
+          body: l.reason ? `Reason: ${l.reason}` : '',
+        };
+      }
+      if (l.type === 'status_changed' || l.type === 'bulk_action') {
+        const t = l.to;
+        const customerVisible = {
+          approved: { title: 'Order approved', body: `${actorLabel} approved your order — it's queued for production.` },
+          in_production: { title: 'In production', body: 'Production has started. We\'ll mark it ready as soon as it passes quality check.' },
+          ready: { title: 'Production finished', body: 'Your order passed QC. Preparing for ' + (l._noteForCustomer || 'delivery/pickup') + '.' },
+          out_for_delivery: { title: 'Out for delivery', body: 'Your order is on its way to you.' },
+          for_pickup: { title: 'Ready for pickup', body: 'Your order is ready at the store.' },
+          completed: { title: 'Order completed', body: 'Thank you for choosing CustoMate! You can leave a review for each item.' },
+          shipped: { title: 'Shipped', body: 'Your order has been shipped.' },
+          delivered: { title: 'Delivered', body: 'Your order has been delivered.' },
+          rejected: { title: 'Order rejected', body: l.reason ? `Reason: ${l.reason}` : '' },
+          refunded: { title: 'Refunded', body: l.reason ? `Reason: ${l.reason}` : '' },
+        };
+        const m = customerVisible[t];
+        if (!m) return null;
+        return { at, icon: 'check', title: m.title, body: m.body };
+      }
+      if (l.type === 'refunded') {
+        return { at, icon: 'money', title: 'Refund issued', body: l.reason ? `Reason: ${l.reason}` : `Amount: ₱${l.amount || 0}` };
+      }
+      return null;
+    };
+
+    const events = logs.map(translate).filter(Boolean);
+    res.json(events);
+  } catch (err) {
+    console.error('Timeline error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
  * GET /api/orders/export.csv?status=&from=&to=
  * Returns a CSV of orders for the given filter. Streamed as text so big
  * exports don't bloat memory.

@@ -668,3 +668,8 @@ export async function customerCancelOrder(orderId, reason) {
     body: JSON.stringify({ reason }),
   });
 }
+
+// ─── Customer-safe order timeline ─────────────────────────────────────────
+export async function getOrderTimeline(orderId) {
+  return apiRequest(`/orders/${orderId}/timeline`);
+}

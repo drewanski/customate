@@ -5,11 +5,16 @@ import { Stepper } from '../components/Stepper';
 import { Badge } from '../components/Badge';
 import {
   Package, CheckCircle, Clock, Truck, CreditCard, User, Printer, Sparkles,
-  AlertTriangle, MessageCircle, XCircle, Store, Send,
+  AlertTriangle, MessageCircle, XCircle, Store, Send, Star, Factory, ShieldCheck,
+  Inbox, Receipt, RotateCcw,
 } from 'lucide-react';
-import { apiRequest, customerCancelOrder, fileReturn, getOrderChat, sendOrderChatMessage } from '../api';
+import {
+  apiRequest, customerCancelOrder, fileReturn,
+  getOrderChat, sendOrderChatMessage, getOrderTimeline,
+} from '../api';
 import { formatPeso, shortOrderCode } from '../utils/format';
 import { useAuth } from '../hooks/useAuth';
+import { ReviewModal } from '../components/ReviewModal';
 
 // Panel revision #11 — pipeline branches based on delivery method:
 //   delivery: Received → Approved → In Production → Ready → Out for delivery → Completed
@@ -23,7 +28,7 @@ const CUSTOMER_CANCEL_LOCKED = new Set([
   'completed', 'shipped', 'delivered', 'cancelled', 'rejected', 'refunded',
 ]);
 
-function statusToStep(status: string, deliveryMethod: 'delivery' | 'pickup') {
+function statusToStep(status: string, _deliveryMethod: 'delivery' | 'pickup') {
   const map: Record<string, number> = {
     pending: 0,
     approved: 1,
@@ -71,6 +76,141 @@ const BADGE: Record<string, any> = {
   refunded: 'danger',
 };
 
+/**
+ * Stage-by-stage explainer: what's happening NOW, what comes NEXT, who is
+ * responsible. The customer should always know where things stand without
+ * having to guess.
+ */
+function StageExplainer({ status, deliveryMethod }: { status: string; deliveryMethod: 'delivery' | 'pickup' }) {
+  const isPickup = deliveryMethod === 'pickup';
+  const cards: Record<string, { now: string; next: string; whose: string; icon: any; tint: string }> = {
+    pending: {
+      now: 'We received your order and our team will review it.',
+      next: 'Once approved, your order goes into the production queue.',
+      whose: 'Store team',
+      icon: Inbox,
+      tint: 'from-amber-500 to-orange-500',
+    },
+    approved: {
+      now: 'Your order has been approved and queued for production.',
+      next: 'A production staff member will start working on your items shortly.',
+      whose: 'Store team',
+      icon: CheckCircle,
+      tint: 'from-emerald-500 to-teal-500',
+    },
+    in_production: {
+      now: 'A production staff member is making your items right now.',
+      next: 'Your items go through quality control before we mark them ready.',
+      whose: 'Production team',
+      icon: Factory,
+      tint: 'from-blue-500 to-indigo-500',
+    },
+    ready: {
+      now: 'Your items passed quality control and are packed.',
+      next: isPickup
+        ? 'We\'ll move it to ready-for-pickup as soon as our courier or staff is available.'
+        : 'We\'ll hand it to our courier shortly — then it\'s out for delivery.',
+      whose: 'Store team',
+      icon: ShieldCheck,
+      tint: 'from-violet-500 to-fuchsia-500',
+    },
+    out_for_delivery: {
+      now: 'Your order is on its way to your delivery address.',
+      next: 'You\'ll get a notification when it\'s marked delivered/completed.',
+      whose: 'Courier',
+      icon: Truck,
+      tint: 'from-sky-500 to-blue-600',
+    },
+    for_pickup: {
+      now: 'Your order is ready for pickup at our store.',
+      next: 'Please bring a valid ID or your order number to claim it.',
+      whose: 'You',
+      icon: Store,
+      tint: 'from-sky-500 to-blue-600',
+    },
+    completed: {
+      now: 'Your order is complete — we hope you love it!',
+      next: 'Please leave a review for each item. It helps other customers.',
+      whose: 'You',
+      icon: Star,
+      tint: 'from-amber-500 to-yellow-500',
+    },
+    shipped: {
+      now: 'Your order has shipped.',
+      next: 'You\'ll see "completed" once it\'s delivered and confirmed.',
+      whose: 'Courier',
+      icon: Truck,
+      tint: 'from-sky-500 to-blue-600',
+    },
+    delivered: {
+      now: 'Your order has been delivered.',
+      next: 'Leave a review and let us know how everything looked!',
+      whose: 'You',
+      icon: CheckCircle,
+      tint: 'from-emerald-500 to-teal-500',
+    },
+    rejected: {
+      now: 'This order was rejected by the store.',
+      next: 'No further action needed. Contact support if you have questions.',
+      whose: 'Store team',
+      icon: XCircle,
+      tint: 'from-rose-500 to-red-600',
+    },
+    cancelled: {
+      now: 'This order was cancelled.',
+      next: 'Inventory and any payment hold have been released.',
+      whose: '—',
+      icon: XCircle,
+      tint: 'from-slate-500 to-slate-700',
+    },
+    refunded: {
+      now: 'This order was refunded.',
+      next: 'The refund has been issued back to the original payment method.',
+      whose: 'Store team',
+      icon: RotateCcw,
+      tint: 'from-slate-500 to-slate-700',
+    },
+  };
+
+  const card = cards[status] || cards.pending;
+  const Icon = card.icon;
+
+  return (
+    <div className={`rounded-2xl bg-gradient-to-br ${card.tint} text-white p-5 shadow-md`}>
+      <div className="flex items-start gap-4">
+        <div className="w-12 h-12 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center shrink-0">
+          <Icon className="w-7 h-7" />
+        </div>
+        <div className="flex-1">
+          <p className="text-xs font-bold uppercase tracking-widest opacity-80">Right now</p>
+          <p className="text-lg font-black mt-0.5">{card.now}</p>
+          <div className="mt-3 grid sm:grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider opacity-80">What's next</p>
+              <p className="text-sm mt-0.5">{card.next}</p>
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider opacity-80">Who's handling it</p>
+              <p className="text-sm mt-0.5 font-bold">{card.whose}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TimelineIcon({ kind }: { kind: string }) {
+  const map: Record<string, any> = {
+    receipt: Receipt,
+    check: CheckCircle,
+    x: XCircle,
+    money: RotateCcw,
+  };
+  const Icon = map[kind] || Clock;
+  return <Icon className="w-5 h-5 text-blue-600" />;
+}
+
 export function OrderTracking() {
   const { orderId } = useParams();
   const { user } = useAuth();
@@ -80,6 +220,9 @@ export function OrderTracking() {
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Timeline (curated events from /timeline)
+  const [timeline, setTimeline] = useState<any[]>([]);
 
   // Cancel modal
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -99,6 +242,9 @@ export function OrderTracking() {
   const [chat, setChat] = useState<any[]>([]);
   const [chatBody, setChatBody] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
+
+  // Review modal
+  const [reviewItem, setReviewItem] = useState<{ sku: string; name: string; thumb?: string } | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -121,7 +267,17 @@ export function OrderTracking() {
     load();
   }, [orderId]);
 
-  // Poll chat thread when open. Simple 4-sec poll keeps it light.
+  // Load curated timeline whenever order changes.
+  useEffect(() => {
+    if (!order?.id) return;
+    let cancelled = false;
+    getOrderTimeline(order.id)
+      .then((events) => { if (!cancelled) setTimeline(events || []); })
+      .catch(() => { if (!cancelled) setTimeline([]); });
+    return () => { cancelled = true; };
+  }, [order?.id, order?.status]);
+
+  // Poll chat thread when open.
   useEffect(() => {
     if (!chatOpen || !order?.id) return;
     let cancelled = false;
@@ -149,6 +305,7 @@ export function OrderTracking() {
 
   const cancelLocked = order && CUSTOMER_CANCEL_LOCKED.has(order.status);
   const canFileReturn = order && ['completed', 'delivered', 'shipped'].includes(order.status);
+  const canReview = order && ['completed', 'delivered', 'shipped'].includes(order.status);
 
   const onConfirmCancel = async () => {
     if (!cancelReason.trim()) return;
@@ -223,20 +380,29 @@ export function OrderTracking() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">Order Tracking</h1>
+    <div className="max-w-5xl mx-auto px-4 py-8">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Order Tracking</h1>
+          <p className="text-sm text-slate-500 mt-1">Follow your order from received to delivered.</p>
+        </div>
+        <Badge variant={BADGE[order.status] || 'info'}>{STATUS_LABEL[order.status] || order.status}</Badge>
+      </div>
 
       <Card className="mb-6">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Order #{shortOrderCode(order.id)}</CardTitle>
-            <Badge variant={BADGE[order.status] || 'info'}>{STATUS_LABEL[order.status] || order.status}</Badge>
+            <span className="text-sm text-slate-500">{order.createdAt ? new Date(order.createdAt).toLocaleString() : ''}</span>
           </div>
         </CardHeader>
         <CardContent>
           <Stepper steps={steps} currentStep={currentStep} />
 
-          {/* Rejection / cancellation banner (panel revision #12) */}
+          <div className="mt-5">
+            <StageExplainer status={order.status} deliveryMethod={deliveryMethod} />
+          </div>
+
           {(order.status === 'rejected' || order.status === 'cancelled') && (order.rejectionReason || order.cancellationReason) && (
             <div className="mt-5 p-4 rounded-xl border border-rose-200 bg-rose-50 flex gap-3">
               <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
@@ -244,14 +410,11 @@ export function OrderTracking() {
                 <p className="font-bold text-rose-900 text-sm">
                   {order.status === 'rejected' ? 'Order rejected by the store' : 'Order cancelled'}
                 </p>
-                <p className="text-rose-800 text-sm mt-1">
-                  {order.rejectionReason || order.cancellationReason}
-                </p>
+                <p className="text-rose-800 text-sm mt-1">{order.rejectionReason || order.cancellationReason}</p>
               </div>
             </div>
           )}
 
-          {/* Cancel CTA + lock messaging (panel revision #10) */}
           {!isAdminView && (
             <div className="mt-5 flex flex-wrap items-center gap-3">
               {!cancelLocked ? (
@@ -312,7 +475,7 @@ export function OrderTracking() {
                   const hasPreview = !!c.previewImage;
                   const isCustom = !!c.isCustomized;
                   return (
-                    <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <div key={idx} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
                       <div className="w-16 h-16 bg-blue-100 rounded flex items-center justify-center overflow-hidden flex-shrink-0 relative group">
                         {hasPreview ? (
                           <a href={c.previewImage} target="_blank" rel="noopener noreferrer" className="block w-full h-full" title="Open design at full size">
@@ -342,15 +505,25 @@ export function OrderTracking() {
                             {c.text && <p>Text: "{c.text}"</p>}
                           </div>
                         )}
-                        {hasPreview && (
-                          <a
-                            href={c.previewImage}
-                            download={`design-${order.id?.slice(-6)}-${idx + 1}.png`}
-                            className="inline-flex items-center gap-1 mt-1.5 px-2 py-1 rounded-md text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition"
-                          >
-                            <Printer className="w-3 h-3" /> Download design
-                          </a>
-                        )}
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {hasPreview && (
+                            <a
+                              href={c.previewImage}
+                              download={`design-${order.id?.slice(-6)}-${idx + 1}.png`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100"
+                            >
+                              <Printer className="w-3 h-3" /> Download design
+                            </a>
+                          )}
+                          {!isAdminView && canReview && (
+                            <button
+                              onClick={() => setReviewItem({ sku: it.sku, name: it.name, thumb: c.previewImage })}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 hover:bg-amber-100"
+                            >
+                              <Star className="w-3 h-3" /> Rate this product
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="font-medium">{formatPeso(it.quantity * it.unitPrice)}</div>
                     </div>
@@ -382,50 +555,20 @@ export function OrderTracking() {
                   <CreditCard className="w-4 h-4" /> Payment
                 </h4>
                 <div className="text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Method:</span>
-                    <span className="capitalize">{order.paymentMethod}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Status:</span>
-                    <span className={`capitalize ${order.paymentStatus === 'paid' ? 'text-green-600' : 'text-yellow-600'}`}>{order.paymentStatus}</span>
-                  </div>
-                  {order.paidAmount > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Paid:</span>
-                      <span>{formatPeso(order.paidAmount)}</span>
-                    </div>
-                  )}
+                  <div className="flex justify-between"><span className="text-gray-600">Method:</span><span className="capitalize">{order.paymentMethod}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-600">Status:</span><span className={`capitalize ${order.paymentStatus === 'paid' ? 'text-green-600' : 'text-yellow-600'}`}>{order.paymentStatus}</span></div>
+                  {order.paidAmount > 0 && <div className="flex justify-between"><span className="text-gray-600">Paid:</span><span>{formatPeso(order.paidAmount)}</span></div>}
                 </div>
               </div>
 
               <div className="pt-3 border-t">
                 <h4 className="font-medium text-gray-900 mb-2">Order Summary</h4>
                 <div className="space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Subtotal ({order.totalQty} items)</span>
-                    <span>{formatPeso((order.subtotalBeforeDiscount || order.totalPrice) - (order.rushFeeAmount || 0))}</span>
-                  </div>
-                  {order.rushFeeAmount > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Rush fee</span>
-                      <span>+{formatPeso(order.rushFeeAmount)}</span>
-                    </div>
-                  )}
-                  {order.discountAmount > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Discount {order.couponCode ? `(${order.couponCode})` : ''}</span>
-                      <span>-{formatPeso(order.discountAmount)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">{deliveryMethod === 'pickup' ? 'Pickup' : 'Shipping'}</span>
-                    <span>Free</span>
-                  </div>
-                  <div className="flex justify-between font-medium pt-2 border-t">
-                    <span>Total</span>
-                    <span className="text-blue-600">{formatPeso(order.totalPrice)}</span>
-                  </div>
+                  <div className="flex justify-between"><span className="text-gray-600">Subtotal ({order.totalQty} items)</span><span>{formatPeso((order.subtotalBeforeDiscount || order.totalPrice) - (order.rushFeeAmount || 0))}</span></div>
+                  {order.rushFeeAmount > 0 && <div className="flex justify-between"><span className="text-gray-600">Rush fee</span><span>+{formatPeso(order.rushFeeAmount)}</span></div>}
+                  {order.discountAmount > 0 && <div className="flex justify-between"><span className="text-gray-600">Discount {order.couponCode ? `(${order.couponCode})` : ''}</span><span>-{formatPeso(order.discountAmount)}</span></div>}
+                  <div className="flex justify-between"><span className="text-gray-600">{deliveryMethod === 'pickup' ? 'Pickup' : 'Shipping'}</span><span>Free</span></div>
+                  <div className="flex justify-between font-medium pt-2 border-t"><span>Total</span><span className="text-blue-600">{formatPeso(order.totalPrice)}</span></div>
                 </div>
               </div>
             </div>
@@ -433,15 +576,12 @@ export function OrderTracking() {
         </CardContent>
       </Card>
 
-      {/* Order chat (panel revision #14) */}
       {chatOpen && (
         <Card className="mb-6">
           <CardHeader><CardTitle>Conversation with the store</CardTitle></CardHeader>
           <CardContent>
             <div className="h-72 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-2">
-              {chat.length === 0 && (
-                <p className="text-sm text-slate-500 text-center py-8">No messages yet. Say hi 👋</p>
-              )}
+              {chat.length === 0 && <p className="text-sm text-slate-500 text-center py-8">No messages yet. Say hi 👋</p>}
               {chat.map((m) => (
                 <div key={m._id} className={`flex ${m.fromRole === 'customer' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm ${m.fromRole === 'customer' ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 text-slate-800'}`}>
@@ -459,11 +599,7 @@ export function OrderTracking() {
                 placeholder="Write a message…"
                 className="flex-1 px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <button
-                onClick={onChatSend}
-                disabled={chatBusy || !chatBody.trim()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white font-bold disabled:opacity-50"
-              >
+              <button onClick={onChatSend} disabled={chatBusy || !chatBody.trim()} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white font-bold disabled:opacity-50">
                 <Send className="w-4 h-4" /> Send
               </button>
             </div>
@@ -472,65 +608,63 @@ export function OrderTracking() {
       )}
 
       <Card>
-        <CardHeader><CardTitle>Activity Timeline</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Activity Timeline</CardTitle>
+        </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            <div className="flex gap-4">
-              <div className="flex-shrink-0">
-                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                </div>
-              </div>
-              <div>
-                <p className="font-medium">Order Placed</p>
-                <p className="text-sm text-gray-600">We received your order and will process it soon.</p>
-                <p className="text-xs text-gray-500 mt-1">{order.createdAt ? new Date(order.createdAt).toLocaleString() : ''}</p>
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <div className="flex-shrink-0">
-                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                  <Clock className="w-5 h-5 text-blue-600" />
-                </div>
-              </div>
-              <div>
-                <p className="font-medium">Current Status: {STATUS_LABEL[order.status] || order.status}</p>
-                <p className="text-sm text-gray-600">Last updated</p>
-                <p className="text-xs text-gray-500 mt-1">{order.updatedAt ? new Date(order.updatedAt).toLocaleString() : ''}</p>
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <div className="flex-shrink-0">
-                <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                  <Package className="w-5 h-5 text-gray-400" />
-                </div>
-              </div>
-              <div>
-                <p className="font-medium text-gray-700">Next Steps</p>
-                <p className="text-sm text-gray-600">
-                  {order.status === 'rejected'
-                    ? (order.rejectionReason || 'This order was rejected. Please contact support if you need help.')
-                    : order.status === 'cancelled'
-                    ? (order.cancellationReason || 'This order was cancelled.')
-                    : order.status === 'completed'
-                    ? 'This order is completed. Thank you for choosing CustoMate!'
-                    : order.status === 'out_for_delivery'
-                    ? 'Your order is on its way!'
-                    : order.status === 'for_pickup'
-                    ? 'Your order is ready for pickup at the store.'
-                    : order.status === 'ready'
-                    ? deliveryMethod === 'pickup'
-                      ? 'Production finished — we\'ll mark it ready for pickup shortly.'
-                      : 'Production finished — your order is being prepared for delivery.'
-                    : 'You can check back here anytime for updates.'}
-                </p>
-              </div>
-            </div>
-          </div>
+          {timeline.length === 0 ? (
+            <p className="text-sm text-slate-500">No events yet. As your order moves through each stage, you'll see updates here.</p>
+          ) : (
+            <ol className="relative border-l-2 border-slate-200 ml-4 space-y-5">
+              {timeline.map((e, i) => (
+                <li key={i} className="ml-6">
+                  <span className="absolute -left-[11px] w-5 h-5 rounded-full bg-white border-2 border-blue-500 flex items-center justify-center">
+                    <TimelineIcon kind={e.icon} />
+                  </span>
+                  <p className="font-bold text-slate-900">{e.title}</p>
+                  {e.body && <p className="text-sm text-slate-600 mt-0.5">{e.body}</p>}
+                  <p className="text-xs text-slate-400 mt-1">{e.at ? new Date(e.at).toLocaleString() : ''}</p>
+                </li>
+              ))}
+            </ol>
+          )}
         </CardContent>
       </Card>
 
-      {/* Cancel-with-reason modal (panel revision #10/#12) */}
+      {/* How CustoMate orders work — quick explainer (always visible) */}
+      <Card className="mt-6 bg-gradient-to-br from-slate-50 to-blue-50">
+        <CardHeader><CardTitle>How CustoMate orders work</CardTitle></CardHeader>
+        <CardContent>
+          <ol className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm text-slate-700">
+            <li className="p-3 rounded-xl bg-white border border-slate-200">
+              <p className="font-bold text-slate-900">1. You place the order</p>
+              <p className="mt-1">Customize a product, choose delivery or pickup, optionally pick rush, then checkout.</p>
+            </li>
+            <li className="p-3 rounded-xl bg-white border border-slate-200">
+              <p className="font-bold text-slate-900">2. Store reviews & approves</p>
+              <p className="mt-1">The store team checks your design and stock, then approves the order to start production.</p>
+            </li>
+            <li className="p-3 rounded-xl bg-white border border-slate-200">
+              <p className="font-bold text-slate-900">3. Production starts</p>
+              <p className="mt-1">A production staff member is assigned, prints/sews your item, and uploads a QC photo when done.</p>
+            </li>
+            <li className="p-3 rounded-xl bg-white border border-slate-200">
+              <p className="font-bold text-slate-900">4. Quality check</p>
+              <p className="mt-1">The store reviews the QC photo. If it passes, your order is marked Ready. If not, it goes back to production.</p>
+            </li>
+            <li className="p-3 rounded-xl bg-white border border-slate-200">
+              <p className="font-bold text-slate-900">5. Delivery or pickup</p>
+              <p className="mt-1">Delivery orders go out via courier; pickup orders are held at the store with a notification.</p>
+            </li>
+            <li className="p-3 rounded-xl bg-white border border-slate-200">
+              <p className="font-bold text-slate-900">6. Completed → review</p>
+              <p className="mt-1">Once you receive it, the order is completed. Please rate each item to help other customers.</p>
+            </li>
+          </ol>
+        </CardContent>
+      </Card>
+
+      {/* Cancel modal */}
       {cancelOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setCancelOpen(false)}>
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -549,11 +683,7 @@ export function OrderTracking() {
               />
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setCancelOpen(false)} className="flex-1 px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold">Keep order</button>
-                <button
-                  onClick={onConfirmCancel}
-                  disabled={cancelBusy || !cancelReason.trim()}
-                  className="flex-1 px-4 py-2 rounded-xl bg-rose-600 text-white font-bold disabled:opacity-50"
-                >
+                <button onClick={onConfirmCancel} disabled={cancelBusy || !cancelReason.trim()} className="flex-1 px-4 py-2 rounded-xl bg-rose-600 text-white font-bold disabled:opacity-50">
                   {cancelBusy ? 'Cancelling…' : 'Cancel order'}
                 </button>
               </div>
@@ -562,7 +692,7 @@ export function OrderTracking() {
         </div>
       )}
 
-      {/* Return modal (panel revision #9) */}
+      {/* Return modal */}
       {returnOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setReturnOpen(false)}>
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -573,11 +703,7 @@ export function OrderTracking() {
             <div className="p-5 space-y-3">
               <div>
                 <label className="text-sm font-bold text-slate-700 block mb-1">Reason</label>
-                <select
-                  value={returnReason}
-                  onChange={(e) => setReturnReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
+                <select value={returnReason} onChange={(e) => setReturnReason(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
                   <option value="damaged">Damaged item</option>
                   <option value="wrong_print">Wrong print / design</option>
                   <option value="wrong_size">Wrong size</option>
@@ -588,35 +714,21 @@ export function OrderTracking() {
               </div>
               <div>
                 <label className="text-sm font-bold text-slate-700 block mb-1">Describe what happened</label>
-                <textarea
-                  value={returnDescription}
-                  onChange={(e) => setReturnDescription(e.target.value)}
-                  rows={4}
-                  placeholder="Please include any details that will help us decide."
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <textarea value={returnDescription} onChange={(e) => setReturnDescription(e.target.value)} rows={4} placeholder="Please include any details that will help us decide." className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label className="text-sm font-bold text-slate-700 block mb-1">Photos (optional)</label>
                 <input type="file" accept="image/*" multiple onChange={onPhotoSelect} className="text-sm" />
                 {returnPhotos.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {returnPhotos.map((src, i) => (
-                      <img key={i} src={src} className="w-16 h-16 rounded-lg object-cover border border-slate-200" alt="" />
-                    ))}
+                    {returnPhotos.map((src, i) => (<img key={i} src={src} className="w-16 h-16 rounded-lg object-cover border border-slate-200" alt="" />))}
                   </div>
                 )}
               </div>
-              {returnMessage && (
-                <p className={`text-sm font-semibold ${returnMessage.startsWith('Return request submitted') ? 'text-emerald-700' : 'text-rose-700'}`}>{returnMessage}</p>
-              )}
+              {returnMessage && <p className={`text-sm font-semibold ${returnMessage.startsWith('Return request submitted') ? 'text-emerald-700' : 'text-rose-700'}`}>{returnMessage}</p>}
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setReturnOpen(false)} className="flex-1 px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold">Close</button>
-                <button
-                  onClick={onSubmitReturn}
-                  disabled={returnBusy || !returnDescription.trim()}
-                  className="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-bold disabled:opacity-50"
-                >
+                <button onClick={onSubmitReturn} disabled={returnBusy || !returnDescription.trim()} className="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-bold disabled:opacity-50">
                   {returnBusy ? 'Submitting…' : 'Submit return'}
                 </button>
               </div>
@@ -624,6 +736,15 @@ export function OrderTracking() {
           </div>
         </div>
       )}
+
+      {/* Review modal */}
+      <ReviewModal
+        open={!!reviewItem}
+        onClose={() => setReviewItem(null)}
+        sku={reviewItem?.sku || ''}
+        productName={reviewItem?.name || ''}
+        thumbnailSrc={reviewItem?.thumb}
+      />
     </div>
   );
 }

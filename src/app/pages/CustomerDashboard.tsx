@@ -39,6 +39,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { useDashboardData } from '../hooks/useDashboardData';
+import { getMyReviews } from '../api';
 
 interface Order {
   id: string;
@@ -105,6 +106,31 @@ export function CustomerDashboard() {
   
   const { data, loading, error, refreshing, refreshData } = useDashboardData();
   const { user, orders, stats, activities } = data;
+
+  // ─── Pending reviews banner ─────────────────────────────────────────────
+  // After an order reaches completed/delivered/shipped, the customer should
+  // be nudged to leave a review per item. We compute (orders awaiting review,
+  // unreviewed SKU count) by cross-referencing /reviews/mine against the
+  // customer's eligible orders.
+  const [myReviewedSkus, setMyReviewedSkus] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    getMyReviews()
+      .then((list: any[]) => {
+        if (cancelled) return;
+        setMyReviewedSkus(new Set((list || []).map((r) => r.sku)));
+      })
+      .catch(() => { /* non-fatal */ });
+    return () => { cancelled = true; };
+  }, [orders?.length]);
+
+  const pendingReviewOrders = (orders || []).filter((o: any) =>
+    ['completed', 'delivered', 'shipped'].includes(o.status) &&
+    Array.isArray(o.items) &&
+    o.items.some((it: any) => it?.sku && !myReviewedSkus.has(it.sku))
+  );
+  const pendingReviewSkuCount = pendingReviewOrders.reduce((n: number, o: any) =>
+    n + (o.items || []).filter((it: any) => it?.sku && !myReviewedSkus.has(it.sku)).length, 0);
 
   // Generate stats cards from real data
   const getStatsCards = (): StatCard[] => {
@@ -406,6 +432,33 @@ export function CustomerDashboard() {
             })}
           </div>
         </div>
+
+        {/* Pending reviews banner — shown when the customer has completed/delivered
+            items they haven't rated yet. Links to the first such order so they
+            can leave reviews directly from order tracking. */}
+        {pendingReviewSkuCount > 0 && (
+          <div className="mb-8 rounded-2xl p-5 bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-md flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0">
+              <Star className="w-7 h-7 fill-white text-white" />
+            </div>
+            <div className="flex-1">
+              <p className="font-black text-lg">
+                {pendingReviewSkuCount === 1
+                  ? '1 item waiting for your review'
+                  : `${pendingReviewSkuCount} items waiting for your review`}
+              </p>
+              <p className="text-sm text-white/90 mt-0.5">
+                Your feedback helps other customers and our production team improve.
+              </p>
+            </div>
+            <Link
+              to={`/order-tracking/${pendingReviewOrders[0]?.id}`}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-amber-700 font-bold hover:bg-amber-50"
+            >
+              Leave reviews <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+        )}
 
         {/* Recent Orders */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
