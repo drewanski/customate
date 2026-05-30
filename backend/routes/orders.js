@@ -958,40 +958,12 @@ router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
       });
     }
     
-    // Populate customer before sending notification
+    // Populate customer for downstream socket emit (no notification here —
+    // notifyCustomerOfStatus above already handled the bell + chat + email.
+    // Calling notifyOrderStatusUpdate too created DUPLICATE notifications,
+    // verified live via auditPipeline.js: customer was getting two bell rings
+    // per transition ("Order approved" + "Order APPROVED"). Removed.)
     await order.populate('customer');
-    
-    // Send notification for status update
-    try {
-      const notificationService = req.app.get('notificationService');
-      console.log('=== ORDER STATUS UPDATE ===');
-      console.log('Notification service available:', !!notificationService);
-      console.log('Order customer:', order.customer);
-      
-      if (notificationService && order.customer) {
-        const customerId = order.customer._id ? order.customer._id.toString() : order.customer.toString();
-        console.log('Sending status notification to customer:', customerId);
-        console.log('Status change:', previousStatus, '->', status);
-        
-        const notif = await notificationService.notifyOrderStatusUpdate(
-          order, 
-          customerId, 
-          previousStatus, 
-          status
-        );
-        
-        console.log('Status notification result:', notif ? 'SUCCESS' : 'FAILED');
-        if (notif) {
-          console.log('Notification ID:', notif._id);
-          console.log('Notification user field:', notif.user);
-        }
-      } else {
-        console.log('Skipping notification - service or customer missing');
-      }
-    } catch (notifErr) {
-      console.error('Status notification error (non-fatal):', notifErr.message);
-      console.error(notifErr.stack);
-    }
     
     res.json(toOrderDto(order));
   } catch (err) {
