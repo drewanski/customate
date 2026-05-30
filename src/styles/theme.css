@@ -126,6 +126,11 @@
 
   body {
     @apply bg-background text-foreground;
+    /* Panel revision #5 — readable body text floor.
+       Body text must never render below 14px. Specific Tailwind utilities are
+       handled at the utility layer below; this protects raw HTML/text nodes. */
+    font-size: 16px;
+    line-height: 1.55;
   }
 
   /**
@@ -179,3 +184,47 @@
     line-height: 1.5;
   }
 }
+
+/*
+ * Panel revision #5 — UI readability pass.
+ *
+ * The original UI used a lot of text-[9px], text-[10px], text-[11px] and
+ * text-xs (12px) classes that the panel flagged as hard to read. We raise
+ * the floor across the board:
+ *   - any arbitrary text-[Npx] under 12px → bumped to 12px
+ *   - text-xs (12px) → 13px
+ *   - text-sm (14px) → kept (the readable floor for body text)
+ *   - labels / form fields → 16px minimum
+ *
+ * These rules sit OUTSIDE @layer base so they win against Tailwind's utility
+ * cascade without us having to refactor every component individually.
+ */
+.text-\[8px\],
+.text-\[9px\],
+.text-\[10px\],
+.text-\[11px\] {
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+.text-xs {
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+}
+
+/* Important labels — bumped to 16px per the panel's minimum. */
+label,
+.form-label,
+.field-label {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* Form controls — always 16px to avoid iOS Safari's auto-zoom on focus and
+   stay above the readability floor. */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+

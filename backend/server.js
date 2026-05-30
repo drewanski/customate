@@ -44,6 +44,9 @@ import designRoutes from './routes/designs.js';
 import productionRoutes from './routes/production.js';
 import productionPublicRoutes from './routes/productionPublic.js';
 import systemConfigRoutes from './routes/systemConfig.js';
+import returnsRoutes from './routes/returns.js';
+import chatRoutes from './routes/chat.js';
+import pricingRoutes from './routes/pricing.js';
 import NotificationService from './services/notificationService.js';
 import { expireStaleReservations } from './services/inventory.js';
 
@@ -245,6 +248,9 @@ app.use('/api/designs', designRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/production-public', productionPublicRoutes);
 app.use('/api/system', systemConfigRoutes);
+app.use('/api/returns', returnsRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/pricing', pricingRoutes);
 app.use('/api/paymongo', paymongoRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 

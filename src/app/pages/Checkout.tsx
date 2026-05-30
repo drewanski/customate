@@ -87,6 +87,28 @@ export function Checkout() {
   const [deliveryQuote, setDeliveryQuote] = useState<any>(null);
   const [deliveryQuoteLoading, setDeliveryQuoteLoading] = useState(false);
   const [deliveryError, setDeliveryError] = useState('');
+  // Panel revision #11 — delivery vs in-store pickup. Drives the post-Ready
+  // pipeline on the backend (out_for_delivery vs for_pickup → completed).
+  const [deliveryMethod, setDeliveryMethod] = useState<'delivery' | 'pickup'>('delivery');
+  // Panel revision #7 — explicit Rush toggle. When on, we snap the delivery
+  // date to the earliest rush window and surface the rush fee preview.
+  const [rushOrder, setRushOrder] = useState(false);
+
+  const handleRushToggle = (next: boolean) => {
+    setRushOrder(next);
+    if (next) {
+      // Snap to today + 2 business days (rush threshold), skip Sundays.
+      const d = new Date();
+      let added = 0;
+      while (added < 2) {
+        d.setDate(d.getDate() + 1);
+        if (d.getDay() !== 0) added++;
+      }
+      setDeliveryDate(d.toISOString().slice(0, 10));
+    } else {
+      setDeliveryDate(defaultDeliveryDate);
+    }
+  };
 
   // Re-quote whenever the date OR the cart subtotal changes. Pre-coupon
   // subtotal is what the server uses to compute the surcharge.
@@ -245,6 +267,7 @@ export function Checkout() {
           paymentDetails: null, // Will be updated after PayMongo payment
           couponCode: appliedCoupon?.code,
           requestedDeliveryDate: deliveryDate || undefined,
+          deliveryMethod,
         };
         const order = await apiRequest('/orders', {
           method: 'POST',
@@ -291,6 +314,8 @@ export function Checkout() {
         paymentMethod,
         paymentDetails, // Include reference number etc.
         couponCode: appliedCoupon?.code,
+        requestedDeliveryDate: deliveryDate || undefined,
+        deliveryMethod,
       };
       const order = await apiRequest('/orders', {
         method: 'POST',
@@ -786,9 +811,71 @@ export function Checkout() {
                 <span className="font-bold text-emerald-600">FREE</span>
               </div>
 
+              {/* ─── Delivery method (panel revision #11) ───────────────── */}
+              <div className="pt-2 border-t border-slate-100">
+                <label className="block text-sm font-bold text-slate-700 uppercase tracking-wider mb-2">
+                  Delivery method
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryMethod('delivery')}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${
+                      deliveryMethod === 'delivery'
+                        ? 'border-blue-600 bg-blue-50 text-blue-900 shadow-sm'
+                        : 'border-slate-200 hover:border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <div className="text-sm font-bold">Delivery</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Ship to my address</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryMethod('pickup')}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${
+                      deliveryMethod === 'pickup'
+                        ? 'border-blue-600 bg-blue-50 text-blue-900 shadow-sm'
+                        : 'border-slate-200 hover:border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <div className="text-sm font-bold">In-store pickup</div>
+                    <div className="text-xs text-slate-500 mt-0.5">Pick up at shop</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* ─── Rush order toggle (panel revision #7) ──────────────── */}
+              <div className="pt-2 border-t border-slate-100">
+                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                  <div>
+                    <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <span aria-hidden>⚡</span> Rush order
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Bumps your delivery to the earliest rush window. An additional fee applies.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={rushOrder}
+                    onClick={() => handleRushToggle(!rushOrder)}
+                    className={`shrink-0 inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+                      rushOrder ? 'bg-amber-500' : 'bg-slate-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 bg-white rounded-full shadow transform transition-transform ${
+                        rushOrder ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </label>
+              </div>
+
               {/* ─── Delivery date / urgency picker ─────────────────────── */}
               <div className="pt-2 border-t border-slate-100">
-                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                <label className="block text-sm font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                   Preferred delivery date
                 </label>
                 <input

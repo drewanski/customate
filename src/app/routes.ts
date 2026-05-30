@@ -47,6 +47,7 @@ const AdminCoupons = lazy(() => import('./pages/AdminCoupons').then((m) => ({ de
 const AdminCalendar = lazy(() => import('./pages/AdminCalendar').then((m) => ({ default: m.AdminCalendar })));
 const AdminDesignPrint = lazy(() => import('./pages/AdminDesignPrint').then((m) => ({ default: m.AdminDesignPrint })));
 const AdminReviewsPage = lazy(() => import('./pages/AdminReviews').then((m) => ({ default: m.AdminReviews })));
+const AdminReturnsPage = lazy(() => import('./pages/AdminReturns').then((m) => ({ default: m.AdminReturns })));
 const StaffTaskBoard = lazy(() => import('./pages/StaffTaskBoard').then((m) => ({ default: m.StaffTaskBoard })));
 
 // ─── Suspense fallback ────────────────────────────────────────────────────
@@ -268,6 +269,13 @@ export const router = createBrowserRouter([
         Component: () => React.createElement(ProtectedRoute, {
           requiredRole: ['admin'],
           children: React.createElement(withSuspense(AdminReviewsPage)),
+        }),
+      },
+      {
+        path: 'returns',
+        Component: () => React.createElement(ProtectedRoute, {
+          requiredRole: ['admin'],
+          children: React.createElement(withSuspense(AdminReturnsPage)),
         }),
       },
     ],

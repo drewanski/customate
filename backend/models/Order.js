@@ -11,10 +11,12 @@ const orderSchema = new mongoose.Schema({
       customization: {
         size: { type: String },
         color: { type: String },
+        shirtType: { type: String },
         placement: { type: String },
         text: { type: String },
         font: { type: String },
         image: { type: String },
+        printAreas: { type: Number, default: 1, min: 1 },
         // ─── Design snapshot ────────────────────────────────────────────
         // Set true when the customer went through the 3D studio AND made
         // at least one meaningful change. Plain re-orders / "naked product"
@@ -38,7 +40,7 @@ const orderSchema = new mongoose.Schema({
   isBulk: { type: Boolean, default: false },
   status: {
     type: String,
-    enum: ['pending', 'approved', 'in_production', 'ready', 'completed', 'shipped', 'delivered', 'cancelled', 'rejected', 'refunded'],
+    enum: ['pending', 'approved', 'in_production', 'ready', 'out_for_delivery', 'for_pickup', 'completed', 'shipped', 'delivered', 'cancelled', 'rejected', 'refunded'],
     default: 'pending'
   },
   // Refund tracking — kept as separate fields so a refunded order still
@@ -46,6 +48,19 @@ const orderSchema = new mongoose.Schema({
   refundedAmount: { type: Number, default: 0, min: 0 },
   refundedAt: { type: Date },
   refundReason: { type: String, default: '' },
+
+  // Required when admin rejects/cancels (panel revision #12). Stored so the
+  // customer sees a clear explanation in their order history + notification.
+  rejectionReason: { type: String, default: '' },
+  cancellationReason: { type: String, default: '' },
+  cancelledAt: { type: Date },
+  cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
+  // Delivery method (panel revision #11). Drives the post-Ready pipeline:
+  //   delivery → out_for_delivery → completed
+  //   pickup   → for_pickup       → completed
+  deliveryMethod: { type: String, enum: ['delivery', 'pickup'], default: 'delivery' },
+  completedAt: { type: Date },
 
   // ─── Delivery scheduling & urgency ──────────────────────────────────────
   // The customer's preferred delivery date drives our urgency classification.
@@ -216,5 +231,30 @@ export const PRODUCTION_STAGES = [
   'packing',
   'ready',
 ];
+
+// Order statuses where the customer can no longer self-cancel (panel #10).
+// The lock kicks in at in_production and stays on for every later stage —
+// we don't want a customer killing an order the staff is actively working on.
+export const CUSTOMER_CANCEL_LOCKED_STATUSES = [
+  'in_production',
+  'ready',
+  'out_for_delivery',
+  'for_pickup',
+  'completed',
+  'shipped',
+  'delivered',
+  'refunded',
+  'cancelled',
+  'rejected',
+];
+
+// Pipeline that runs AFTER the production-floor stages complete. Determined
+// by deliveryMethod chosen at checkout:
+//   delivery → ready → out_for_delivery → completed
+//   pickup   → ready → for_pickup       → completed
+export const POST_PRODUCTION_PIPELINE = {
+  delivery: ['ready', 'out_for_delivery', 'completed'],
+  pickup: ['ready', 'for_pickup', 'completed'],
+};
 
 export default mongoose.model('Order', orderSchema);

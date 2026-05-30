@@ -76,6 +76,8 @@ export function AdminOrders() {
   // Bulk action state
   const [bulkBusy, setBulkBusy] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState<string | null>(null); // 'approved', 'cancelled', etc
+  // Panel revision #12 — required reason when rejecting/cancelling.
+  const [bulkReason, setBulkReason] = useState('');
 
   // Drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -146,10 +148,20 @@ export function AdminOrders() {
 
   const handleBulkStatus = async (status: string) => {
     if (selectedIds.size === 0) return;
+    // Panel revision #12: a reason is mandatory when rejecting/cancelling.
+    if ((status === 'rejected' || status === 'cancelled') && !bulkReason.trim()) {
+      alert('Please enter a reason — it will be shown to the affected customers.');
+      return;
+    }
     setBulkBusy(true);
     try {
-      const result = await bulkUpdateOrderStatus(Array.from(selectedIds), status);
+      const result = await bulkUpdateOrderStatus(
+        Array.from(selectedIds),
+        status,
+        bulkReason.trim() || undefined,
+      );
       clearSelection();
+      setBulkReason('');
       await fetchAll();
       alert(`Updated ${result.updated} of ${result.results.length} orders (${result.skipped} unchanged, ${result.failed} failed)`);
     } catch (err: any) {
@@ -320,6 +332,9 @@ export function AdminOrders() {
               <Button size="sm" onClick={() => setShowBulkConfirm('shipped')} disabled={bulkBusy}>
                 Mark shipped
               </Button>
+              <Button size="sm" variant="danger" onClick={() => setShowBulkConfirm('rejected')} disabled={bulkBusy}>
+                <XCircle className="w-3.5 h-3.5 mr-1" /> Reject
+              </Button>
               <Button size="sm" variant="danger" onClick={() => setShowBulkConfirm('cancelled')} disabled={bulkBusy}>
                 <XCircle className="w-3.5 h-3.5 mr-1" /> Cancel
               </Button>
@@ -328,15 +343,39 @@ export function AdminOrders() {
         )}
 
         {showBulkConfirm && (
-          <div className="mb-4 p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm flex items-center justify-between flex-wrap gap-2">
-            <span>
-              Apply <strong className="capitalize">{showBulkConfirm.replace('_', ' ')}</strong> to {selectedIds.size} orders?
-              {(showBulkConfirm === 'cancelled' || showBulkConfirm === 'rejected') && ' Stock will be restored automatically.'}
-            </span>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => setShowBulkConfirm(null)}>Cancel</Button>
-              <Button size="sm" loading={bulkBusy} onClick={() => handleBulkStatus(showBulkConfirm)}>Confirm</Button>
+          <div className="mb-4 p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm space-y-2">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span>
+                Apply <strong className="capitalize">{showBulkConfirm.replace('_', ' ')}</strong> to {selectedIds.size} orders?
+                {(showBulkConfirm === 'cancelled' || showBulkConfirm === 'rejected') && ' Stock will be restored automatically.'}
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => { setShowBulkConfirm(null); setBulkReason(''); }}>Cancel</Button>
+                <Button
+                  size="sm"
+                  loading={bulkBusy}
+                  onClick={() => handleBulkStatus(showBulkConfirm)}
+                  disabled={(showBulkConfirm === 'cancelled' || showBulkConfirm === 'rejected') && !bulkReason.trim()}
+                >
+                  Confirm
+                </Button>
+              </div>
             </div>
+            {/* Panel revision #12 — required reason field for reject/cancel. */}
+            {(showBulkConfirm === 'cancelled' || showBulkConfirm === 'rejected') && (
+              <div>
+                <label className="block text-sm font-bold text-amber-900 mb-1">
+                  Reason (required — shown to the customer)
+                </label>
+                <textarea
+                  value={bulkReason}
+                  onChange={(e) => setBulkReason(e.target.value)}
+                  rows={2}
+                  placeholder="Explain why these orders are being rejected/cancelled."
+                  className="w-full px-3 py-2 rounded-xl border border-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-slate-800"
+                />
+              </div>
+            )}
           </div>
         )}
 

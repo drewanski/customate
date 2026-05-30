@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
+  Undo2,
 } from 'lucide-react';
 
 import { Modal } from '../components/Modal';
@@ -56,6 +57,7 @@ export function AdminLayout() {
     { to: '/admin/reports',   label: 'Reports',    icon: BarChart3,       roles: ['admin'] },
     { to: '/admin/coupons',   label: 'Coupons',    icon: Tag,             roles: ['admin'] },
     { to: '/admin/reviews',   label: 'Reviews',    icon: Star,            roles: ['admin'] },
+    { to: '/admin/returns',   label: 'Returns',    icon: Undo2,           roles: ['admin'] },
   ];
   const navLinks = allNavLinks.filter((link) => link.roles.includes(role));
 

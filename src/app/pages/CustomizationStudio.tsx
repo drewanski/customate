@@ -33,6 +33,7 @@ import {
   type Issue,
 } from '../utils/printQuality';
 import { DesignQualityPanel } from '../components/DesignQualityPanel';
+import { SizeGuideModal } from '../components/SizeGuideModal';
 
 const FALLBACK_PRODUCTS = [
   { id: 'TS001', sku: 'TS001', name: 'Custom Cotton T-Shirt', category: 'Apparel', price: 350, image: '/products/sports-jersey.webp' },
@@ -303,6 +304,9 @@ export function CustomizationStudio() {
   const [imageDims, setImageDims] = useState<{ width: number; height: number } | null>(null);
   const [qualityIssues, setQualityIssues] = useState<Issue[]>([]);
 
+  // Size-guide modal trigger (panel revision #1)
+  const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
+
   const [customization, setCustomization] = useState({
     template: '',
     text: '',
@@ -310,6 +314,7 @@ export function CustomizationStudio() {
     color: '#000000',
     productColor: '#ffffff',
     size: 'M',
+    shirtType: '', // panel revision #2 — set when product offers shirt-type variants
     placement: 'Center Front',
     image: '',
     textPosition: { x: 50, y: 50, z: 0 },
@@ -1528,30 +1533,64 @@ export function CustomizationStudio() {
 
           {activeSidebarTab === 'options' && (
             <div className="space-y-4 animate-in fade-in slide-in-from-left-2 duration-300">
+              {/* Panel revision #2 — shirt-type variants. Only rendered when
+                  the inventory item exposes a shirtTypes array. Choosing one
+                  records it on the customization payload so production knows
+                  which silhouette to print. */}
+              {Array.isArray(product?.shirtTypes) && product.shirtTypes.length > 0 && (
+                <div>
+                  <label className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-3 block">Shirt Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {product.shirtTypes.map((t: any) => (
+                      <button
+                        key={t.code}
+                        onClick={() => setCustomization({ ...customization, shirtType: t.code })}
+                        className={`p-3 rounded-xl text-sm font-bold transition-all border-2 text-left ${
+                          customization.shirtType === t.code
+                            ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-200'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-blue-400'
+                        }`}
+                      >
+                        <div className="font-bold">{t.label || t.code}</div>
+                        {t.priceModifier ? (
+                          <div className={`text-xs mt-0.5 ${customization.shirtType === t.code ? 'text-blue-100' : 'text-slate-500'}`}>
+                            +₱{t.priceModifier}
+                          </div>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
-                <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-3 block">Product Color</label>
+                <label className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-3 block">Product Color</label>
                 <div className="grid grid-cols-4 gap-2">
-                  {[
-                    { name: 'White', value: '#ffffff' },
-                    { name: 'Black', value: '#1a1a1a' },
-                    { name: 'Navy', value: '#1e3a5f' },
-                    { name: 'Red', value: '#dc2626' },
-                    { name: 'Blue', value: '#2563eb' },
-                    { name: 'Green', value: '#16a34a' },
-                    { name: 'Yellow', value: '#facc15' },
-                    { name: 'Pink', value: '#ec4899' },
-                  ].map((c) => (
+                  {(Array.isArray(product?.availableColors) && product.availableColors.length > 0
+                    ? product.availableColors.map((c: any) => ({ name: c.name, value: c.hex }))
+                    : [
+                        { name: 'White', value: '#ffffff' },
+                        { name: 'Black', value: '#1a1a1a' },
+                        { name: 'Navy', value: '#1e3a5f' },
+                        { name: 'Red', value: '#dc2626' },
+                        { name: 'Blue', value: '#2563eb' },
+                        { name: 'Green', value: '#16a34a' },
+                        { name: 'Yellow', value: '#facc15' },
+                        { name: 'Pink', value: '#ec4899' },
+                      ]
+                  ).map((c) => (
                     <button
                       key={c.value}
                       onClick={() => setCustomization({ ...customization, productColor: c.value })}
                       className={`h-12 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1 ${
-                        customization.productColor === c.value 
-                          ? 'border-blue-600 ring-2 ring-blue-200 shadow-lg' 
+                        customization.productColor === c.value
+                          ? 'border-blue-600 ring-2 ring-blue-200 shadow-lg'
                           : 'border-slate-200 hover:border-slate-300'
                       }`}
                       style={{ backgroundColor: c.value }}
+                      title={c.name}
                     >
-                      <span className={`text-[9px] font-bold ${c.value === '#ffffff' ? 'text-slate-700' : 'text-white/90'}`}>
+                      <span className={`text-[10px] font-bold ${c.value.toLowerCase() === '#ffffff' ? 'text-slate-700' : 'text-white/90'}`}>
                         {c.name}
                       </span>
                     </button>
@@ -1565,11 +1604,11 @@ export function CustomizationStudio() {
                     onBlur={(e) => rememberColor(e.target.value)}
                     className="w-8 h-8 rounded-lg border border-slate-200 cursor-pointer"
                   />
-                  <span className="text-[10px] font-mono text-slate-500 uppercase">{customization.productColor || '#ffffff'}</span>
+                  <span className="text-xs font-mono text-slate-500 uppercase">{customization.productColor || '#ffffff'}</span>
                 </div>
                 {recentColors.length > 0 && (
                   <div className="mt-3">
-                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Your recent colors</p>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Your recent colors</p>
                     <div className="flex flex-wrap gap-1.5">
                       {recentColors.map((c) => (
                         <button
@@ -1590,15 +1629,26 @@ export function CustomizationStudio() {
               </div>
 
               <div>
-                <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-3 block">Product Size</label>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-bold text-slate-700 uppercase tracking-wider">Product Size</label>
+                  <button
+                    onClick={() => setSizeGuideOpen(true)}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline"
+                  >
+                    Size guide
+                  </button>
+                </div>
                 <div className="grid grid-cols-3 gap-2">
-                  {['XS', 'S', 'M', 'L', 'XL', '2XL'].map((s) => (
+                  {(Array.isArray(product?.sizes) && product.sizes.length > 0
+                    ? product.sizes.map((s: any) => s.code)
+                    : ['S', 'M', 'L', 'XL', 'XXL']
+                  ).map((s: string) => (
                     <button
                       key={s}
                       onClick={() => setCustomization({ ...customization, size: s })}
-                      className={`h-10 rounded-xl text-xs font-bold transition-all border-2 ${
-                        customization.size === s 
-                          ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-200' 
+                      className={`h-10 rounded-xl text-sm font-bold transition-all border-2 ${
+                        customization.size === s
+                          ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-200'
                           : 'bg-white border-slate-100 text-slate-600 hover:border-slate-300'
                       }`}
                     >
@@ -2166,6 +2216,13 @@ export function CustomizationStudio() {
           setCustomization((prev) => ({ ...prev, image: newUrl }));
           addToast('Image refined and applied!', 'success');
         }}
+      />
+
+      <SizeGuideModal
+        open={sizeGuideOpen}
+        onClose={() => setSizeGuideOpen(false)}
+        sizes={Array.isArray(product?.sizes) ? product.sizes : []}
+        productName={product?.name}
       />
     </div>
   );

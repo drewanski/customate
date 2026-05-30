@@ -28,7 +28,7 @@ const WARNINGS = [
   ['CLOUDINARY_API_SECRET', 'Design previews will stay base64 in MongoDB'],
   ['PAYMONGO_SECRET_KEY', 'PayMongo payments will not work'],
   ['PAYMONGO_WEBHOOK_SECRET', 'PayMongo webhooks will be unverified'],
-  ['SEMAPHORE_API_KEY', 'SMS notifications will be skipped'],
+  // SEMAPHORE_API_KEY removed per panel revision #13 — SMS disabled.
   ['GEMINI_API_KEY', 'AI-design assistant will be unavailable'],
   ['GOOGLE_CLIENT_ID', 'Google sign-in will be unavailable'],
 ];

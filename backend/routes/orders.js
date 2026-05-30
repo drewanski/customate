@@ -131,6 +131,12 @@ function toOrderDto(order) {
     subtotalBeforeDiscount: o.subtotalBeforeDiscount || 0,
     refundedAmount: o.refundedAmount || 0,
     refundedAt: o.refundedAt,
+    // Reason fields (panel revision #12) so the customer sees exactly why.
+    rejectionReason: o.rejectionReason || '',
+    cancellationReason: o.cancellationReason || '',
+    cancelledAt: o.cancelledAt,
+    completedAt: o.completedAt,
+    deliveryMethod: o.deliveryMethod || 'delivery',
     // Delivery / urgency snapshot
     requestedDeliveryDate: o.requestedDeliveryDate,
     urgencyTier: o.urgencyTier || 'standard',
@@ -254,6 +260,7 @@ router.post('/', authMiddleware, async (req, res) => {
       paymentDetails,
       couponCode,
       requestedDeliveryDate, // ISO date string from the customer
+      deliveryMethod,        // 'delivery' | 'pickup' (panel revision #11)
     } = req.body;
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'Items are required' });
@@ -420,6 +427,8 @@ router.post('/', authMiddleware, async (req, res) => {
       rushFeeAmount: urgencySnapshot.rushFee,
       leadTimeDays: urgencySnapshot.leadTimeDays,
       productionPriority: urgencySnapshot.productionPriority,
+      // Pickup vs delivery (panel revision #11) — drives the post-Ready pipeline.
+      deliveryMethod: deliveryMethod === 'pickup' ? 'pickup' : 'delivery',
       paymentDetails: {
         ...paymentDetails,
         ewalletPhone: paymentDetails?.phoneNumber // Store e-wallet phone for verification
@@ -482,6 +491,23 @@ router.post('/', authMiddleware, async (req, res) => {
       }
     } else {
       console.log('E-wallet order created - notifications will be sent after payment confirmation');
+    }
+
+    // Rush-order admin alert (panel revision #7). Fired whenever urgency tier
+    // is rush or priority so the manager sees a high-priority notification
+    // immediately — not buried in the standard new-order list.
+    if (['rush', 'priority'].includes(urgencySnapshot.tier)) {
+      try {
+        const { default: Notification } = await import('../models/Notification.js');
+        await Notification.create({
+          type: 'rush_order',
+          title: `⚡ Rush order placed (#${String(order._id).slice(-6)})`,
+          message: `${totalQty} item(s) — lead time ${urgencySnapshot.leadTimeDays} day(s). Rush fee ₱${urgencySnapshot.rushFee}.`,
+          target: 'admin',
+          relatedData: { orderId: String(order._id), amount: order.totalPrice, status: urgencySnapshot.tier },
+          priority: 'urgent',
+        });
+      } catch (e) { /* non-fatal */ }
     }
 
     // Trigger real-time admin notification via Socket.io
@@ -582,12 +608,94 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * Customer self-cancel (panel revision #10).
+ *
+ * The customer can cancel their own order, but only BEFORE production starts.
+ * Once status hits in_production, ready, out_for_delivery, for_pickup, etc.
+ * the cancel button is disabled in the UI and this route returns 409. A
+ * reason is required so the admin sees why.
+ */
+router.post('/:id/customer-cancel', authMiddleware, async (req, res) => {
+  try {
+    const { reason } = req.body || {};
+    const cleanReason = (reason || '').trim();
+    if (!cleanReason) {
+      return res.status(400).json({ message: 'A reason is required to cancel.' });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (String(order.customer) !== String(req.user.userId)) {
+      return res.status(403).json({ message: 'Not your order' });
+    }
+
+    const { CUSTOMER_CANCEL_LOCKED_STATUSES } = await import('../models/Order.js');
+    if (CUSTOMER_CANCEL_LOCKED_STATUSES.includes(order.status)) {
+      return res.status(409).json({
+        message: 'This order can no longer be cancelled because production has already started. Please contact support if you need help.',
+        locked: true,
+      });
+    }
+
+    const previousStatus = order.status;
+    const actor = await actorSnapshot(req);
+
+    await restoreInventoryFor(order, { userId: req.user.userId, name: req.user.name, role: 'customer' }, 'Customer self-cancel');
+    if (order.inventoryConsumed) {
+      order.inventoryConsumed = false;
+      order.inventoryConsumedAt = null;
+    }
+    if (order.couponCode) {
+      await releaseCouponForOrder({ order, reason: 'Customer cancelled' }).catch(() => {});
+    }
+
+    order.status = 'cancelled';
+    order.cancellationReason = cleanReason;
+    order.cancelledAt = new Date();
+    order.cancelledBy = req.user.userId;
+    await order.save();
+
+    await OrderAuditLog.create({
+      order: order._id,
+      orderRef: String(order._id).slice(-6),
+      type: 'cancelled',
+      from: previousStatus,
+      to: 'cancelled',
+      reason: cleanReason,
+      note: 'Customer self-cancel',
+      ...actor,
+    }).catch(() => {});
+
+    res.json(toOrderDto(order));
+  } catch (err) {
+    console.error('Customer-cancel error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Update order status (admin only)
 router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { status, reason, note } = req.body;
-    const allowed = ['pending', 'approved', 'in_production', 'ready', 'completed', 'shipped', 'delivered', 'rejected', 'cancelled'];
+    const allowed = [
+      'pending', 'approved', 'in_production', 'ready',
+      'out_for_delivery', 'for_pickup', 'completed',
+      'shipped', 'delivered', 'rejected', 'cancelled',
+    ];
     if (!allowed.includes(status)) return res.status(400).json({ message: 'Invalid status' });
+
+    // Panel revision #12: a reason MUST be provided when rejecting or
+    // cancelling. We store it on rejectionReason/cancellationReason so the
+    // customer can see exactly why in their order history + notification.
+    if ((status === 'rejected' || status === 'cancelled')) {
+      const cleanReason = (reason || '').trim();
+      if (!cleanReason) {
+        return res.status(400).json({
+          message: `A reason is required when ${status === 'rejected' ? 'rejecting' : 'cancelling'} an order.`,
+        });
+      }
+    }
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found' });
@@ -695,6 +803,19 @@ router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
     }
 
     order.status = status;
+    // Persist the structured reason fields (panel revision #12) so the
+    // customer's order history shows exactly why.
+    if (status === 'rejected') {
+      order.rejectionReason = (reason || '').trim();
+    }
+    if (status === 'cancelled') {
+      order.cancellationReason = (reason || '').trim();
+      order.cancelledAt = new Date();
+      order.cancelledBy = req.user.userId;
+    }
+    if (status === 'completed') {
+      order.completedAt = new Date();
+    }
     await order.save();
 
     await OrderAuditLog.create({
@@ -707,6 +828,33 @@ router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
       note: note || '',
       ...actor,
     }).catch((err) => console.error('Audit log write failed:', err.message));
+
+    // Customer-facing structured notifications for the two terminal-ish states.
+    try {
+      const { default: Notification } = await import('../models/Notification.js');
+      if (status === 'completed') {
+        await Notification.create({
+          type: 'order_completed',
+          title: 'Your order is complete!',
+          message: `Thank you! Order #${String(order._id).slice(-6)} has been marked complete.`,
+          target: 'customer',
+          user: order.customer,
+          relatedData: { orderId: String(order._id), status: 'completed' },
+          priority: 'high',
+        });
+      }
+      if (status === 'cancelled' || status === 'rejected') {
+        await Notification.create({
+          type: 'order_cancelled',
+          title: status === 'cancelled' ? 'Order cancelled' : 'Order rejected',
+          message: (reason || 'See your order details for more information.').slice(0, 240),
+          target: 'customer',
+          user: order.customer,
+          relatedData: { orderId: String(order._id), status },
+          priority: 'high',
+        });
+      }
+    } catch (e) { /* non-fatal */ }
 
     // Customer-facing status-change email — best-effort, non-blocking
     User.findById(order.customer).select('name email').lean()

@@ -11,7 +11,21 @@ const notificationSchema = new mongoose.Schema({
   // Notification type
   type: {
     type: String,
-    enum: ['order_confirmation', 'order_status_update', 'new_order_alert', 'low_stock', 'payment_received', 'general'],
+    enum: [
+      'order_confirmation',
+      'order_status_update',
+      'new_order_alert',
+      'low_stock',
+      'payment_received',
+      'general',
+      // Panel revisions:
+      'rush_order',          // admin alert when customer places a rush order
+      'return_filed',        // admin alert when customer files a return
+      'return_decision',     // customer alert when admin decides on return
+      'order_completed',     // customer alert when order moves to 'completed'
+      'order_cancelled',     // customer alert when admin cancels/rejects with reason
+      'chat_message',        // either side gets a notif on new chat message
+    ],
     required: true
   },
   

@@ -617,3 +617,54 @@ export async function syncAbandonedCart(items, subtotal) {
     body: JSON.stringify({ items, subtotal }),
   });
 }
+
+// ─── Pricing engine (panel revision #6, #7) ───────────────────────────────
+export async function getPricingQuote({ items, rush = false }) {
+  return apiRequest('/pricing/quote', {
+    method: 'POST',
+    body: JSON.stringify({ items, rush }),
+  });
+}
+
+// ─── Returns / damage requests (panel revision #9) ────────────────────────
+export async function fileReturn({ orderId, reason, description, photos = [] }) {
+  return apiRequest('/returns', {
+    method: 'POST',
+    body: JSON.stringify({ orderId, reason, description, photos }),
+  });
+}
+export async function getMyReturns() {
+  return apiRequest('/returns/mine');
+}
+export async function listAdminReturns(status) {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  return apiRequest(`/returns${qs}`);
+}
+export async function decideReturn(returnId, decision, adminNote = '') {
+  return apiRequest(`/returns/${returnId}/decision`, {
+    method: 'PATCH',
+    body: JSON.stringify({ decision, adminNote }),
+  });
+}
+
+// ─── In-app order chat (panel revision #14) ───────────────────────────────
+export async function getOrderChat(orderId) {
+  return apiRequest(`/chat/${orderId}`);
+}
+export async function sendOrderChatMessage(orderId, body) {
+  return apiRequest(`/chat/${orderId}`, {
+    method: 'POST',
+    body: JSON.stringify({ body }),
+  });
+}
+export async function getChatUnreadCount() {
+  return apiRequest('/chat/unread/count');
+}
+
+// ─── Customer self-cancel (panel revision #10) ────────────────────────────
+export async function customerCancelOrder(orderId, reason) {
+  return apiRequest(`/orders/${orderId}/customer-cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}

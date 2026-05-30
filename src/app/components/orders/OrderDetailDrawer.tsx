@@ -154,9 +154,22 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
   const handleStatusChange = async (to: string) => {
     if (!orderId || updatingStatus) return;
     setFeedback(null);
+    // Panel revision #12 — require a reason when rejecting/cancelling.
+    let reason: string | undefined;
+    if (to === 'rejected' || to === 'cancelled') {
+      const r = window.prompt(
+        `Why are you ${to === 'rejected' ? 'rejecting' : 'cancelling'} this order? The customer will see this reason.`,
+        '',
+      );
+      if (!r || !r.trim()) {
+        setFeedback({ kind: 'error', msg: 'A reason is required to ' + (to === 'rejected' ? 'reject' : 'cancel') + '.' });
+        return;
+      }
+      reason = r.trim();
+    }
     setUpdatingStatus(true);
     try {
-      await updateOrderStatus(orderId, to);
+      await updateOrderStatus(orderId, to, reason ? { reason } : undefined);
       setFeedback({ kind: 'success', msg: `Status updated to ${to.replace('_', ' ')}` });
       await refresh();
     } catch (err: any) {

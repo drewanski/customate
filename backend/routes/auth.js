@@ -12,44 +12,10 @@ import { sendMail } from '../services/mailer.js';
 const router = express.Router();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-/**
- * Send SMS via Semaphore API
- * Uses phone number as sender if no sender name is approved
- */
-async function sendSemaphoreSMS(phoneNumber, message) {
-  const apiKey = process.env.SEMAPHORE_API_KEY;
-  const senderName = process.env.SEMAPHORE_SENDER_NAME;
-  
-  if (!apiKey) {
-    throw new Error('Semaphore API key not configured');
-  }
-
-  // Clean phone number - remove + and any non-digit characters
-  const cleanPhone = phoneNumber.replace(/\D/g, '');
-  
-  // Build payload
-  const payload = {
-    apikey: apiKey,
-    number: cleanPhone,
-    message: message
-  };
-  
-  // Only add sendername if explicitly configured and approved
-  if (senderName && senderName.trim()) {
-    payload.sendername = senderName.trim();
-  }
-  
-  try {
-    console.log('Sending SMS via Semaphore to:', cleanPhone);
-    const response = await axios.post('https://api.semaphore.co/api/v4/messages', payload);
-    
-    console.log('✅ Semaphore SMS sent successfully:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('❌ Semaphore API error:', error.response?.data || error.message);
-    throw error;
-  }
-}
+// SMS notifications removed per panel revision #13 — system relies on in-app
+// notifications + email transactional. The Semaphore helper that used to live
+// here has been deleted; if SMS is ever needed again, restore it as a service
+// module under backend/services/ rather than inlining in the auth route.
 
 // Test Google Client initialization
 console.log('Google Client initialized with ID:', process.env.GOOGLE_CLIENT_ID);

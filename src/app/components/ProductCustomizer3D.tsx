@@ -579,6 +579,17 @@ function ProductMesh({
   const cloned = useMemo(() => scene.clone(true), [scene]);
   const meshesRef = useRef<THREE.Mesh[]>([]);
 
+  // Panel revision #4 — auto-centering. Different GLBs ship with different
+  // origin points (some center, some have origin at feet/floor, etc.). We
+  // measure the bounding box of the cloned scene and translate it so its
+  // geometric center sits at world (0, 0, 0). The orbit camera then frames
+  // the product correctly from every angle without per-model fiddling.
+  const centerOffset = useMemo(() => {
+    const box = new THREE.Box3().setFromObject(cloned);
+    const c = box.getCenter(new THREE.Vector3());
+    return [-c.x, -c.y, -c.z] as [number, number, number];
+  }, [cloned]);
+
   // Initial mount: clone the GLB's materials so we own them and capture meshes.
   useEffect(() => {
     const collected: THREE.Mesh[] = [];
@@ -793,10 +804,16 @@ function ProductMesh({
   }, [baseColor, meshColors, finish, pattern, patternAccent, paintTargetName]);
 
   return (
-    <primitive
-      object={cloned}
-      onPointerDown={onSurfaceClick}
-    />
+    // The outer group nudges the cloned scene so its bbox center lives at
+    // local origin. The PRODUCT_MODELS.position offset is then applied by the
+    // parent <group> wrapper — keeps existing per-product nudges working
+    // while guaranteeing visual centering across every camera preset.
+    <group position={centerOffset}>
+      <primitive
+        object={cloned}
+        onPointerDown={onSurfaceClick}
+      />
+    </group>
   );
 }
 
