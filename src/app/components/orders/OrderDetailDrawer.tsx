@@ -39,15 +39,25 @@ interface Props {
   onChanged: () => void;
 }
 
-// Workflow pipeline — the canonical order. `cancelled`/`rejected`/`refunded`
-// are terminal off-shoots and not part of this strip.
-const PIPELINE = [
+// Workflow pipeline — the canonical order. Branches between out_for_delivery
+// and for_pickup based on the order's deliveryMethod so admin can't pick a
+// status that contradicts what the customer chose at checkout.
+// `cancelled`/`rejected`/`refunded` are terminal off-shoots not in the strip.
+const PIPELINE_BASE = [
   { id: 'pending', label: 'Pending', tint: 'from-slate-500 to-slate-700' },
   { id: 'approved', label: 'Approved', tint: 'from-blue-500 to-indigo-500' },
   { id: 'in_production', label: 'Production', tint: 'from-purple-500 to-fuchsia-500' },
   { id: 'ready', label: 'Ready', tint: 'from-emerald-500 to-teal-500' },
-  { id: 'shipped', label: 'Shipped', tint: 'from-cyan-500 to-blue-500' },
-  { id: 'delivered', label: 'Delivered', tint: 'from-green-500 to-emerald-500' },
+];
+const PIPELINE_DELIVERY = [
+  ...PIPELINE_BASE,
+  { id: 'out_for_delivery', label: 'Out for delivery', tint: 'from-sky-500 to-blue-600' },
+  { id: 'completed', label: 'Completed', tint: 'from-green-500 to-emerald-500' },
+];
+const PIPELINE_PICKUP = [
+  ...PIPELINE_BASE,
+  { id: 'for_pickup', label: 'For pickup', tint: 'from-sky-500 to-blue-600' },
+  { id: 'completed', label: 'Completed', tint: 'from-green-500 to-emerald-500' },
 ];
 
 const STATUS_BADGE: Record<string, string> = {
@@ -55,6 +65,8 @@ const STATUS_BADGE: Record<string, string> = {
   approved: 'bg-blue-100 text-blue-700 border-blue-200',
   in_production: 'bg-purple-100 text-purple-700 border-purple-200',
   ready: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  out_for_delivery: 'bg-sky-100 text-sky-700 border-sky-200',
+  for_pickup: 'bg-sky-100 text-sky-700 border-sky-200',
   completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   shipped: 'bg-cyan-100 text-cyan-700 border-cyan-200',
   delivered: 'bg-green-100 text-green-700 border-green-200',
@@ -195,7 +207,16 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
 
   if (!order) return null;
 
-  const currentStageIdx = PIPELINE.findIndex((s) => s.id === order.status);
+  // Pick the right pipeline based on the order's delivery method so the
+  // admin only sees / can pick the valid next status. A `shipped` or
+  // `delivered` legacy status maps to the post-Ready branch.
+  const PIPELINE = order.deliveryMethod === 'pickup' ? PIPELINE_PICKUP : PIPELINE_DELIVERY;
+  // Map legacy shipped/delivered onto the new branch so the strip still finds an index.
+  const normalizedStatus =
+    order.status === 'shipped' || order.status === 'delivered'
+      ? (order.deliveryMethod === 'pickup' ? 'for_pickup' : 'out_for_delivery')
+      : order.status;
+  const currentStageIdx = PIPELINE.findIndex((s) => s.id === normalizedStatus);
   const isTerminal = ['cancelled', 'rejected', 'refunded'].includes(order.status);
   const refunded = Number(order.refundedAmount) || 0;
   const paid = Number(order.paidAmount) || 0;

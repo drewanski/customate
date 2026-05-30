@@ -1,11 +1,38 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import Order, { PRODUCTION_STAGES } from '../models/Order.js';
+import OrderAuditLog from '../models/OrderAuditLog.js';
 import User from '../models/User.js';
 import ProductionLog from '../models/ProductionLog.js';
 import ProductionCapacity from '../models/ProductionCapacity.js';
 import { authMiddleware, adminMiddleware, requireRoles, requireManager, requireProductionStaff } from '../middleware/auth.js';
 import { consumeReservedForOrder } from '../services/inventory.js';
+import { notifyCustomerOfStatus } from './orders.js';
+
+/**
+ * Loophole guard: any code path that changes order.status from a production
+ * route MUST also write an OrderAuditLog row + fire the customer notification.
+ * Otherwise the customer-facing timeline silently misses the transition and
+ * the customer's bell stays empty. Use this helper everywhere.
+ */
+async function syncCustomerTimelineForStatus({ order, fromStatus, toStatus, actor, note, reason }) {
+  if (fromStatus === toStatus) return;
+  try {
+    await OrderAuditLog.create({
+      order: order._id,
+      orderRef: String(order._id).slice(-6),
+      type: 'status_changed',
+      from: fromStatus,
+      to: toStatus,
+      reason: reason || '',
+      note: note || '',
+      performedBy: actor.performedBy,
+      performedByName: actor.performedByName,
+      performedByRole: actor.performedByRole,
+    });
+  } catch { /* non-fatal */ }
+  await notifyCustomerOfStatus(order, toStatus, reason);
+}
 
 const router = express.Router();
 
@@ -808,6 +835,7 @@ router.post('/:id/advance', requireProductionStaff, async (req, res) => {
 
     const actor = await actorSnapshot(req);
     order.productionStage = target;
+    const statusBefore = order.status;
 
     // Side effects:
     //   - First time we enter in_production, stamp productionStartedAt
@@ -863,6 +891,21 @@ router.post('/:id/advance', requireProductionStaff, async (req, res) => {
       to: target,
       note: req.body.note || '',
       ...actor,
+    });
+
+    // Mirror the order.status change (if any) into the customer-visible
+    // OrderAuditLog + customer notification so the timeline stays accurate
+    // regardless of which route flipped the status.
+    await syncCustomerTimelineForStatus({
+      order,
+      fromStatus: statusBefore,
+      toStatus: order.status,
+      actor: {
+        performedBy: actor.performedBy,
+        performedByName: actor.performedByName,
+        performedByRole: actor.performedByRole,
+      },
+      note: `Production stage ${currentStage} → ${target}`,
     });
 
     const populated = await attachUsers(order);
@@ -1075,6 +1118,7 @@ router.post('/:id/qc-approve', adminMiddleware, async (req, res) => {
     }
 
     const actor = await actorSnapshot(req);
+    const statusBefore = order.status;
     order.qcStatus = 'approved';
     order.qcApprovedAt = new Date();
     order.qcApprovedBy = req.user.userId;
@@ -1096,6 +1140,19 @@ router.post('/:id/qc-approve', adminMiddleware, async (req, res) => {
       type: 'completed',
       note: 'QC approved by manager',
       ...actor,
+    });
+
+    // Customer must see "your order is ready" on the timeline + the bell.
+    await syncCustomerTimelineForStatus({
+      order,
+      fromStatus: statusBefore,
+      toStatus: 'ready',
+      actor: {
+        performedBy: actor.performedBy,
+        performedByName: actor.performedByName,
+        performedByRole: actor.performedByRole,
+      },
+      note: 'QC approved — order is ready',
     });
 
     const populated = await attachUsers(order);

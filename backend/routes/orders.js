@@ -83,6 +83,46 @@ async function restoreInventoryFor(order, actor = null, reason = 'Status change'
 const BULK_THRESHOLD = 20;
 const BULK_PAYMENT_RATIO = 0.5;
 
+/**
+ * Single source of truth for customer-facing notifications fired on each
+ * status transition. Used by:
+ *   - PUT /orders/:id/status       (admin)
+ *   - POST /orders/bulk-status     (admin)
+ *   - POST /production/:id/qc-approve  (admin, via dynamic import)
+ *   - POST /production/:id/advance     (admin/staff, via dynamic import)
+ *
+ * Centralising this avoids the loophole where a status that flips through
+ * the production routes silently skips the customer-notification path.
+ */
+export async function notifyCustomerOfStatus(order, to, reason) {
+  try {
+    const { default: Notification } = await import('../models/Notification.js');
+    const map = {
+      approved: { title: 'Order approved', message: 'Your order is queued for production.', priority: 'normal', type: 'order_status_update' },
+      in_production: { title: 'In production', message: 'A staff member started working on your order.', priority: 'normal', type: 'order_status_update' },
+      ready: { title: 'Order ready', message: 'Your order passed quality check and is being prepared.', priority: 'high', type: 'order_status_update' },
+      out_for_delivery: { title: 'Out for delivery', message: 'Your order is on its way!', priority: 'high', type: 'order_status_update' },
+      for_pickup: { title: 'Ready for pickup', message: 'Your order is ready at the store.', priority: 'high', type: 'order_status_update' },
+      completed: { title: 'Order completed', message: 'Thank you! Please rate each item on your order page.', priority: 'high', type: 'order_completed' },
+      cancelled: { title: 'Order cancelled', message: reason || 'See your order details.', priority: 'high', type: 'order_cancelled' },
+      rejected: { title: 'Order rejected', message: reason || 'See your order details.', priority: 'high', type: 'order_cancelled' },
+      shipped: { title: 'Shipped', message: 'Your order has been shipped.', priority: 'high', type: 'order_status_update' },
+      delivered: { title: 'Delivered', message: 'Your order has been delivered.', priority: 'high', type: 'order_completed' },
+    };
+    const m = map[to];
+    if (!m) return;
+    await Notification.create({
+      type: m.type,
+      title: m.title,
+      message: String(m.message).slice(0, 240),
+      target: 'customer',
+      user: order.customer,
+      relatedData: { orderId: String(order._id), status: to, amount: order.totalPrice },
+      priority: m.priority,
+    });
+  } catch (e) { /* non-fatal */ }
+}
+
 function toOrderDto(order) {
   const o = order.toObject ? order.toObject({ virtuals: true }) : order;
   const customer = o.customer && typeof o.customer === 'object' ? o.customer : null;
@@ -638,6 +678,17 @@ router.post('/:id/customer-cancel', authMiddleware, async (req, res) => {
       });
     }
 
+    // Loophole guard #4: a fully-paid order can't be self-cancelled — that
+    // would leave money in our pocket with no refund flag. Customer must
+    // contact support so admin can issue the refund through the right
+    // channel (PayMongo, manual etc.) and update the order accordingly.
+    if (order.paymentStatus === 'paid' || (order.paidAmount && order.paidAmount > 0)) {
+      return res.status(409).json({
+        message: 'This order has already been paid. Please message the store to request a refund — we\'ll cancel and refund it together.',
+        paidLocked: true,
+      });
+    }
+
     const previousStatus = order.status;
     const actor = await actorSnapshot(req);
 
@@ -666,6 +717,22 @@ router.post('/:id/customer-cancel', authMiddleware, async (req, res) => {
       note: 'Customer self-cancel',
       ...actor,
     }).catch(() => {});
+
+    // Loophole guard #5: notify admin so the manager sees the bell + can
+    // verify inventory was released. Plus mirror the customer notification
+    // path so the customer's own bell shows the cancellation event.
+    try {
+      const { default: Notification } = await import('../models/Notification.js');
+      await Notification.create({
+        type: 'order_cancelled',
+        title: 'Customer cancelled an order',
+        message: `Order #${String(order._id).slice(-6)} — reason: ${cleanReason.slice(0, 180)}`,
+        target: 'admin',
+        relatedData: { orderId: String(order._id), status: 'cancelled', amount: order.totalPrice },
+        priority: 'high',
+      });
+    } catch { /* non-fatal */ }
+    await notifyCustomerOfStatus(order, 'cancelled', cleanReason);
 
     res.json(toOrderDto(order));
   } catch (err) {
@@ -699,6 +766,21 @@ router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    // Loophole guard #1: enforce delivery-method ↔ post-Ready status pairing.
+    // A pickup-method order must NOT be flipped to out_for_delivery, and a
+    // delivery-method order must NOT be flipped to for_pickup. Either is a
+    // human mistake but would leave the customer waiting for the wrong thing.
+    if (status === 'out_for_delivery' && order.deliveryMethod === 'pickup') {
+      return res.status(400).json({
+        message: 'This is a pickup order — use "Ready for pickup" instead of "Out for delivery".',
+      });
+    }
+    if (status === 'for_pickup' && order.deliveryMethod === 'delivery') {
+      return res.status(400).json({
+        message: 'This is a delivery order — use "Out for delivery" instead of "Ready for pickup".',
+      });
+    }
 
     const previousStatus = order.status;
     if (previousStatus === status) {
@@ -829,32 +911,10 @@ router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
       ...actor,
     }).catch((err) => console.error('Audit log write failed:', err.message));
 
-    // Customer-facing structured notifications for the two terminal-ish states.
-    try {
-      const { default: Notification } = await import('../models/Notification.js');
-      if (status === 'completed') {
-        await Notification.create({
-          type: 'order_completed',
-          title: 'Your order is complete!',
-          message: `Thank you! Order #${String(order._id).slice(-6)} has been marked complete.`,
-          target: 'customer',
-          user: order.customer,
-          relatedData: { orderId: String(order._id), status: 'completed' },
-          priority: 'high',
-        });
-      }
-      if (status === 'cancelled' || status === 'rejected') {
-        await Notification.create({
-          type: 'order_cancelled',
-          title: status === 'cancelled' ? 'Order cancelled' : 'Order rejected',
-          message: (reason || 'See your order details for more information.').slice(0, 240),
-          target: 'customer',
-          user: order.customer,
-          relatedData: { orderId: String(order._id), status },
-          priority: 'high',
-        });
-      }
-    } catch (e) { /* non-fatal */ }
+    // Customer-facing structured notification — one helper covers every
+    // status transition so the bell + email stays consistent regardless of
+    // which route flipped the status.
+    await notifyCustomerOfStatus(order, status, reason);
 
     // Customer-facing status-change email — best-effort, non-blocking
     User.findById(order.customer).select('name email').lean()
@@ -980,9 +1040,21 @@ router.post('/bulk-status', authMiddleware, adminMiddleware, async (req, res) =>
     if (!Array.isArray(orderIds) || orderIds.length === 0) {
       return res.status(400).json({ message: 'orderIds array required' });
     }
-    const allowed = ['approved', 'in_production', 'ready', 'completed', 'shipped', 'delivered', 'cancelled', 'rejected'];
+    // Loophole guard: bulk allow-list must match the single-PUT allow-list so
+    // the new post-Ready statuses can also be applied in bulk.
+    const allowed = [
+      'approved', 'in_production', 'ready',
+      'out_for_delivery', 'for_pickup', 'completed',
+      'shipped', 'delivered', 'cancelled', 'rejected',
+    ];
     if (!allowed.includes(status)) {
       return res.status(400).json({ message: 'Invalid status for bulk action' });
+    }
+    // Reason still required for reject/cancel even in bulk.
+    if ((status === 'rejected' || status === 'cancelled') && !(reason && String(reason).trim())) {
+      return res.status(400).json({
+        message: `A reason is required when ${status === 'rejected' ? 'rejecting' : 'cancelling'} orders.`,
+      });
     }
 
     const actor = await actorSnapshot(req);
@@ -999,13 +1071,31 @@ router.post('/bulk-status', authMiddleware, adminMiddleware, async (req, res) =>
           results.push({ id, ok: true, skipped: true });
           continue;
         }
-        const bulkConsumeStatuses = ['approved', 'in_production', 'ready', 'shipped', 'delivered', 'completed'];
+
+        // Loophole guard #1 in bulk: skip mismatched delivery-method targets.
+        if (status === 'out_for_delivery' && order.deliveryMethod === 'pickup') {
+          results.push({ id, ok: false, error: 'pickup-method order cannot go out_for_delivery' });
+          continue;
+        }
+        if (status === 'for_pickup' && order.deliveryMethod === 'delivery') {
+          results.push({ id, ok: false, error: 'delivery-method order cannot go for_pickup' });
+          continue;
+        }
+
+        const bulkConsumeStatuses = [
+          'approved', 'in_production', 'ready',
+          'out_for_delivery', 'for_pickup', 'completed',
+          'shipped', 'delivered',
+        ];
         if ((status === 'rejected' || status === 'cancelled') &&
             prev !== 'rejected' && prev !== 'cancelled') {
           await restoreInventoryFor(order);
           if (order.inventoryConsumed) {
             order.inventoryConsumed = false;
             order.inventoryConsumedAt = null;
+          }
+          if (order.couponCode) {
+            await releaseCouponForOrder({ order, reason: `Bulk ${status}` }).catch(() => {});
           }
         } else if (bulkConsumeStatuses.includes(status) && !order.inventoryConsumed) {
           await consumeReservedForOrder({
@@ -1016,7 +1106,17 @@ router.post('/bulk-status', authMiddleware, adminMiddleware, async (req, res) =>
           order.inventoryConsumed = true;
           order.inventoryConsumedAt = new Date();
         }
+
         order.status = status;
+        // Persist structured reason fields so the customer-facing timeline
+        // shows the exact same info as the single PUT path.
+        if (status === 'rejected') order.rejectionReason = String(reason || '').trim();
+        if (status === 'cancelled') {
+          order.cancellationReason = String(reason || '').trim();
+          order.cancelledAt = new Date();
+          order.cancelledBy = req.user.userId;
+        }
+        if (status === 'completed') order.completedAt = new Date();
         await order.save();
 
         await OrderAuditLog.create({
@@ -1028,6 +1128,10 @@ router.post('/bulk-status', authMiddleware, adminMiddleware, async (req, res) =>
           reason: reason || '',
           ...actor,
         }).catch(() => {});
+
+        // Fire the same customer notification the single-PUT path fires —
+        // closes the loophole where bulk operations went silent.
+        await notifyCustomerOfStatus(order, status, reason);
 
         results.push({ id, ok: true });
       } catch (err) {
