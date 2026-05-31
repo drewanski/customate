@@ -2223,6 +2223,7 @@ export function CustomizationStudio() {
         onClose={() => setSizeGuideOpen(false)}
         sizes={Array.isArray(product?.sizes) ? product.sizes : []}
         productName={product?.name}
+        selectedCode={customization.size}
       />
     </div>
   );

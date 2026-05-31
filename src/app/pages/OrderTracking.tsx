@@ -201,15 +201,39 @@ function StageExplainer({ status, deliveryMethod }: { status: string; deliveryMe
   );
 }
 
-function TimelineIcon({ kind }: { kind: string }) {
-  const map: Record<string, any> = {
-    receipt: Receipt,
-    check: CheckCircle,
-    x: XCircle,
-    money: RotateCcw,
-  };
-  const Icon = map[kind] || Clock;
-  return <Icon className="w-5 h-5 text-blue-600" />;
+// Per-event-type icon + tint so the timeline reads as a coloured story
+// instead of a wall of monochrome circles.
+function eventVisual(e: any) {
+  // Most "check" events come with meta.status — use it to colour-tint.
+  const status = e?.meta?.status;
+  if (e.icon === 'receipt') return { Icon: Receipt, ring: 'border-blue-500',    bg: 'bg-blue-50',    fg: 'text-blue-600' };
+  if (e.icon === 'x')       return { Icon: XCircle, ring: 'border-rose-500',    bg: 'bg-rose-50',    fg: 'text-rose-600' };
+  if (e.icon === 'money')   return { Icon: RotateCcw, ring: 'border-slate-500', bg: 'bg-slate-50',   fg: 'text-slate-600' };
+  // Status-tinted "check" events
+  if (status === 'approved' || /approved/i.test(e.title))
+    return { Icon: CheckCircle, ring: 'border-blue-500', bg: 'bg-blue-50', fg: 'text-blue-600' };
+  if (status === 'in_production' || /production/i.test(e.title))
+    return { Icon: Factory, ring: 'border-violet-500', bg: 'bg-violet-50', fg: 'text-violet-600' };
+  if (status === 'ready' || /ready/i.test(e.title))
+    return { Icon: ShieldCheck, ring: 'border-emerald-500', bg: 'bg-emerald-50', fg: 'text-emerald-600' };
+  if (status === 'out_for_delivery' || /out for delivery|shipped/i.test(e.title))
+    return { Icon: Truck, ring: 'border-sky-500', bg: 'bg-sky-50', fg: 'text-sky-600' };
+  if (status === 'for_pickup' || /for pickup/i.test(e.title))
+    return { Icon: Store, ring: 'border-sky-500', bg: 'bg-sky-50', fg: 'text-sky-600' };
+  if (status === 'completed' || /complete/i.test(e.title))
+    return { Icon: Star, ring: 'border-amber-500', bg: 'bg-amber-50', fg: 'text-amber-600' };
+  return { Icon: Clock, ring: 'border-slate-300', bg: 'bg-slate-50', fg: 'text-slate-500' };
+}
+
+function relativeOrTime(d: Date) {
+  const ms = Date.now() - d.getTime();
+  const s = Math.round(ms / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 export function OrderTracking() {
@@ -593,19 +617,33 @@ export function OrderTracking() {
         </CardHeader>
         <CardContent>
           {timeline.length === 0 ? (
-            <p className="text-sm text-slate-500">No events yet. As your order moves through each stage, you'll see updates here.</p>
+            <div className="py-10 text-center">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 flex items-center justify-center mb-3">
+                <Clock className="w-7 h-7 text-blue-500" />
+              </div>
+              <p className="text-sm font-bold text-slate-700">Nothing here yet</p>
+              <p className="text-xs text-slate-500 mt-1">As your order moves through each stage, you'll see updates here.</p>
+            </div>
           ) : (
-            <ol className="relative border-l-2 border-slate-200 ml-4 space-y-5">
-              {timeline.map((e, i) => (
-                <li key={i} className="ml-6">
-                  <span className="absolute -left-[11px] w-5 h-5 rounded-full bg-white border-2 border-blue-500 flex items-center justify-center">
-                    <TimelineIcon kind={e.icon} />
-                  </span>
-                  <p className="font-bold text-slate-900">{e.title}</p>
-                  {e.body && <p className="text-sm text-slate-600 mt-0.5">{e.body}</p>}
-                  <p className="text-xs text-slate-400 mt-1">{e.at ? new Date(e.at).toLocaleString() : ''}</p>
-                </li>
-              ))}
+            <ol className="relative border-l-2 border-dashed border-slate-200 ml-4 space-y-5">
+              {timeline.map((e, i) => {
+                const v = eventVisual(e);
+                const Icon = v.Icon;
+                return (
+                  <li key={i} className="ml-6 relative">
+                    <span className={`absolute -left-[27px] w-9 h-9 rounded-full bg-white border-2 ${v.ring} flex items-center justify-center shadow-sm`}>
+                      <Icon className={`w-4.5 h-4.5 ${v.fg}`} />
+                    </span>
+                    <div className={`rounded-xl px-3 py-2.5 border border-slate-100 ${v.bg}/50`}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <p className="font-bold text-slate-900 text-sm">{e.title}</p>
+                        <p className="text-xs text-slate-500">{e.at ? relativeOrTime(new Date(e.at)) : ''}</p>
+                      </div>
+                      {e.body && <p className="text-sm text-slate-700 mt-0.5">{e.body}</p>}
+                    </div>
+                  </li>
+                );
+              })}
             </ol>
           )}
         </CardContent>

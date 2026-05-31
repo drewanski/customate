@@ -1,22 +1,21 @@
-import React, { useEffect, useState } from 'react';
-import { MessageSquare, Inbox, Filter, RefreshCcw } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { MessageSquare, Inbox, RefreshCcw, Search, Sparkles, X } from 'lucide-react';
 import { getChatThreads } from '../api';
 import { Card, CardContent } from '../components/Card';
-import { Badge } from '../components/Badge';
 import { OrderChatPanel } from '../components/chat/OrderChatPanel';
 import { formatPeso } from '../utils/format';
 
 const STATUS_TINT: Record<string, string> = {
-  pending: 'warning',
-  approved: 'success',
-  in_production: 'info',
-  ready: 'success',
-  out_for_delivery: 'info',
-  for_pickup: 'info',
-  completed: 'success',
-  rejected: 'danger',
-  cancelled: 'danger',
-  refunded: 'danger',
+  pending: 'bg-amber-100 text-amber-700 border-amber-200',
+  approved: 'bg-blue-100 text-blue-700 border-blue-200',
+  in_production: 'bg-violet-100 text-violet-700 border-violet-200',
+  ready: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  out_for_delivery: 'bg-sky-100 text-sky-700 border-sky-200',
+  for_pickup: 'bg-sky-100 text-sky-700 border-sky-200',
+  completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  rejected: 'bg-rose-100 text-rose-700 border-rose-200',
+  cancelled: 'bg-slate-100 text-slate-600 border-slate-200',
+  refunded: 'bg-rose-100 text-rose-700 border-rose-200',
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -46,15 +45,17 @@ function timeAgo(iso: string) {
   return `${d}d ago`;
 }
 
-/**
- * Inbox of order-scoped conversations for admin + staff.
- * Threads list on the left, open thread on the right (or full-screen on mobile).
- */
+function initials(name?: string) {
+  if (!name) return '?';
+  return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('');
+}
+
 export function AdminMessages() {
   const [threads, setThreads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const [search, setSearch] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -70,86 +71,169 @@ export function AdminMessages() {
   };
 
   useEffect(() => { load(); }, []);
-  // Refresh every 10s so inbox preview stays current.
   useEffect(() => {
     const t = setInterval(load, 10000);
     return () => clearInterval(t);
   }, []);
 
-  const visible = filter === 'unread' ? threads.filter((t) => t.unread > 0) : threads;
+  const filteredThreads = useMemo(() => {
+    let list = threads;
+    if (filter === 'unread') list = list.filter((t) => t.unread > 0);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (t) =>
+          (t.customerName || '').toLowerCase().includes(q) ||
+          (t.orderRef || '').toLowerCase().includes(q) ||
+          (t.lastBody || '').toLowerCase().includes(q),
+      );
+    }
+    return list;
+  }, [threads, filter, search]);
+
+  const unreadCount = threads.filter((t) => t.unread > 0).length;
   const active = threads.find((t) => t.orderId === activeId);
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+      {/* Hero — matches the visual language used across the rest of admin */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-700 text-white">
+        <div className="absolute -top-32 -left-24 w-80 h-80 rounded-full bg-blue-400/30 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -right-24 w-80 h-80 rounded-full bg-purple-400/40 blur-3xl pointer-events-none" />
+        <div
+          className="absolute inset-0 opacity-[0.06] pointer-events-none"
+          style={{
+            backgroundImage:
+              'linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)',
+            backgroundSize: '32px 32px',
+          }}
+        />
+        <div className="relative max-w-7xl mx-auto px-6 lg:px-8 py-8 md:py-10 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2">
-              <MessageSquare className="w-7 h-7 text-blue-600" /> Messages
-            </h1>
-            <p className="text-slate-600 mt-1">All conversations are tied to an order. Status updates appear automatically.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="bg-white border border-slate-200 rounded-xl p-1 flex items-center text-sm font-bold">
-              <button
-                onClick={() => setFilter('all')}
-                className={`px-3 py-1.5 rounded-lg ${filter === 'all' ? 'bg-blue-600 text-white' : 'text-slate-700'}`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setFilter('unread')}
-                className={`px-3 py-1.5 rounded-lg ${filter === 'unread' ? 'bg-blue-600 text-white' : 'text-slate-700'}`}
-              >
-                Unread {threads.filter((t) => t.unread > 0).length > 0 && (
-                  <span className="ml-1 px-1.5 rounded-full bg-rose-500 text-white">{threads.filter((t) => t.unread > 0).length}</span>
-                )}
-              </button>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md border border-white/20 text-[10px] font-bold uppercase tracking-widest mb-3">
+              <Sparkles className="w-3 h-3" /> Messages
             </div>
-            <button onClick={load} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-50">
-              <RefreshCcw className="w-4 h-4" /> Refresh
-            </button>
+            <h1 className="text-3xl md:text-4xl font-black tracking-tight">Customer conversations</h1>
+            <p className="text-sm md:text-base text-white/85 mt-1 max-w-2xl">
+              Every chat is tied to an order. Status updates appear automatically in each thread.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/15 backdrop-blur-md border border-white/20 text-sm font-bold">
+              <Inbox className="w-4 h-4" />
+              {threads.length} {threads.length === 1 ? 'thread' : 'threads'}
+            </div>
+            {unreadCount > 0 && (
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-rose-500/90 backdrop-blur-md border border-white/20 text-sm font-bold">
+                {unreadCount} unread
+              </div>
+            )}
           </div>
         </div>
+      </div>
 
+      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-6">
         <div className="grid grid-cols-12 gap-4">
           {/* Threads list */}
           <div className="col-span-12 md:col-span-5 lg:col-span-4">
-            <Card className="overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 text-sm font-bold text-slate-700 flex items-center gap-2">
-                <Inbox className="w-4 h-4" /> {visible.length} conversation{visible.length === 1 ? '' : 's'}
+            <Card className="overflow-hidden border-0 shadow-lg shadow-slate-200/60">
+              {/* Search + filter toolbar */}
+              <div className="px-3 py-3 border-b border-slate-100 bg-gradient-to-br from-slate-50 to-white space-y-2">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search by customer, order, or message…"
+                    className="w-full h-10 pl-10 pr-9 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-400 text-sm placeholder:text-slate-400"
+                  />
+                  {search && (
+                    <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg hover:bg-slate-100 flex items-center justify-center" aria-label="Clear">
+                      <X className="w-3.5 h-3.5 text-slate-400" />
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="inline-flex bg-slate-100 rounded-xl p-1 text-xs font-bold">
+                    <button
+                      onClick={() => setFilter('all')}
+                      className={`px-3 py-1.5 rounded-lg transition-all ${filter === 'all' ? 'bg-white text-slate-900 shadow' : 'text-slate-600 hover:text-slate-900'}`}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => setFilter('unread')}
+                      className={`px-3 py-1.5 rounded-lg transition-all inline-flex items-center gap-1.5 ${filter === 'unread' ? 'bg-white text-slate-900 shadow' : 'text-slate-600 hover:text-slate-900'}`}
+                    >
+                      Unread
+                      {unreadCount > 0 && (
+                        <span className="px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-black">{unreadCount}</span>
+                      )}
+                    </button>
+                  </div>
+                  <button
+                    onClick={load}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                    title="Refresh"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5" /> Refresh
+                  </button>
+                </div>
               </div>
+
               {loading ? (
                 <p className="p-8 text-center text-sm text-slate-500">Loading…</p>
-              ) : visible.length === 0 ? (
-                <p className="p-8 text-center text-sm text-slate-500">No conversations yet.</p>
+              ) : filteredThreads.length === 0 ? (
+                <div className="p-10 text-center">
+                  <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 flex items-center justify-center mb-3">
+                    <MessageSquare className="w-8 h-8 text-blue-500" />
+                  </div>
+                  <p className="text-sm font-bold text-slate-700">
+                    {search ? 'No matches' : filter === 'unread' ? 'No unread messages' : 'No conversations yet'}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {search ? 'Try a different keyword.' : 'New orders start a chat automatically.'}
+                  </p>
+                </div>
               ) : (
-                <ul className="divide-y divide-slate-100 max-h-[78vh] overflow-y-auto">
-                  {visible.map((t) => {
-                    const active = t.orderId === activeId;
+                <ul className="divide-y divide-slate-100 max-h-[72vh] overflow-y-auto">
+                  {filteredThreads.map((t) => {
+                    const isActive = t.orderId === activeId;
                     return (
                       <li key={t.orderId}>
                         <button
                           onClick={() => setActiveId(t.orderId)}
-                          className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition ${active ? 'bg-blue-50' : ''}`}
+                          className={`w-full text-left px-4 py-3 transition-all relative group ${isActive ? 'bg-gradient-to-r from-blue-50 to-indigo-50' : 'hover:bg-slate-50'}`}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="font-bold text-sm text-slate-900 truncate">{t.customerName || 'Customer'}</p>
-                            <span className="text-xs text-slate-500 shrink-0">{timeAgo(t.lastAt)}</span>
+                          {isActive && <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r bg-gradient-to-b from-blue-500 to-indigo-600" />}
+                          <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black flex items-center justify-center text-sm shrink-0 shadow-sm">
+                              {initials(t.customerName)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="font-bold text-sm text-slate-900 truncate">{t.customerName || 'Customer'}</p>
+                                <span className="text-[11px] text-slate-500 shrink-0">{timeAgo(t.lastAt)}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                <span className="text-[11px] font-mono font-bold text-slate-500">#{t.orderRef}</span>
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${STATUS_TINT[t.status] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                                  {STATUS_LABEL[t.status] || t.status}
+                                </span>
+                                <span className="text-[11px] text-slate-500">{formatPeso(t.totalPrice || 0)}</span>
+                              </div>
+                              <p className={`text-sm truncate mt-1 ${t.unread > 0 ? 'font-semibold text-slate-800' : 'text-slate-500'}`}>
+                                <span className={`font-bold ${t.lastFromRole === 'system' ? 'text-amber-700' : t.lastFromRole === 'admin' ? 'text-emerald-700' : t.lastFromRole === 'staff' ? 'text-violet-700' : 'text-blue-700'}`}>
+                                  {t.lastFromRole === 'system' ? 'System' : t.lastFromRole === 'customer' ? 'Customer' : t.lastFromRole === 'admin' ? 'Store' : 'Staff'}:
+                                </span> {t.lastBody}
+                              </p>
+                              {t.unread > 0 && (
+                                <span className="inline-flex items-center mt-1.5 px-2 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black">
+                                  {t.unread} new
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-xs text-slate-500">#{t.orderRef}</span>
-                            <Badge variant={STATUS_TINT[t.status] || 'info'} className="text-[10px] py-0">{STATUS_LABEL[t.status] || t.status}</Badge>
-                            <span className="text-xs text-slate-500">{formatPeso(t.totalPrice || 0)}</span>
-                          </div>
-                          <p className="text-sm text-slate-600 truncate mt-1.5">
-                            <span className="font-semibold capitalize">{t.lastFromRole === 'system' ? 'System' : t.lastFromRole}:</span> {t.lastBody}
-                          </p>
-                          {t.unread > 0 && (
-                            <span className="inline-block mt-1 px-2 py-0.5 rounded-full bg-rose-500 text-white text-xs font-bold">
-                              {t.unread} new
-                            </span>
-                          )}
                         </button>
                       </li>
                     );
@@ -162,17 +246,20 @@ export function AdminMessages() {
           {/* Active chat */}
           <div className="col-span-12 md:col-span-7 lg:col-span-8">
             {!active ? (
-              <Card>
-                <CardContent className="py-16 text-center text-slate-500">
-                  <MessageSquare className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                  Select a conversation to start replying.
+              <Card className="border-0 shadow-lg shadow-slate-200/60">
+                <CardContent className="py-20 text-center">
+                  <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 flex items-center justify-center mb-4">
+                    <MessageSquare className="w-10 h-10 text-blue-500" />
+                  </div>
+                  <p className="text-base font-bold text-slate-700">Pick a conversation</p>
+                  <p className="text-sm text-slate-500 mt-1">Choose a thread from the list to start replying.</p>
                 </CardContent>
               </Card>
             ) : (
               <OrderChatPanel
                 key={active.orderId}
                 orderId={active.orderId}
-                heightClass="h-[60vh]"
+                heightClass="h-[62vh]"
               />
             )}
           </div>
