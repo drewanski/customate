@@ -5,11 +5,16 @@ import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
 import { Chatbot } from '../components/Chatbot';
 import { NotificationBell } from '../components/NotificationBell';
+import { useChatNotifications } from '../hooks/useChatNotifications';
+import { ChatToast } from '../components/chat/ChatToast';
 
 export function CustomerLayout() {
   const location = useLocation();
   const { totalItems } = useCart();
   const { user, loading } = useAuth();
+  // Real-time chat-arrival toast for customers — slides in whenever the
+  // store messages them or an automatic status update lands.
+  const { toast: chatToast, dismissToast } = useChatNotifications();
   const isAuthenticated = Boolean(user) && localStorage.getItem('isAuthenticated') === 'true';
   
   const navLinks = [
@@ -128,6 +133,7 @@ export function CustomerLayout() {
         </div>
       </footer>
       <Chatbot />
+      <ChatToast toast={chatToast} onDismiss={dismissToast} viewerRole="customer" />
     </div>
   );
 }

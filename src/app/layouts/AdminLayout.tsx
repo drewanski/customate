@@ -22,6 +22,8 @@ import {
 import { Modal } from '../components/Modal';
 import { useAuth } from '../hooks/useAuth';
 import { AdminAIAssistant } from '../components/AdminAIAssistant';
+import { useChatNotifications } from '../hooks/useChatNotifications';
+import { ChatToast } from '../components/chat/ChatToast';
 
 export function AdminLayout() {
   const location = useLocation();
@@ -32,6 +34,10 @@ export function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const { user, logout } = useAuth();
+  // Realtime chat notifications: bumps the Messages sidebar badge on every
+  // new message and shows a slide-in toast wherever in the admin the user
+  // happens to be.
+  const { unreadTotal, toast: chatToast, dismissToast } = useChatNotifications();
 
   const handleLogout = () => {
     logout();
@@ -190,14 +196,27 @@ export function AdminLayout() {
                   }`}
                 />
                 <div
-                  className={`flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0 ${
+                  className={`relative flex items-center justify-center w-9 h-9 rounded-lg transition-colors shrink-0 ${
                     isActive ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md shadow-blue-500/30' : 'bg-white/5 text-slate-300 group-hover:bg-white/10'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
+                  {/* Unread Messages indicator — only on the Messages link. */}
+                  {link.to === '/admin/messages' && unreadTotal > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center ring-2 ring-slate-950 shadow-md">
+                      {unreadTotal > 99 ? '99+' : unreadTotal}
+                    </span>
+                  )}
                 </div>
                 {!collapsed && (
-                  <span className={`text-sm font-bold ${isActive ? 'text-white' : ''}`}>{link.label}</span>
+                  <span className={`text-sm font-bold ${isActive ? 'text-white' : ''}`}>
+                    {link.label}
+                    {link.to === '/admin/messages' && unreadTotal > 0 && (
+                      <span className="ml-2 inline-flex items-center min-w-[20px] h-5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-black">
+                        {unreadTotal > 99 ? '99+' : unreadTotal}
+                      </span>
+                    )}
+                  </span>
                 )}
               </Link>
             );
@@ -256,6 +275,11 @@ export function AdminLayout() {
       {/* AI ASSISTANT — admin-only per spec. Staff never sees the floating
           AI widget at all (matches backend 403 on /api/admin-ai/*). */}
       {role === 'admin' && <AdminAIAssistant />}
+
+      {/* Chat-arrival toast — slides in from the bottom-right whenever a
+          customer messages or a staff member replies. */}
+      <ChatToast toast={chatToast} onDismiss={dismissToast} viewerRole={role === 'production_staff' ? 'staff' : 'admin'} />
+
 
       {/* LOGOUT MODAL */}
       <Modal

@@ -89,7 +89,7 @@ if (process.env.NODE_ENV === 'production') {
 const socketAllowedOrigins =
   process.env.NODE_ENV === 'production'
     ? [process.env.FRONTEND_URL].filter(Boolean)
-    : [process.env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:3000'].filter(Boolean);
+    : [process.env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173'].filter(Boolean);
 
 const io = new Server(httpServer, {
   cors: {
@@ -117,7 +117,7 @@ const isProd = process.env.NODE_ENV === 'production';
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   // Dev origins are only allowed when NODE_ENV !== 'production'
-  ...(isProd ? [] : ['http://localhost:5173', 'http://localhost:3000']),
+  ...(isProd ? [] : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173']),
 ].filter(Boolean);
 
 app.use(cors({

@@ -171,28 +171,61 @@ router.post('/:orderId', authMiddleware, async (req, res) => {
       if (u) fromName = u.name || '';
     } catch { /* non-fatal */ }
 
+    const senderRole = roleFor(req.user);
     const msg = await ChatMessage.create({
       order: order._id,
       from: req.user.userId,
-      fromRole: roleFor(req.user),
+      fromRole: senderRole,
       fromName,
       body: String(body).trim().slice(0, 2000),
       readBy: [req.user.userId],
     });
 
-    // Notify the other side
+    // Persist a Notification doc so the bell + unread badge can read it on
+    // page load. Target = the OTHER party (customer if admin/staff sent,
+    // admin if customer sent).
+    const recipientIsCustomer = senderRole !== 'customer';
     try {
-      const senderRole = roleFor(req.user);
-      const recipientIsCustomer = senderRole !== 'customer';
       await Notification.create({
         type: 'chat_message',
-        title: recipientIsCustomer ? `New message from ${fromName || 'CustoMate'}` : `New message from customer`,
+        title: recipientIsCustomer ? `New message from ${fromName || 'CustoMate'}` : `New message from ${fromName || 'a customer'}`,
         message: msg.body.slice(0, 140),
         target: recipientIsCustomer ? 'customer' : 'admin',
         user: recipientIsCustomer ? order.customer : undefined,
         relatedData: { orderId: String(order._id) },
         priority: 'normal',
       });
+    } catch { /* non-fatal */ }
+
+    // Real-time fan-out via socket.io — open clients update without polling.
+    // Two events:
+    //   chat:new   — appended to the open OrderChatPanel if room joined
+    //   chat:notify — fires the toast + chime + bell badge increment on the
+    //                 recipient's side regardless of which page they're on
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        const payload = {
+          orderId: String(order._id),
+          orderRef: String(order._id).slice(-6).toUpperCase(),
+          message: {
+            _id: msg._id,
+            kind: msg.kind,
+            fromRole: msg.fromRole,
+            fromName: msg.fromName,
+            body: msg.body,
+            createdAt: msg.createdAt,
+          },
+          recipient: recipientIsCustomer ? 'customer' : 'admin',
+          customerId: String(order.customer),
+        };
+        // Per-order room for the open chat panel (StaffTaskBoard joins
+        // order_<id> already; here we use the same convention).
+        io.to(`order_${order._id}`).emit('chat:new', payload);
+        // Generic notify event — admin/staff layouts listen on this to
+        // show toasts + bump the sidebar badge. Customer-side too.
+        io.emit('chat:notify', payload);
+      }
     } catch { /* non-fatal */ }
 
     res.status(201).json(msg);
