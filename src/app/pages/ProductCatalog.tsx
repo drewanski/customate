@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { apiRequest } from '../api';
 import { Search, X, Package, Sparkles, ArrowUpDown, AlertCircle } from 'lucide-react';
 import { formatPeso } from '../utils/format';
+import { Pagination, usePagination } from '../components/Pagination';
 
 export function ProductCatalog() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -28,6 +29,10 @@ export function ProductCatalog() {
       if (sortBy === 'price-high') return b.price - a.price;
       return a.name.localeCompare(b.name);
     });
+
+  // Pagination — resets to page 1 whenever the filter/sort/search changes.
+  const { page, pageSize, setPage, setPageSize } = usePagination(12, [searchTerm, selectedCategory, sortBy]);
+  const paginatedProducts = filteredProducts.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <div className="bg-gradient-to-b from-slate-50 to-white min-h-screen">
@@ -181,7 +186,7 @@ export function ProductCatalog() {
         {/* Product cards */}
         {!loading && filteredProducts.length > 0 && (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {filteredProducts.map((product) => {
+            {paginatedProducts.map((product) => {
               const available = (product.stock || 0) - (product.reservedStock || 0);
               const lowStock = available > 0 && available <= 5;
               return (
@@ -229,6 +234,22 @@ export function ProductCatalog() {
                 </Link>
               );
             })}
+          </div>
+        )}
+
+        {/* Pagination — shown when there's more than one page */}
+        {!loading && filteredProducts.length > 0 && (
+          <div className="mt-8 bg-white border border-slate-100 rounded-2xl shadow-sm p-4">
+            <Pagination
+              page={page}
+              total={filteredProducts.length}
+              pageSize={pageSize}
+              onPageChange={(p) => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              onPageSizeChange={setPageSize}
+              pageSizeOptions={[12, 24, 48]}
+              itemLabel="product"
+              itemLabelPlural="products"
+            />
           </div>
         )}
       </div>

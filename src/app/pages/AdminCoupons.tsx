@@ -3,6 +3,7 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { PrintablePage } from '../components/admin/PrintablePage';
+import { Pagination, usePagination } from '../components/Pagination';
 import {
   Percent,
   DollarSign,
@@ -104,6 +105,10 @@ export function AdminCoupons() {
       );
     });
   }, [coupons, searchTerm, statusFilter, typeFilter]);
+
+  // Pagination — resets on any filter / search change.
+  const { page, pageSize, setPage, setPageSize } = usePagination(12, [searchTerm, statusFilter, typeFilter]);
+  const paginated = useMemo(() => filtered.slice((page - 1) * pageSize, page * pageSize), [filtered, page, pageSize]);
 
   const openCreate = () => { setEditingCoupon(null); setFormOpen(true); };
   const openEdit = (c: any) => { setEditingCoupon(c); setFormOpen(true); };
@@ -252,7 +257,7 @@ export function AdminCoupons() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((c) => {
+                  {paginated.map((c) => {
                     const meta = TYPE_META[c.type] || TYPE_META.percentage;
                     const Icon = meta.icon as any;
                     const status = couponStatus(c);
@@ -327,6 +332,20 @@ export function AdminCoupons() {
                   })}
                 </tbody>
               </table>
+              {filtered.length > pageSize && (
+                <div className="p-4 border-t border-slate-100 bg-slate-50/40">
+                  <Pagination
+                    page={page}
+                    total={filtered.length}
+                    pageSize={pageSize}
+                    onPageChange={setPage}
+                    onPageSizeChange={setPageSize}
+                    pageSizeOptions={[12, 25, 50]}
+                    itemLabel="coupon"
+                    itemLabelPlural="coupons"
+                  />
+                </div>
+              )}
             </div>
           )}
         </Card>

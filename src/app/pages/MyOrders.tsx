@@ -7,6 +7,7 @@ import {
 import { apiRequest, getMyOrders, customerCancelOrder, fileReturn as fileReturnApi } from '../api';
 import { OrderCard } from '../components/orders/OrderCard';
 import { ReviewModal } from '../components/ReviewModal';
+import { Pagination, usePagination } from '../components/Pagination';
 
 interface TabDef {
   key: string;
@@ -81,6 +82,13 @@ export function MyOrders() {
     }
     return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [orders, activeTab, search]);
+
+  // Pagination — resets to page 1 whenever the tab or search changes.
+  const { page, pageSize, setPage, setPageSize } = usePagination(10, [activeTab, search]);
+  const paginated = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
 
   const setTab = (key: string) => {
     if (key === 'all') setSearchParams({});
@@ -259,7 +267,7 @@ export function MyOrders() {
             </div>
           ) : (
             <div className="space-y-3">
-              {filtered.map((o) => (
+              {paginated.map((o) => (
                 <OrderCard
                   key={o.id || o._id}
                   order={o}
@@ -269,6 +277,17 @@ export function MyOrders() {
                   onFileReturn={onFileReturn}
                 />
               ))}
+              <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-4 mt-4">
+                <Pagination
+                  page={page}
+                  total={filtered.length}
+                  pageSize={pageSize}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  itemLabel="order"
+                  itemLabelPlural="orders"
+                />
+              </div>
             </div>
           )}
         </div>

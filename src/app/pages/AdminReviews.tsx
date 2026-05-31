@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { MessageSquare, CheckCircle2, XCircle, ShieldCheck, Loader2 } from 'lucide-react';
 import { StarRating } from '../components/reviews/StarRating';
 import { getAdminReviews, moderateReview, getReviewStats } from '../api';
+import { Pagination, usePagination } from '../components/Pagination';
 
 /**
  * AdminReviews — moderation queue.
@@ -37,6 +38,10 @@ export function AdminReviews() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
+
+  // Pagination — resets when statusFilter changes.
+  const { page, pageSize, setPage, setPageSize } = usePagination(15, [statusFilter]);
+  const paginatedReviews = useMemo(() => reviews.slice((page - 1) * pageSize, page * pageSize), [reviews, page, pageSize]);
 
   const moderate = async (id: string, decision: 'approve' | 'reject') => {
     const note = decision === 'reject' ? prompt('Reason for rejection (optional):') || '' : '';
@@ -106,7 +111,7 @@ export function AdminReviews() {
             </p>
           ) : (
             <ul className="divide-y divide-slate-100">
-              {reviews.map((r: any) => (
+              {paginatedReviews.map((r: any) => (
                 <li key={r._id} className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -174,6 +179,20 @@ export function AdminReviews() {
                 </li>
               ))}
             </ul>
+          )}
+          {!loading && reviews.length > pageSize && (
+            <div className="p-3 border-t border-slate-100 bg-slate-50/40">
+              <Pagination
+                page={page}
+                total={reviews.length}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+                pageSizeOptions={[10, 15, 25, 50]}
+                itemLabel="review"
+                itemLabelPlural="reviews"
+              />
+            </div>
           )}
         </div>
       </div>

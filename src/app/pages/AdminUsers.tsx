@@ -15,6 +15,7 @@ import {
   Ban,
   ChevronRight,
 } from 'lucide-react';
+import { Pagination } from '../components/Pagination';
 import {
   getUsersList as getUsers,
   getUserStats as getUserStatsSummary,
@@ -387,16 +388,17 @@ export function AdminUsers() {
               </table>
             </div>
           )}
-          {!loading && filteredUsers.length > 0 && totalPages > 1 && (
-            <div className="flex items-center justify-between gap-2 mt-4 px-4 pb-4">
-              <p className="text-xs text-slate-500">
-                Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredUsers.length)} of {filteredUsers.length}
-              </p>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
-                <span className="px-3 py-1 text-xs font-semibold text-slate-700">{currentPage} / {totalPages}</span>
-                <Button size="sm" variant="outline" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
-              </div>
+          {!loading && filteredUsers.length > 0 && (
+            <div className="px-4 pb-4 pt-3 border-t border-slate-100 mt-2">
+              <Pagination
+                page={currentPage}
+                total={filteredUsers.length}
+                pageSize={itemsPerPage}
+                onPageChange={setCurrentPage}
+                pageSizeOptions={[10, 25, 50]}
+                itemLabel="user"
+                itemLabelPlural="users"
+              />
             </div>
           )}
         </Card>

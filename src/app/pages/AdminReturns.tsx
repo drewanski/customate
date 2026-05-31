@@ -5,6 +5,7 @@ import {
   CheckCircle2, XCircle, RefreshCcw, Package, AlertTriangle, Image as ImageIcon,
   Search, Sparkles, ScanLine, RotateCcw, Clock, X,
 } from 'lucide-react';
+import { Pagination, usePagination } from '../components/Pagination';
 
 const REASON_META: Record<string, { label: string; tint: string }> = {
   damaged:        { label: 'Damaged item',     tint: 'bg-rose-100 text-rose-700 border-rose-200' },
@@ -65,6 +66,10 @@ export function AdminReturns() {
         (String(r.order?._id || r.order || '')).includes(q),
     );
   }, [items, search]);
+
+  // Pagination — resets when filter/search changes.
+  const { page, pageSize, setPage, setPageSize } = usePagination(10, [statusFilter, search]);
+  const paginated = useMemo(() => filtered.slice((page - 1) * pageSize, page * pageSize), [filtered, page, pageSize]);
 
   const counts = useMemo(() => {
     const c = { pending: 0, approved: 0, rejected: 0, refunded: 0 };
@@ -189,7 +194,7 @@ export function AdminReturns() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {filtered.map((r) => {
+            {paginated.map((r) => {
               const status = STATUS_META[r.status] || STATUS_META.pending;
               const StatusIcon = status.Icon;
               const reason = REASON_META[r.reason] || REASON_META.other;
@@ -317,6 +322,17 @@ export function AdminReturns() {
                 </Card>
               );
             })}
+            <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-4">
+              <Pagination
+                page={page}
+                total={filtered.length}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+                itemLabel="return"
+                itemLabelPlural="returns"
+              />
+            </div>
           </div>
         )}
       </div>

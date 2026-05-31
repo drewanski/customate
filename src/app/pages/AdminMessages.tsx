@@ -4,6 +4,7 @@ import { getChatThreads } from '../api';
 import { Card, CardContent } from '../components/Card';
 import { OrderChatPanel } from '../components/chat/OrderChatPanel';
 import { formatPeso } from '../utils/format';
+import { Pagination, usePagination } from '../components/Pagination';
 
 const STATUS_TINT: Record<string, string> = {
   pending: 'bg-amber-100 text-amber-700 border-amber-200',
@@ -93,6 +94,14 @@ export function AdminMessages() {
 
   const unreadCount = threads.filter((t) => t.unread > 0).length;
   const active = threads.find((t) => t.orderId === activeId);
+
+  // Pagination — keeps the inbox snappy even when the store has hundreds
+  // of threads. Resets when filter or search changes.
+  const { page, pageSize, setPage, setPageSize } = usePagination(15, [filter, search]);
+  const paginatedThreads = useMemo(
+    () => filteredThreads.slice((page - 1) * pageSize, page * pageSize),
+    [filteredThreads, page, pageSize],
+  );
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -197,7 +206,7 @@ export function AdminMessages() {
                 </div>
               ) : (
                 <ul className="divide-y divide-slate-100 max-h-[72vh] overflow-y-auto">
-                  {filteredThreads.map((t) => {
+                  {paginatedThreads.map((t) => {
                     const isActive = t.orderId === activeId;
                     return (
                       <li key={t.orderId}>
@@ -239,6 +248,21 @@ export function AdminMessages() {
                     );
                   })}
                 </ul>
+              )}
+              {filteredThreads.length > pageSize && (
+                <div className="border-t border-slate-100 p-3">
+                  <Pagination
+                    page={page}
+                    total={filteredThreads.length}
+                    pageSize={pageSize}
+                    onPageChange={setPage}
+                    onPageSizeChange={setPageSize}
+                    pageSizeOptions={[10, 15, 25, 50]}
+                    itemLabel="thread"
+                    itemLabelPlural="threads"
+                    compact
+                  />
+                </div>
               )}
             </Card>
           </div>
