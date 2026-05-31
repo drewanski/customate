@@ -23,6 +23,7 @@ const OrderTracking = lazy(() => import('./pages/OrderTracking').then((m) => ({ 
 const Checkout = lazy(() => import('./pages/Checkout').then((m) => ({ default: m.Checkout })));
 const ComponentLibrary = lazy(() => import('./pages/ComponentLibrary').then((m) => ({ default: m.ComponentLibrary })));
 const CustomerDashboard = lazy(() => import('./pages/CustomerDashboard').then((m) => ({ default: m.CustomerDashboard })));
+const MyOrders = lazy(() => import('./pages/MyOrders').then((m) => ({ default: m.MyOrders })));
 const Profile = lazy(() => import('./pages/Profile'));
 const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess').then((m) => ({ default: m.PaymentSuccess })));
 const PaymentCancel = lazy(() => import('./pages/PaymentCancel').then((m) => ({ default: m.PaymentCancel })));
@@ -89,6 +90,15 @@ const CustomerDashboardProtected = () =>
     }
   );
 
+const MyOrdersProtected = () =>
+  React.createElement(
+    ProtectedRoute,
+    {
+      requiredRole: 'customer',
+      children: React.createElement(withSuspense(MyOrders)),
+    }
+  );
+
 // CustomizationStudio is intentionally PUBLIC — anyone can try the studio
 // (3D preview, text/image upload, AI assistant) before signing up. The page
 // itself gates the add-to-cart action behind a login prompt.
@@ -150,6 +160,8 @@ export const router = createBrowserRouter([
       { index: true, Component: withSuspense(Landing) },
       { path: 'products', Component: withSuspense(ProductCatalog) },
       { path: 'dashboard', Component: CustomerDashboardProtected },
+      { path: 'orders', Component: MyOrdersProtected },
+      { path: 'my-orders', Component: MyOrdersProtected },
       { path: 'product/:productId', Component: withSuspense(ProductDetail) },
       { path: 'product/:productId/customize', Component: withSuspense(CustomizationStudio) },
       { path: 'cart', Component: CartProtected },

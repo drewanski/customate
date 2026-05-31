@@ -20,6 +20,7 @@ export function CustomerLayout() {
   const navLinks = [
     { to: '/', label: 'Home' },
     { to: '/products', label: 'Products' },
+    { to: '/orders', label: 'My Orders' },
     { to: '/dashboard', label: 'Dashboard' },
   ];
   

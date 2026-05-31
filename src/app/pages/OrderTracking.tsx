@@ -6,7 +6,7 @@ import { Badge } from '../components/Badge';
 import {
   Package, CheckCircle, Clock, Truck, CreditCard, User, Printer, Sparkles,
   AlertTriangle, MessageCircle, XCircle, Store, Send, Star, Factory, ShieldCheck,
-  Inbox, Receipt, RotateCcw,
+  Inbox, Receipt, RotateCcw, ChevronLeft as ChevronLeftIcon,
 } from 'lucide-react';
 import {
   apiRequest, customerCancelOrder, fileReturn,
@@ -404,24 +404,101 @@ export function OrderTracking() {
     return <div className="max-w-4xl mx-auto px-4 py-8"><p className="text-gray-600">No orders found.</p></div>;
   }
 
+  // Status-tinted hero gradient (Lazada/Shopee-style big status hero).
+  const statusHeroGradient: Record<string, string> = {
+    pending:          'from-amber-500 to-orange-500',
+    approved:         'from-blue-500 to-indigo-600',
+    in_production:    'from-violet-500 to-fuchsia-600',
+    ready:            'from-emerald-500 to-teal-600',
+    out_for_delivery: 'from-sky-500 to-blue-600',
+    for_pickup:       'from-sky-500 to-blue-600',
+    completed:        'from-emerald-500 to-teal-600',
+    shipped:          'from-cyan-500 to-blue-600',
+    delivered:        'from-green-500 to-emerald-600',
+    cancelled:        'from-slate-500 to-slate-700',
+    rejected:         'from-rose-500 to-red-600',
+    refunded:         'from-rose-500 to-red-600',
+  };
+  const hero = statusHeroGradient[order.status] || 'from-blue-600 to-indigo-700';
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Order Tracking</h1>
-          <p className="text-sm text-slate-500 mt-1">Follow your order from received to delivered.</p>
+      {/* Back link */}
+      <Link to="/orders" className="inline-flex items-center gap-1 text-sm font-bold text-slate-600 hover:text-slate-900 mb-3">
+        <ChevronLeftIcon className="w-4 h-4" /> My orders
+      </Link>
+
+      {/* Lazada-style big status hero */}
+      <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${hero} text-white shadow-xl shadow-slate-300/40`}>
+        <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-white/15 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-20 -left-20 w-64 h-64 rounded-full bg-black/10 blur-3xl pointer-events-none" />
+        <div className="relative p-5 md:p-7">
+          <div className="flex items-start justify-between flex-wrap gap-3">
+            <div className="min-w-0">
+              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-md text-[10px] font-bold uppercase tracking-widest mb-2">
+                <Sparkles className="w-3 h-3" /> Order tracking
+              </div>
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <p className="text-[11px] font-bold uppercase tracking-widest opacity-80">Status</p>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-white/15 backdrop-blur-md text-[11px] font-bold">
+                  Order #{shortOrderCode(order.id)}
+                </span>
+              </div>
+              <h1 className="text-3xl md:text-4xl font-black tracking-tight leading-tight">
+                {STATUS_LABEL[order.status] || order.status}
+              </h1>
+              {order.requestedDeliveryDate && (
+                <p className="mt-1.5 text-sm opacity-90">
+                  Expected by <span className="font-bold">{new Date(order.requestedDeliveryDate).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col items-end gap-1.5">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/15 backdrop-blur-md border border-white/20 text-xs font-bold">
+                {deliveryMethod === 'pickup' ? <Store className="w-3.5 h-3.5" /> : <Truck className="w-3.5 h-3.5" />}
+                {deliveryMethod === 'pickup' ? 'In-store pickup' : 'Delivery'}
+              </div>
+              <span className="text-xs opacity-80">{order.createdAt ? new Date(order.createdAt).toLocaleString() : ''}</span>
+            </div>
+          </div>
         </div>
-        <Badge variant={BADGE[order.status] || 'info'}>{STATUS_LABEL[order.status] || order.status}</Badge>
       </div>
 
-      <Card className="mb-6">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Order #{shortOrderCode(order.id)}</CardTitle>
-            <span className="text-sm text-slate-500">{order.createdAt ? new Date(order.createdAt).toLocaleString() : ''}</span>
-          </div>
-        </CardHeader>
-        <CardContent>
+      {/* Action bar — Shopee-style sticky-on-mobile CTAs */}
+      {!isAdminView && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 sticky top-0 z-10 bg-slate-50/80 backdrop-blur-md py-2 -mx-4 px-4 md:static md:bg-transparent md:backdrop-blur-0 md:py-0 md:mx-0 md:px-0">
+          {!cancelLocked ? (
+            <button
+              onClick={() => setCancelOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-rose-700 border border-rose-200 hover:bg-rose-50 font-bold text-sm shadow-sm"
+            >
+              <XCircle className="w-4 h-4" /> Cancel order
+            </button>
+          ) : (
+            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-sm">
+              <AlertTriangle className="w-4 h-4" />
+              Cancellation locked at this stage
+            </div>
+          )}
+          <button
+            onClick={() => setChatOpen((v) => !v)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white hover:shadow-lg font-bold text-sm shadow-md shadow-blue-200"
+          >
+            <MessageCircle className="w-4 h-4" /> {chatOpen ? 'Hide chat' : 'Message the store'}
+          </button>
+          {canFileReturn && (
+            <button
+              onClick={() => setReturnOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-slate-800 border border-slate-200 hover:bg-slate-50 font-bold text-sm shadow-sm"
+            >
+              <Package className="w-4 h-4" /> File return
+            </button>
+          )}
+        </div>
+      )}
+
+      <Card className="mb-6 mt-4">
+        <CardContent className="pt-5">
           <Stepper steps={steps} currentStep={currentStep} />
 
           <div className="mt-5">
@@ -440,37 +517,6 @@ export function OrderTracking() {
             </div>
           )}
 
-          {!isAdminView && (
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              {!cancelLocked ? (
-                <button
-                  onClick={() => setCancelOpen(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 font-bold text-sm"
-                >
-                  <XCircle className="w-4 h-4" /> Cancel order
-                </button>
-              ) : (
-                <div className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-sm">
-                  <AlertTriangle className="w-4 h-4" />
-                  This order is now {STATUS_LABEL[order.status]} — cancellation isn't possible at this stage.
-                </div>
-              )}
-              <button
-                onClick={() => setChatOpen((v) => !v)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 font-bold text-sm"
-              >
-                <MessageCircle className="w-4 h-4" /> {chatOpen ? 'Hide chat' : 'Message the store'}
-              </button>
-              {canFileReturn && (
-                <button
-                  onClick={() => setReturnOpen(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 text-slate-800 border border-slate-200 hover:bg-slate-200 font-bold text-sm"
-                >
-                  <Package className="w-4 h-4" /> File a return / damage report
-                </button>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
 

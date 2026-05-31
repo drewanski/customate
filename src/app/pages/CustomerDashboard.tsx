@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { getMyReviews } from '../api';
+import { OrderCard } from '../components/orders/OrderCard';
 
 interface Order {
   id: string;
@@ -460,197 +461,44 @@ export function CustomerDashboard() {
           </div>
         )}
 
-        {/* Recent Orders */}
+        {/* Recent Orders — Shopee/Lazada-style cards using the shared OrderCard */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl border border-gray-200">
-              <div className="p-6 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-semibold text-gray-900">Recent Orders</h2>
-                  <div className="flex items-center gap-3">
-                    <div className="relative">
-                      <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Search orders..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                      />
-                    </div>
-                    <button className="p-2 hover:bg-gray-100 rounded-lg">
-                      <Filter className="w-4 h-4 text-gray-600" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="divide-y divide-gray-200">
-                {filteredOrders.map((order) => {
-                  const StatusIcon = getStatusIcon(order.status);
-                  // Pull the design preview off the first customized line
-                  // item so the customer sees the artwork on their own
-                  // recent-orders list (same artwork the production team
-                  // sees on the admin side).
-                  const itemsArray = Array.isArray(order.items) ? order.items : [];
-                  const firstPreview = itemsArray
-                    .map((it: any) => it?.customization?.previewImage as string | undefined)
-                    .find((p?: string) => !!p);
-                  const orderRefShort = String(order.id || '').slice(-6).toUpperCase();
-                  const handleDownload = () => {
-                    if (!firstPreview) return;
-                    const a = document.createElement('a');
-                    a.href = firstPreview;
-                    a.download = `order-${orderRefShort}-design.png`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                  };
-                  return (
-                    <div key={order.id} className="p-6 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-start gap-4">
-                        {/* Design thumbnail (or placeholder for stock items) */}
-                        {firstPreview ? (
-                          <Link
-                            to={`/order-tracking/${order.id}`}
-                            className="shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-gradient-to-br from-slate-50 to-blue-50/40 border border-gray-200 hover:border-blue-400 transition-colors relative group"
-                            title="View order details"
-                          >
-                            <img src={firstPreview} alt="Design" className="w-full h-full object-contain" />
-                            <span className="absolute top-0.5 left-0.5 inline-flex items-center px-1 py-0.5 rounded-sm bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white">
-                              <Sparkles className="w-2.5 h-2.5" />
-                            </span>
-                          </Link>
-                        ) : (
-                          <div className="shrink-0 w-16 h-16 rounded-xl bg-slate-100 border border-gray-200 flex items-center justify-center text-slate-400">
-                            <Package className="w-6 h-6" />
-                          </div>
-                        )}
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-3 mb-2 flex-wrap">
-                            <h3 className="font-semibold text-gray-900">{order.orderNumber}</h3>
-                            <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(order.status)}`}>
-                              <StatusIcon className="w-3 h-3 inline mr-1" />
-                              {order.status.replace('_', ' ').charAt(0).toUpperCase() + order.status.replace('_', ' ').slice(1)}
-                            </span>
-                            {order.isBulk && (
-                              <span className="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded-full">
-                                Bulk
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-sm text-gray-600 mb-1">
-                            <div className="flex items-center gap-4 flex-wrap">
-                              <span>{order.totalQty || order.itemCount || 0} {(order.totalQty || order.itemCount) === 1 ? 'item' : 'items'}</span>
-                              <span>•</span>
-                              <span>{new Date(order.date).toLocaleDateString()}</span>
-                              <span>•</span>
-                              <span className="font-semibold text-gray-900">₱{Number(order.totalAmount || 0).toFixed(2)}</span>
-                            </div>
-                          </div>
-                          {/* First item label for context */}
-                          {itemsArray[0]?.name && (
-                            <p className="text-xs text-gray-500 mt-1 truncate">
-                              {itemsArray[0].name}
-                              {itemsArray.length > 1 && <span> · +{itemsArray.length - 1} more</span>}
-                            </p>
-                          )}
-                          {order.trackingNumber && (
-                            <div className="text-xs text-gray-500 mt-1">
-                              Tracking: {order.trackingNumber}
-                            </div>
-                          )}
-                          {order.notes && (
-                            <div className="text-xs text-gray-500 mt-1">
-                              Notes: {order.notes}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          {/* View → fixed to the actual customer route */}
-                          <Link
-                            to={`/order-tracking/${order.id}`}
-                            className="p-2 hover:bg-gray-100 rounded-lg"
-                            title="View order details"
-                          >
-                            <Eye className="w-4 h-4 text-gray-600" />
-                          </Link>
-                          {/* Download — wired to the design preview when present */}
-                          <button
-                            onClick={handleDownload}
-                            disabled={!firstPreview}
-                            className="p-2 hover:bg-gray-100 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
-                            title={firstPreview ? 'Download design PNG' : 'No design preview'}
-                          >
-                            <Download className="w-4 h-4 text-gray-600" />
-                          </button>
-                          <Link
-                            to={`/order-tracking/${order.id}`}
-                            className="p-2 hover:bg-gray-100 rounded-lg"
-                            title="More options"
-                          >
-                            <MoreVertical className="w-4 h-4 text-gray-600" />
-                          </Link>
-                        </div>
-                      </div>
-                      
-                      {order.shippingAddress && (
-                        <div className="mt-3 pt-3 border-t border-gray-100">
-                          <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <Package className="w-4 h-4" />
-                            Ship to: {order.shippingAddress}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                
-                {filteredOrders.length === 0 && (
-                  <div className="p-12 text-center">
-                    <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600">
-                      {searchTerm ? 'No orders found matching your search' : 'No orders yet'}
-                    </p>
-                    {!searchTerm && (
-                      <Link
-                        to="/products"
-                        className="inline-flex items-center gap-2 mt-4 text-blue-600 hover:text-blue-700"
-                      >
-                        <ShoppingCart className="w-4 h-4" />
-                        Place your first order
-                      </Link>
-                    )}
-                  </div>
-                )}
-
-                {/* View all link — only shows when more orders exist beyond
-                    the recent-5 slice and the user isn't actively searching. */}
-                {hasMore && (
-                  <div className="p-4 border-t border-gray-100 bg-gray-50/40">
-                    <Link
-                      to="/profile?tab=orders"
-                      className="flex items-center justify-center gap-1.5 text-sm font-bold text-blue-600 hover:text-blue-700"
-                    >
-                      View all {sortedOrders.length} orders
-                      <ChevronRight className="w-4 h-4" />
-                    </Link>
-                  </div>
-                )}
-              </div>
-              
-              {orders.length > 0 && (
-                <div className="p-4 border-t border-gray-200">
-                  <Link
-                    to="/orders"
-                    className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center justify-center gap-2"
-                  >
-                    View All Orders <ChevronRight className="w-4 h-4" />
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="p-5 border-b border-slate-100 bg-gradient-to-br from-slate-50 to-white">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <h2 className="text-xl font-black text-slate-900 inline-flex items-center gap-2">
+                    <Package className="w-5 h-5 text-blue-600" />
+                    Recent Orders
+                  </h2>
+                  <Link to="/orders" className="inline-flex items-center gap-1 text-sm font-bold text-blue-700 hover:text-blue-800 hover:underline">
+                    View all orders <ArrowRight className="w-3.5 h-3.5" />
                   </Link>
                 </div>
-              )}
+              </div>
+
+              <div className="p-5 space-y-3">
+                {filteredOrders.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 flex items-center justify-center mb-3">
+                      <Package className="w-7 h-7 text-blue-500" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-700">No orders yet</p>
+                    <p className="text-xs text-slate-500 mt-1">When you place an order, it shows up here.</p>
+                    <Link
+                      to="/products"
+                      className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white font-bold text-sm shadow-md shadow-blue-200 hover:shadow-lg"
+                    >
+                      <ShoppingCart className="w-4 h-4" /> Place your first order
+                    </Link>
+                  </div>
+                ) : (
+                  filteredOrders.slice(0, 3).map((order: any) => (
+                    <OrderCard key={order.id} order={order} />
+                  ))
+                )}
+              </div>
+
             </div>
           </div>
 
