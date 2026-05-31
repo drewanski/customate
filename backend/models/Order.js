@@ -257,4 +257,115 @@ export const POST_PRODUCTION_PIPELINE = {
   pickup: ['ready', 'for_pickup', 'completed'],
 };
 
+/**
+ * Canonical status state-machine.
+ *
+ * Each key is a starting status; the array lists every status a transition
+ * from there is legally allowed to reach. Anything not in the array is a
+ * 400 at the API layer — so admin can no longer skip pending→completed,
+ * un-cancel an order, or reopen a refund.
+ *
+ * Cancelled / rejected / refunded are terminal — explicit reopen would have
+ * to go through a dedicated route that re-validates inventory + payment.
+ */
+export const VALID_TRANSITIONS = {
+  pending:          ['approved', 'cancelled', 'rejected'],
+  approved:         ['in_production', 'cancelled'],
+  in_production:    ['ready', 'cancelled'],
+  ready:            ['out_for_delivery', 'for_pickup', 'cancelled'],
+  out_for_delivery: ['completed', 'cancelled'],
+  for_pickup:       ['completed', 'cancelled'],
+  // Legacy statuses kept routable for orders placed before the new pipeline.
+  shipped:          ['completed', 'delivered', 'cancelled'],
+  delivered:        ['completed', 'refunded'],
+  // Terminal — no further transitions.
+  completed:        ['refunded'],
+  cancelled:        [],
+  rejected:         [],
+  refunded:         [],
+};
+
+/**
+ * Pre-condition table per (from, to) edge.
+ *
+ * Each entry returns either `{ ok: true }` or `{ ok: false, code, message }`.
+ * The route layer runs the matching check before mutating the document.
+ *
+ * Keeping this DECLARATIVE (vs scattered if-statements across the routes)
+ * means the same rules apply to single PUT, bulk-status, the production
+ * /advance path, and any future channel that flips status.
+ */
+export function checkTransitionPrecondition(order, to, { reason, override } = {}) {
+  const from = order.status;
+
+  // Reason is required for cancel/reject everywhere.
+  if ((to === 'cancelled' || to === 'rejected') && !(reason && String(reason).trim())) {
+    return { ok: false, code: 'REASON_REQUIRED', message: `A reason is required to ${to === 'rejected' ? 'reject' : 'cancel'} this order.` };
+  }
+
+  // pending → approved : payment must be settled (or COD)
+  if (from === 'pending' && to === 'approved') {
+    const paid = order.paymentStatus === 'paid' || order.paymentMethod === 'cod';
+    if (!paid) {
+      return { ok: false, code: 'PAYMENT_NOT_SETTLED', message: 'Cannot approve — payment is still awaiting. Confirm payment before approving.' };
+    }
+  }
+
+  // approved → in_production : an owner must exist OR override note
+  if (from === 'approved' && to === 'in_production' && !order.assignedTo && !override) {
+    return { ok: false, code: 'NO_ASSIGNEE', message: 'Assign this order to a production staff member before starting production.' };
+  }
+
+  // approved/in_production → ready : QC must have passed (or explicit override)
+  if (to === 'ready' && from === 'in_production') {
+    if (order.qcStatus !== 'approved' && !override) {
+      return { ok: false, code: 'QC_NOT_APPROVED', message: 'Quality check must be approved first. Use the QC review panel or pass override=true with an admin note.' };
+    }
+  }
+
+  // ready → out_for_delivery : delivery-method + QC must match
+  if (from === 'ready' && to === 'out_for_delivery') {
+    if (order.deliveryMethod === 'pickup') {
+      return { ok: false, code: 'DELIVERY_METHOD_MISMATCH', message: 'This is a pickup order — use "Ready for pickup" instead of "Out for delivery".' };
+    }
+    if (order.qcStatus !== 'approved' && !override) {
+      return { ok: false, code: 'QC_NOT_APPROVED', message: 'QC must be approved before the order ships.' };
+    }
+  }
+
+  // ready → for_pickup : delivery-method + QC must match
+  if (from === 'ready' && to === 'for_pickup') {
+    if (order.deliveryMethod === 'delivery') {
+      return { ok: false, code: 'DELIVERY_METHOD_MISMATCH', message: 'This is a delivery order — use "Out for delivery" instead of "Ready for pickup".' };
+    }
+    if (order.qcStatus !== 'approved' && !override) {
+      return { ok: false, code: 'QC_NOT_APPROVED', message: 'QC must be approved before marking ready for pickup.' };
+    }
+  }
+
+  // Active blocker should never advance forward
+  if (order.blockerStatus === 'active' && to !== 'cancelled' && to !== 'rejected') {
+    return { ok: false, code: 'BLOCKER_ACTIVE', message: 'This order has an active blocker. Clear the blocker before advancing the status.' };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Atomically attempt a status transition. Uses findOneAndUpdate with a status
+ * filter so that two simultaneous flips can't both win — the loser sees null
+ * and the route returns 409. Inventory + audit logging happen AFTER this
+ * succeeds so they only run once.
+ *
+ * Note: caller still has to do the inventory side-effects + audit + chat —
+ * this helper only guarantees the status flip is single-winner.
+ */
+export async function atomicallyTransitionStatus(Model, orderId, fromStatus, toStatus, extraSet = {}) {
+  return Model.findOneAndUpdate(
+    { _id: orderId, status: fromStatus },
+    { $set: { status: toStatus, ...extraSet } },
+    { new: true },
+  );
+}
+
 export default mongoose.model('Order', orderSchema);

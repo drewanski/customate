@@ -18,6 +18,13 @@ const BRAND_COLOR = '#2563eb';
 
 function getTransport() {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
+  // Dev/test escape hatch — set SUPPRESS_TRANSACTIONAL_EMAILS=1 to short-
+  // circuit the SMTP send. Used by the audit harness so end-to-end tests
+  // don't fire real emails to fake addresses (which then bounce back to
+  // SMTP_USER's inbox). Production-safe because it's opt-in.
+  if (process.env.SUPPRESS_TRANSACTIONAL_EMAILS === '1') {
+    return { sendMail: async (opts) => { console.log(`[mail suppressed] to=${opts.to} subject=${opts.subject}`); return { messageId: 'suppressed' }; } };
+  }
   // Explicit host/port + STARTTLS — Render free tier blocks port 465 so
   // we use 587. Honour SMTP_HOST/PORT overrides so we can swap to Brevo
   // / Mailgun / Resend SMTP later without touching code.

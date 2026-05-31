@@ -125,17 +125,26 @@ async function main() {
   }
 
   divider('Step 5 — Walk the pipeline pending → completed');
+  // approve — pre-condition: payment settled (COD, so OK).
   await transitionAndInspect('approve', () => fetchJson(`/orders/${order.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'approved' }) }, adminToken));
-  await transitionAndInspect('in_production', () => fetchJson(`/orders/${order.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'in_production' }) }, adminToken));
-  await transitionAndInspect('ready', () => fetchJson(`/orders/${order.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'ready' }) }, adminToken));
-  await transitionAndInspect('out_for_delivery', () => fetchJson(`/orders/${order.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'out_for_delivery' }) }, adminToken));
+  // in_production — pre-condition: assignedTo (we use override since this
+  // audit doesn't seed a production_staff user; in real workflow auto-assign
+  // sets assignedTo automatically). Override + note is the documented
+  // emergency-shortcut path.
+  await transitionAndInspect('in_production', () => fetchJson(`/orders/${order.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'in_production', override: true, note: 'audit script direct push' }) }, adminToken));
+  // ready — pre-condition: qcStatus='approved' (normally set by /qc-approve).
+  // We override for the audit script.
+  await transitionAndInspect('ready', () => fetchJson(`/orders/${order.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'ready', override: true, note: 'audit script — no QC photo path' }) }, adminToken));
+  // out_for_delivery — pre-condition: deliveryMethod match (auto-satisfied)
+  // + qcStatus=approved (override for audit).
+  await transitionAndInspect('out_for_delivery', () => fetchJson(`/orders/${order.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'out_for_delivery', override: true, note: 'audit' }) }, adminToken));
   await transitionAndInspect('completed', () => fetchJson(`/orders/${order.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'completed' }) }, adminToken));
 
-  divider('Step 6 — Loophole guards');
-  // (a) Delivery-method mismatch — should 400
+  divider('Step 6 — Loophole guards (state-machine + pre-conditions)');
+  // (a) Delivery-method mismatch — pickup status on a delivery order
   const mismatch = await fetchJson(`/orders/${order.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'for_pickup' }) }, adminToken);
-  if (mismatch.status === 400) ok(`Delivery-method guard works (400): "${mismatch.body.message}"`);
-  else fail(`Delivery-method guard failed: ${JSON.stringify(mismatch)}`);
+  if (mismatch.status === 409 && mismatch.body.code === 'INVALID_TRANSITION') ok(`Skip-stage guard works (completed→for_pickup): ${mismatch.body.message.slice(0, 90)}`);
+  else fail(`Skip-stage guard failed: ${JSON.stringify(mismatch)}`);
 
   // (b) Customer-cancel on a paid order — use a FRESH pending order so the
   // production-status lock doesn't fire first.
@@ -147,10 +156,50 @@ async function main() {
     else fail(`Paid-cancel lock failed: ${JSON.stringify(paidCancel)}`);
   } else fail('Could not create second order for paid-cancel test');
 
-  // (c) Reason required for reject
-  const noReason = await fetchJson(`/orders/${order.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'rejected' }) }, adminToken);
-  if (noReason.status === 400) ok(`Reason-required guard works (400): "${noReason.body.message}"`);
-  else fail(`Reason-required guard failed: ${JSON.stringify(noReason)}`);
+  // (c) Reason required for reject (use a fresh order in pending so state-machine allows the move)
+  const orderRejResp = await fetchJson('/orders', { method: 'POST', body: JSON.stringify({ items: [{ sku: inv.sku, quantity: 1, customization: {} }], shippingAddress: '1 X', paymentMethod: 'cod', deliveryMethod: 'delivery' }) }, customerToken);
+  if (orderRejResp.status === 201) {
+    const noReason = await fetchJson(`/orders/${orderRejResp.body.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'rejected' }) }, adminToken);
+    if (noReason.status === 409 && noReason.body.code === 'REASON_REQUIRED') ok(`Reason-required guard works: "${noReason.body.message}"`);
+    else fail(`Reason-required guard failed: ${JSON.stringify(noReason)}`);
+  }
+
+  // (d) NEW: skip-stage guard — try pending → completed directly
+  const skipResp = await fetchJson('/orders', { method: 'POST', body: JSON.stringify({ items: [{ sku: inv.sku, quantity: 1, customization: {} }], shippingAddress: '1 X', paymentMethod: 'cod', deliveryMethod: 'delivery' }) }, customerToken);
+  if (skipResp.status === 201) {
+    const skip = await fetchJson(`/orders/${skipResp.body.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'completed' }) }, adminToken);
+    if (skip.status === 409 && skip.body.code === 'INVALID_TRANSITION') ok(`Skip-stage guard works: pending→completed blocked. Allowed next: ${skip.body.allowedNext}`);
+    else fail(`Skip-stage guard failed: ${JSON.stringify(skip)}`);
+  }
+
+  // (e) NEW: payment-not-settled guard — flip a fresh order to paymentMethod=gcash + paymentStatus=awaiting_payment then try to approve
+  const payResp = await fetchJson('/orders', { method: 'POST', body: JSON.stringify({ items: [{ sku: inv.sku, quantity: 1, customization: {} }], shippingAddress: '1 X', paymentMethod: 'cod', deliveryMethod: 'delivery' }) }, customerToken);
+  if (payResp.status === 201) {
+    await Order.updateOne({ _id: payResp.body.id }, { paymentMethod: 'gcash', paymentStatus: 'awaiting_payment' });
+    const pay = await fetchJson(`/orders/${payResp.body.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'approved' }) }, adminToken);
+    if (pay.status === 409 && pay.body.code === 'PAYMENT_NOT_SETTLED') ok(`Payment-settled guard works: ${pay.body.message}`);
+    else fail(`Payment-settled guard failed: ${JSON.stringify(pay)}`);
+  }
+
+  // (f) NEW: reopen-cancelled guard — cancel an order then try to flip back to approved
+  const reopenResp = await fetchJson('/orders', { method: 'POST', body: JSON.stringify({ items: [{ sku: inv.sku, quantity: 1, customization: {} }], shippingAddress: '1 X', paymentMethod: 'cod', deliveryMethod: 'delivery' }) }, customerToken);
+  if (reopenResp.status === 201) {
+    await fetchJson(`/orders/${reopenResp.body.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'cancelled', reason: 'test' }) }, adminToken);
+    const reopen = await fetchJson(`/orders/${reopenResp.body.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'approved' }) }, adminToken);
+    if (reopen.status === 409 && reopen.body.code === 'INVALID_TRANSITION') ok(`Reopen-cancelled guard works: cancelled→approved blocked`);
+    else fail(`Reopen-cancelled guard failed: ${JSON.stringify(reopen)}`);
+  }
+
+  // (g) NEW: missing-assignee guard — approved → in_production needs assignedTo
+  const assignResp = await fetchJson('/orders', { method: 'POST', body: JSON.stringify({ items: [{ sku: inv.sku, quantity: 1, customization: {} }], shippingAddress: '1 X', paymentMethod: 'cod', deliveryMethod: 'delivery' }) }, customerToken);
+  if (assignResp.status === 201) {
+    await fetchJson(`/orders/${assignResp.body.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'approved' }) }, adminToken);
+    // Clear any auto-assign that might have happened
+    await Order.updateOne({ _id: assignResp.body.id }, { $unset: { assignedTo: '' } });
+    const a = await fetchJson(`/orders/${assignResp.body.id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'in_production' }) }, adminToken);
+    if (a.status === 409 && a.body.code === 'NO_ASSIGNEE') ok(`No-assignee guard works: ${a.body.message}`);
+    else fail(`No-assignee guard failed: ${JSON.stringify(a)}`);
+  }
 
   divider('Step 7 — Test /chat/threads endpoint');
   const threads = await fetchJson('/chat/threads', {}, adminToken);

@@ -771,7 +771,7 @@ router.post('/:id/customer-cancel', authMiddleware, async (req, res) => {
 // Update order status (admin only)
 router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const { status, reason, note } = req.body;
+    const { status, reason, note, override } = req.body;
     const allowed = [
       'pending', 'approved', 'in_production', 'ready',
       'out_for_delivery', 'for_pickup', 'completed',
@@ -779,39 +779,36 @@ router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
     ];
     if (!allowed.includes(status)) return res.status(400).json({ message: 'Invalid status' });
 
-    // Panel revision #12: a reason MUST be provided when rejecting or
-    // cancelling. We store it on rejectionReason/cancellationReason so the
-    // customer can see exactly why in their order history + notification.
-    if ((status === 'rejected' || status === 'cancelled')) {
-      const cleanReason = (reason || '').trim();
-      if (!cleanReason) {
-        return res.status(400).json({
-          message: `A reason is required when ${status === 'rejected' ? 'rejecting' : 'cancelling'} an order.`,
-        });
-      }
-    }
-
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found' });
-
-    // Loophole guard #1: enforce delivery-method ↔ post-Ready status pairing.
-    // A pickup-method order must NOT be flipped to out_for_delivery, and a
-    // delivery-method order must NOT be flipped to for_pickup. Either is a
-    // human mistake but would leave the customer waiting for the wrong thing.
-    if (status === 'out_for_delivery' && order.deliveryMethod === 'pickup') {
-      return res.status(400).json({
-        message: 'This is a pickup order — use "Ready for pickup" instead of "Out for delivery".',
-      });
-    }
-    if (status === 'for_pickup' && order.deliveryMethod === 'delivery') {
-      return res.status(400).json({
-        message: 'This is a delivery order — use "Out for delivery" instead of "Ready for pickup".',
-      });
-    }
 
     const previousStatus = order.status;
     if (previousStatus === status) {
       return res.json(toOrderDto(order));
+    }
+
+    // ─── State-machine + pre-condition gate ────────────────────────────
+    // Loaded from the model so single PUT, bulk-status and the production
+    // routes all share one source of truth for what's a legal move.
+    const { VALID_TRANSITIONS, checkTransitionPrecondition, atomicallyTransitionStatus } =
+      await import('../models/Order.js');
+    const allowedNext = VALID_TRANSITIONS[previousStatus] || [];
+    if (!allowedNext.includes(status)) {
+      // Override clause: admin can force any move by passing override=true
+      // AND a note. The audit row captures the override so it's visible to
+      // anyone reviewing the chain. Without override the move is rejected.
+      if (!(override && note && String(note).trim())) {
+        return res.status(409).json({
+          message: `An order in "${previousStatus}" cannot transition directly to "${status}". Allowed next: ${allowedNext.join(', ') || 'none (terminal)'}. Pass override=true with a note to force.`,
+          code: 'INVALID_TRANSITION',
+          allowedNext,
+        });
+      }
+    }
+
+    const pre = checkTransitionPrecondition(order, status, { reason, override });
+    if (!pre.ok) {
+      return res.status(409).json({ message: pre.message, code: pre.code });
     }
 
     const actor = await actorSnapshot(req);
@@ -911,21 +908,27 @@ router.put('/:id/status', authMiddleware, adminMiddleware, async (req, res) => {
       }
     }
 
-    order.status = status;
-    // Persist the structured reason fields (panel revision #12) so the
-    // customer's order history shows exactly why.
-    if (status === 'rejected') {
-      order.rejectionReason = (reason || '').trim();
-    }
+    // Atomic flip — guarantees only one PUT can move the order from
+    // `previousStatus` to `status` even under double-click or two-tab races.
+    // The losing call gets `null` back and returns 409 cleanly without
+    // running side effects twice.
+    const extraSet = {};
+    if (status === 'rejected') extraSet.rejectionReason = (reason || '').trim();
     if (status === 'cancelled') {
-      order.cancellationReason = (reason || '').trim();
-      order.cancelledAt = new Date();
-      order.cancelledBy = req.user.userId;
+      extraSet.cancellationReason = (reason || '').trim();
+      extraSet.cancelledAt = new Date();
+      extraSet.cancelledBy = req.user.userId;
     }
-    if (status === 'completed') {
-      order.completedAt = new Date();
+    if (status === 'completed') extraSet.completedAt = new Date();
+    const won = await atomicallyTransitionStatus(Order, order._id, previousStatus, status, extraSet);
+    if (!won) {
+      return res.status(409).json({
+        message: 'Another change to this order just landed first — please refresh.',
+        code: 'TRANSITION_LOST_RACE',
+      });
     }
-    await order.save();
+    // Refresh local doc so the rest of the side effects see the new state.
+    Object.assign(order, won.toObject());
 
     await OrderAuditLog.create({
       order: order._id,
@@ -1056,6 +1059,8 @@ router.post('/bulk-status', authMiddleware, adminMiddleware, async (req, res) =>
       });
     }
 
+    const { VALID_TRANSITIONS, checkTransitionPrecondition, atomicallyTransitionStatus } =
+      await import('../models/Order.js');
     const actor = await actorSnapshot(req);
     const results = [];
     for (const id of orderIds) {
@@ -1071,13 +1076,14 @@ router.post('/bulk-status', authMiddleware, adminMiddleware, async (req, res) =>
           continue;
         }
 
-        // Loophole guard #1 in bulk: skip mismatched delivery-method targets.
-        if (status === 'out_for_delivery' && order.deliveryMethod === 'pickup') {
-          results.push({ id, ok: false, error: 'pickup-method order cannot go out_for_delivery' });
+        // State-machine + pre-condition gate — same rules as single PUT.
+        if (!(VALID_TRANSITIONS[prev] || []).includes(status)) {
+          results.push({ id, ok: false, error: `transition ${prev}→${status} not allowed` });
           continue;
         }
-        if (status === 'for_pickup' && order.deliveryMethod === 'delivery') {
-          results.push({ id, ok: false, error: 'delivery-method order cannot go for_pickup' });
+        const pre = checkTransitionPrecondition(order, status, { reason });
+        if (!pre.ok) {
+          results.push({ id, ok: false, error: pre.code });
           continue;
         }
 
@@ -1106,17 +1112,21 @@ router.post('/bulk-status', authMiddleware, adminMiddleware, async (req, res) =>
           order.inventoryConsumedAt = new Date();
         }
 
-        order.status = status;
-        // Persist structured reason fields so the customer-facing timeline
-        // shows the exact same info as the single PUT path.
-        if (status === 'rejected') order.rejectionReason = String(reason || '').trim();
+        // Atomic flip — same race protection as single PUT.
+        const extraSet = {};
+        if (status === 'rejected') extraSet.rejectionReason = String(reason || '').trim();
         if (status === 'cancelled') {
-          order.cancellationReason = String(reason || '').trim();
-          order.cancelledAt = new Date();
-          order.cancelledBy = req.user.userId;
+          extraSet.cancellationReason = String(reason || '').trim();
+          extraSet.cancelledAt = new Date();
+          extraSet.cancelledBy = req.user.userId;
         }
-        if (status === 'completed') order.completedAt = new Date();
-        await order.save();
+        if (status === 'completed') extraSet.completedAt = new Date();
+        const won = await atomicallyTransitionStatus(Order, order._id, prev, status, extraSet);
+        if (!won) {
+          results.push({ id, ok: false, error: 'lost race' });
+          continue;
+        }
+        Object.assign(order, won.toObject());
 
         await OrderAuditLog.create({
           order: order._id,
