@@ -43,10 +43,100 @@ const orderSchema = new mongoose.Schema({
   totalQty: { type: Number, required: true, min: 1 },
   totalPrice: { type: Number, required: true, min: 0 },
   isBulk: { type: Boolean, default: false },
+
+  // ─── Workflow version ─────────────────────────────────────────────────
+  // 'classic'   — legacy single-payment flow used by orders placed before
+  //               the quotation overhaul. Existing orders keep working.
+  // 'quotation' — new flow: customer submits a request, admin sends a
+  //               quotation in chat, customer accepts + pays 50%
+  //               downpayment, production runs, customer pays the 50%
+  //               balance, order is released. See VALID_TRANSITIONS and
+  //               checkTransitionPrecondition for the gates.
+  workflowVersion: { type: String, enum: ['classic', 'quotation'], default: 'classic', index: true },
+
   status: {
     type: String,
-    enum: ['pending', 'approved', 'in_production', 'ready', 'out_for_delivery', 'for_pickup', 'completed', 'shipped', 'delivered', 'cancelled', 'rejected', 'refunded'],
+    enum: [
+      // Quotation workflow (new orders default here once they're submitted as quotation)
+      'quote_requested',   // customer submitted a request, no quote yet
+      'quoted',            // admin sent a quote, awaiting customer accept
+      'accepted',          // customer accepted, awaiting downpayment proof
+      'downpayment_paid',  // admin verified the 50% downpayment
+      // Shared with classic flow from here on
+      'pending',           // classic flow only: created with payment-on-checkout
+      'approved',
+      'in_production',
+      'ready',
+      'out_for_delivery',
+      'for_pickup',
+      'completed',
+      // Legacy
+      'shipped', 'delivered',
+      // Terminal
+      'cancelled', 'rejected', 'refunded',
+    ],
     default: 'pending'
+  },
+
+  // ─── Quotation (filled by admin during the quote phase) ────────────────
+  // lineItems[] is what the customer sees on the Quote Card in chat. Admin
+  // can pre-fill from the cart and edit freely, or type a single override
+  // line + total. Total is the source of truth — the lineItems sum SHOULD
+  // equal it but the admin always wins (one Manual Override line absorbs
+  // any difference and is audited).
+  quotation: {
+    lineItems: [
+      {
+        label: { type: String, required: true },
+        amount: { type: Number, required: true, min: 0 },
+      },
+    ],
+    total: { type: Number, default: 0, min: 0 },
+    downpaymentAmount: { type: Number, default: 0, min: 0 },  // 50% of total
+    balanceAmount: { type: Number, default: 0, min: 0 },      // 50% of total
+    sentAt: { type: Date, default: null },
+    sentBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    acceptedAt: { type: Date, default: null },
+    declinedAt: { type: Date, default: null },
+    declinedReason: { type: String, default: '' },
+    // Each revision archived so the audit trail shows negotiations.
+    revisions: [
+      {
+        sentAt: { type: Date },
+        sentBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        total: { type: Number },
+        lineItems: [{ label: String, amount: Number }],
+      },
+    ],
+  },
+
+  // ─── Quotation payments (two-stage: downpayment + balance) ──────────
+  // Each stage has the same shape: amount, method, proof images uploaded
+  // by the customer (GCash/bank screenshots), admin verification, and an
+  // optional reject path that asks the customer to re-upload.
+  payments: {
+    downpayment: {
+      amount: { type: Number, default: 0, min: 0 },
+      method: { type: String, default: '' },          // 'gcash', 'paymaya', 'bank', 'paymongo', 'cash'
+      reference: { type: String, default: '' },       // GCash ref #, bank txn id, etc.
+      proofUrls: { type: [String], default: [] },     // Customer-uploaded screenshots
+      submittedAt: { type: Date, default: null },
+      verifiedAt: { type: Date, default: null },
+      verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      rejectedAt: { type: Date, default: null },
+      rejectionReason: { type: String, default: '' },
+    },
+    balance: {
+      amount: { type: Number, default: 0, min: 0 },
+      method: { type: String, default: '' },
+      reference: { type: String, default: '' },
+      proofUrls: { type: [String], default: [] },
+      submittedAt: { type: Date, default: null },
+      verifiedAt: { type: Date, default: null },
+      verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      rejectedAt: { type: Date, default: null },
+      rejectionReason: { type: String, default: '' },
+    },
   },
   // Refund tracking — kept as separate fields so a refunded order still
   // shows its terminal status (cancelled/completed/etc) and full amount.
@@ -100,7 +190,10 @@ const orderSchema = new mongoose.Schema({
   // Free-form internal admin notes (the audit log holds the timeline; this
   // field holds the "current state" note pinned to the order header).
   adminNote: { type: String, default: '' },
-  paymentMethod: { type: String, enum: ['cod', 'gcash', 'paymaya', 'bank'], default: 'cod' },
+  // Quotation orders have no payment method at submit time — the customer
+  // pays via the chat-uploaded proof flow after the quote is accepted.
+  // Allow empty string + add later proof-flow methods to the enum.
+  paymentMethod: { type: String, enum: ['', 'cod', 'gcash', 'paymaya', 'bank', 'cash'], default: 'cod' },
   paymentStatus: { type: String, enum: ['pending', 'awaiting_payment', 'partial', 'paid', 'failed'], default: 'pending' },
   paidAmount: { type: Number, default: 0, min: 0 },
   requiredPayment: { type: Number, default: 0, min: 0 },
@@ -295,7 +388,19 @@ export const POST_PRODUCTION_PIPELINE = {
  * to go through a dedicated route that re-validates inventory + payment.
  */
 export const VALID_TRANSITIONS = {
+  // ── Quotation workflow ───────────────────────────────────────────────
+  // quote_requested → quoted    : admin sends the quotation
+  // quoted          → accepted  : customer accepts the quote (or re-quote)
+  // quoted          → quote_requested : admin revises (sends a new quote)
+  // accepted        → downpayment_paid: admin verifies the 50% deposit
+  // downpayment_paid→ approved  : admin approves now that money is in
+  quote_requested:  ['quoted', 'cancelled', 'rejected'],
+  quoted:           ['accepted', 'quote_requested', 'cancelled', 'rejected'],
+  accepted:         ['downpayment_paid', 'quoted', 'cancelled'],
+  downpayment_paid: ['approved', 'cancelled'],
+  // ── Classic workflow (legacy single-payment) ─────────────────────────
   pending:          ['approved', 'cancelled', 'rejected'],
+  // ── Shared from approved onwards ─────────────────────────────────────
   approved:         ['in_production', 'cancelled'],
   in_production:    ['ready', 'cancelled'],
   ready:            ['out_for_delivery', 'for_pickup', 'cancelled'],
@@ -334,6 +439,59 @@ export function checkTransitionPrecondition(order, to, { reason, override } = {}
     const paid = order.paymentStatus === 'paid' || order.paymentMethod === 'cod';
     if (!paid) {
       return { ok: false, code: 'PAYMENT_NOT_SETTLED', message: 'Cannot approve — payment is still awaiting. Confirm payment before approving.' };
+    }
+  }
+
+  // ── Quotation flow gates ─────────────────────────────────────────────
+  // quote_requested → quoted : a quotation total must exist
+  if (from === 'quote_requested' && to === 'quoted') {
+    const total = order.quotation && Number(order.quotation.total) > 0;
+    if (!total) {
+      return { ok: false, code: 'NO_QUOTE_TOTAL', message: 'Enter a quotation total before sending the quote to the customer.' };
+    }
+  }
+  // quoted → accepted : only the customer can accept (route enforces this);
+  //   precondition layer just requires the quote to have been sent.
+  if (from === 'quoted' && to === 'accepted') {
+    if (!order.quotation || !order.quotation.sentAt) {
+      return { ok: false, code: 'QUOTE_NOT_SENT', message: 'No quotation has been sent yet.' };
+    }
+  }
+  // accepted → downpayment_paid : downpayment must be verified by admin
+  if (from === 'accepted' && to === 'downpayment_paid') {
+    const v = order.payments && order.payments.downpayment && order.payments.downpayment.verifiedAt;
+    if (!v && !override) {
+      return { ok: false, code: 'DOWNPAYMENT_NOT_VERIFIED', message: 'Downpayment has not been verified yet.' };
+    }
+  }
+  // downpayment_paid → approved : trivial pass-through, gives admin one
+  //   explicit click to take ownership of approval.
+  // (No precondition beyond the standard transition allowlist.)
+
+  // ── Balance gate for quotation orders only ───────────────────────────
+  // ready → out_for_delivery / for_pickup REQUIRES balance.verifiedAt
+  // on quotation-flow orders. No override path — this is the hard
+  // "no release without final payment" rule the workflow spec requires.
+  if (
+    order.workflowVersion === 'quotation'
+    && from === 'ready'
+    && (to === 'out_for_delivery' || to === 'for_pickup')
+  ) {
+    const bv = order.payments && order.payments.balance && order.payments.balance.verifiedAt;
+    if (!bv) {
+      return { ok: false, code: 'BALANCE_NOT_VERIFIED', message: 'Final balance payment has not been verified. Verify the customer\'s balance payment before releasing the order.' };
+    }
+  }
+  // out_for_delivery / for_pickup → completed REQUIRES balance verified too
+  // (defence-in-depth in case someone bypassed the previous gate).
+  if (
+    order.workflowVersion === 'quotation'
+    && (from === 'out_for_delivery' || from === 'for_pickup')
+    && to === 'completed'
+  ) {
+    const bv = order.payments && order.payments.balance && order.payments.balance.verifiedAt;
+    if (!bv) {
+      return { ok: false, code: 'BALANCE_NOT_VERIFIED', message: 'Cannot complete — balance payment has not been verified.' };
     }
   }
 

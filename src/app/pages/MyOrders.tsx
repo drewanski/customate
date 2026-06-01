@@ -18,6 +18,9 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { key: 'all',            label: 'All',            match: () => true,                                                                  Icon: Inbox },
+  // Quotation workflow — covers the pre-production phases.
+  { key: 'quote',          label: 'Awaiting quote', match: (s) => s === 'quote_requested' || s === 'quoted',                            Icon: Clock },
+  { key: 'pay-dp',         label: 'Pay downpayment',match: (s) => s === 'accepted' || s === 'downpayment_paid',                          Icon: Clock },
   { key: 'pending',        label: 'To approve',     match: (s) => s === 'pending',                                                       Icon: Clock },
   { key: 'production',     label: 'In production',  match: (s) => s === 'approved' || s === 'in_production',                             Icon: Factory },
   { key: 'ready',          label: 'Ready',          match: (s) => s === 'ready',                                                         Icon: ShieldCheck },

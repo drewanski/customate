@@ -32,6 +32,11 @@ const CUSTOMER_CANCEL_LOCKED = new Set([
 
 function statusToStep(status: string, _deliveryMethod: 'delivery' | 'pickup') {
   const map: Record<string, number> = {
+    // Quotation workflow — collapses into step 0 (Received) until approved.
+    quote_requested: 0,
+    quoted: 0,
+    accepted: 0,
+    downpayment_paid: 1,  // downpayment verified → ready to approve
     pending: 0,
     approved: 1,
     in_production: 2,
@@ -49,6 +54,10 @@ function statusToStep(status: string, _deliveryMethod: 'delivery' | 'pickup') {
 }
 
 const STATUS_LABEL: Record<string, string> = {
+  quote_requested: 'Awaiting Quote',
+  quoted: 'Quote Received',
+  accepted: 'Awaiting Downpayment',
+  downpayment_paid: 'Downpayment Verified',
   pending: 'Pending',
   approved: 'Approved',
   in_production: 'In Production',

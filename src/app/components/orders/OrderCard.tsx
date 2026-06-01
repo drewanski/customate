@@ -18,6 +18,12 @@ interface Props {
 }
 
 const STATUS_META: Record<string, { label: string; tint: string; Icon: any; gradient: string }> = {
+  // Quotation workflow
+  quote_requested:  { label: 'Awaiting quote',   tint: 'bg-blue-100 text-blue-700 border-blue-200',         Icon: Clock,        gradient: 'from-blue-500 to-indigo-500' },
+  quoted:           { label: 'Quote received',   tint: 'bg-blue-100 text-blue-700 border-blue-200',         Icon: Clock,        gradient: 'from-blue-500 to-indigo-500' },
+  accepted:         { label: 'Awaiting downpayment', tint: 'bg-amber-100 text-amber-700 border-amber-200', Icon: Clock,        gradient: 'from-amber-500 to-orange-500' },
+  downpayment_paid: { label: 'Awaiting approval', tint: 'bg-emerald-100 text-emerald-700 border-emerald-200', Icon: CheckCircle2, gradient: 'from-emerald-500 to-teal-500' },
+  // Classic + shared
   pending:          { label: 'Pending',          tint: 'bg-amber-100 text-amber-700 border-amber-200',     Icon: Clock,        gradient: 'from-amber-500 to-orange-500' },
   approved:         { label: 'Approved',         tint: 'bg-blue-100 text-blue-700 border-blue-200',        Icon: CheckCircle2, gradient: 'from-blue-500 to-indigo-500' },
   in_production:    { label: 'In Production',    tint: 'bg-violet-100 text-violet-700 border-violet-200',  Icon: Factory,      gradient: 'from-violet-500 to-fuchsia-500' },

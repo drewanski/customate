@@ -2,7 +2,8 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../hooks/useCart';
 import { formatPeso } from '../utils/format';
-import { ShoppingBag, Minus, Plus, Trash2, ArrowRight, Tag, Truck, ShieldCheck, ChevronLeft } from 'lucide-react';
+import { ShoppingBag, Minus, Plus, Trash2, ArrowRight, Tag, Truck, ShieldCheck, ChevronLeft, Info } from 'lucide-react';
+import { estimateOrderTotal, formatRange } from '../utils/pricing';
 
 export function Cart() {
   const { items, updateQuantity, removeItem, totalAmount } = useCart();
@@ -14,6 +15,17 @@ export function Cart() {
   // delivery-case estimate.
   const shipping = totalAmount >= 500 ? 0 : 100;
   const total = totalAmount + shipping;
+
+  // Detailed estimate range — uses the same pricing engine the admin's
+  // Quote Builder pre-fills from. Gives the customer an honest ballpark
+  // ("₱2,400 – ₱4,200") rather than a single misleading "final" number.
+  const itemsForEstimate = items.map((it) => ({
+    sku: it.product?.sku,
+    name: it.product?.name,
+    quantity: it.quantity,
+    customization: it.customization,
+  }));
+  const estimate = estimateOrderTotal(itemsForEstimate as any, { deliveryMethod: 'delivery' });
 
   const handlePlaceOrder = () => {
     if (!items.length) return;
@@ -162,34 +174,69 @@ export function Cart() {
             <div>
               <div className="sticky top-24 bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
                 <div className="p-5 md:p-6 border-b border-slate-100">
-                  <h2 className="font-black text-slate-900 text-lg tracking-tight">Order summary</h2>
+                  <h2 className="font-black text-slate-900 text-lg tracking-tight">Estimated cost</h2>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Final price set by the store after design review</p>
                 </div>
 
-                <div className="p-5 md:p-6 space-y-3 text-sm">
-                  <div className="flex justify-between text-slate-600">
+                {/* Disclaimer — custom merch is quotation-based, so we owe
+                    the customer a clear "this is an estimate" warning right
+                    next to the price. Avoids any "you said it was ₱X" calls. */}
+                <div className="mx-5 mt-4 md:mx-6 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[12px] leading-snug">
+                  <p className="font-bold flex items-center gap-1.5 mb-1">
+                    <Info className="w-3.5 h-3.5" /> This is an estimate, not the final price.
+                  </p>
+                  <p>After you submit your request, the store will review your design and send a final quote in the order chat. You'll only pay the 50% downpayment after you accept the quote.</p>
+                </div>
+
+                <div className="p-5 md:p-6 space-y-2.5 text-sm">
+                  {/* Per-item itemized breakdown */}
+                  {estimate.items.map((it, i) => (
+                    <div key={i} className="rounded-xl bg-slate-50 px-3 py-2.5 border border-slate-100">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-slate-900 text-sm truncate">{it.name}</span>
+                        <span className="text-xs font-semibold text-slate-600 flex-shrink-0">×{it.quantity}</span>
+                      </div>
+                      <div className="text-[11px] text-slate-600 mt-1 space-y-0.5">
+                        <div className="flex justify-between"><span>{it.unit.baseLabel}</span><span>{formatPeso(it.unit.base)}</span></div>
+                        {it.unit.fabricUpcharge > 0 && (
+                          <div className="flex justify-between"><span>{it.unit.fabricLabel}</span><span>+{formatPeso(it.unit.fabricUpcharge)}</span></div>
+                        )}
+                        {it.unit.decalSurcharges.map((d, j) => (
+                          <div key={j} className="flex justify-between">
+                            <span className="capitalize">{d.tier} {d.type === 'text' ? 'text' : 'print'}</span>
+                            <span>+{formatPeso(d.amount)}</span>
+                          </div>
+                        ))}
+                        {it.unit.multiSideSurcharge > 0 && (
+                          <div className="flex justify-between"><span>Multi-side print (×{it.unit.printAreas})</span><span>+{formatPeso(it.unit.multiSideSurcharge)}</span></div>
+                        )}
+                      </div>
+                      <div className="flex justify-between items-baseline pt-1.5 mt-1.5 border-t border-slate-200">
+                        <span className="text-[11px] text-slate-500 font-semibold">Per-unit</span>
+                        <span className="text-sm font-bold text-slate-900">{formatRange(it.unit.min, it.unit.max)}</span>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="flex justify-between text-slate-600 pt-1">
                     <span>Subtotal ({itemCount} {itemCount === 1 ? 'item' : 'items'})</span>
-                    <span className="font-semibold text-slate-900">{formatPeso(totalAmount)}</span>
+                    <span className="font-semibold text-slate-900">{formatRange(estimate.subtotalMin, estimate.subtotalMax)}</span>
                   </div>
                   <div className="flex justify-between text-slate-600">
                     <span className="flex items-center gap-1.5">
                       <Truck className="w-3.5 h-3.5" />
-                      Shipping
+                      Shipping (est.)
                     </span>
-                    {shipping === 0 ? (
+                    {estimate.shippingFee === 0 ? (
                       <span className="font-bold text-emerald-600">FREE</span>
                     ) : (
-                      <span className="font-semibold text-slate-900">{formatPeso(shipping)}</span>
+                      <span className="font-semibold text-slate-900">{formatPeso(estimate.shippingFee)}</span>
                     )}
                   </div>
-                  {shipping > 0 && (
-                    <div className="text-[11px] text-blue-600 bg-blue-50 rounded-lg px-3 py-2 leading-snug">
-                      Add <strong>{formatPeso(500 - totalAmount)}</strong> more for free shipping.
-                    </div>
-                  )}
 
                   <div className="pt-3 border-t border-slate-100 flex items-baseline justify-between">
-                    <span className="font-bold text-slate-900">Total</span>
-                    <span className="text-2xl font-black text-slate-900">{formatPeso(total)}</span>
+                    <span className="font-bold text-slate-900">Estimated total</span>
+                    <span className="text-xl font-black text-slate-900">{formatRange(estimate.totalMin, estimate.totalMax)}</span>
                   </div>
                 </div>
 
@@ -198,7 +245,7 @@ export function Cart() {
                     onClick={handlePlaceOrder}
                     className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-bold text-sm text-white bg-gradient-to-br from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-200 hover:shadow-xl hover:shadow-blue-300 transition-all hover:-translate-y-0.5"
                   >
-                    Proceed to checkout
+                    Continue to order details
                     <ArrowRight className="w-4 h-4" />
                   </button>
 
