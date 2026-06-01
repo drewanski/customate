@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/Card';
 import { Button } from '../components/Button';
 import { NotificationBell } from '../components/NotificationBell';
+import { AdminActionInbox } from '../components/admin/AdminActionInbox';
 import { Modal } from '../components/Modal';
 import { AdminCalendar } from '../components/AdminCalendar';
 import { Input } from '../components/Input';
@@ -434,6 +435,12 @@ export default function AdminDashboard() {
       <div className="max-w-7xl mx-auto px-6 lg:px-8 -mt-12 relative z-10 pb-16">
         {activeTab === 'overview' && (
           <div className="space-y-6">
+            {/* ACTION INBOX — what needs your attention right now.
+                One-click from a row → drawer opens for that order, no
+                Orders-tab navigation, no scrolling through the full
+                table looking for the right row. */}
+            <AdminActionInbox orders={orders as any} />
+
             {/* KPI CARDS */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {[

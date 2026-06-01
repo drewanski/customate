@@ -1,7 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bell, Check, Trash2, ShoppingBag, Package, AlertTriangle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
 import { useAdminNotifications, Notification } from '../hooks/useAdminNotifications';
 import { ToastType } from './Toast';
+
+/**
+ * Where should a notification take you when you click it? Routes by
+ * type + related data so the admin (or customer) lands directly on
+ * the action surface instead of having to search for the order.
+ */
+function notificationHref(n: Notification, role: string | undefined): string | null {
+  const orderId = n.relatedData?.orderId;
+  if (!orderId) return null;
+  const isStaff = role === 'admin' || role === 'production_staff';
+  if (n.type === 'chat_message') {
+    return isStaff ? `/admin/messages?orderId=${orderId}` : `/order-tracking/${orderId}`;
+  }
+  // Order-related notifications (status updates, courier assigned, new orders, etc.)
+  return isStaff ? `/admin/orders?id=${orderId}` : `/order-tracking/${orderId}`;
+}
 
 // API base — relative paths (/api/...) get sent to whatever origin is
 // serving the SPA, which is *not* the backend in prod (Hostinger vs Render)
@@ -42,6 +59,7 @@ const addToast = (message: string, type: ToastType) => {
 export function NotificationBell({ userRole }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
   
   // Use admin notifications hook for admin users
   const adminNotifications = useAdminNotifications();
@@ -254,12 +272,23 @@ export function NotificationBell({ userRole }: NotificationBellProps) {
                 <p className="text-gray-500">No notifications yet</p>
               </div>
             ) : (
-              notifications.map((notification) => (
+              notifications.map((notification) => {
+                const href = notificationHref(notification, userRole);
+                const onCardClick = () => {
+                  if (!href) return;
+                  // Mark as read in the background — don't await so the
+                  // navigation feels instant.
+                  if (!notification.read) handleMarkAsRead(notification._id).catch(() => {});
+                  setIsOpen(false);
+                  navigate(href);
+                };
+                return (
                 <div
                   key={notification._id}
+                  onClick={href ? onCardClick : undefined}
                   className={`flex gap-3 p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors border-l-4 ${getPriorityColor(notification.priority)} ${
                     !notification.read ? 'bg-blue-50/50' : ''
-                  }`}
+                  } ${href ? 'cursor-pointer' : ''}`}
                 >
                   {/* Icon */}
                   <div className="flex-shrink-0 mt-1">
@@ -284,7 +313,7 @@ export function NotificationBell({ userRole }: NotificationBellProps) {
                     <div className="flex items-center gap-3 mt-2">
                       {!notification.read && (
                         <button
-                          onClick={() => handleMarkAsRead(notification._id)}
+                          onClick={(e) => { e.stopPropagation(); handleMarkAsRead(notification._id); }}
                           className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
                         >
                           <Check className="w-3 h-3" />
@@ -292,7 +321,7 @@ export function NotificationBell({ userRole }: NotificationBellProps) {
                         </button>
                       )}
                       <button
-                        onClick={() => handleDelete(notification._id)}
+                        onClick={(e) => { e.stopPropagation(); handleDelete(notification._id); }}
                         className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -306,7 +335,8 @@ export function NotificationBell({ userRole }: NotificationBellProps) {
                     <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-2" />
                   )}
                 </div>
-              ))
+                );
+              })
             )}
           </div>
 
