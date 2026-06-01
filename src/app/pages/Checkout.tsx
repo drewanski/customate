@@ -145,7 +145,11 @@ export function Checkout() {
   }, [deliveryDate, totalAmount]);
 
   const rushFee = deliveryQuote?.rushFee || 0;
-  const finalTotal = Math.max(0, totalAmount + rushFee - discountAmount);
+  // Shipping mirror of the backend logic (backend is authoritative; this
+  // matches it so the customer sees the right total before placing).
+  // Pickup = free, otherwise free over ₱500, else ₱100.
+  const shippingFee = deliveryMethod === 'pickup' ? 0 : totalAmount >= 500 ? 0 : 100;
+  const finalTotal = Math.max(0, totalAmount + rushFee + shippingFee - discountAmount);
 
   // Date picker bounds: tomorrow → +90 days, no Sundays
   const minDeliveryDate = useMemo(() => {
@@ -807,9 +811,23 @@ export function Checkout() {
                 <span className="font-bold text-slate-900">{formatPeso(totalAmount)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-600 inline-flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" /> Shipping</span>
-                <span className="font-bold text-emerald-600">FREE</span>
+                <span className="text-slate-600 inline-flex items-center gap-1.5">
+                  <Truck className="w-3.5 h-3.5" /> Shipping
+                  {deliveryMethod === 'pickup' && (
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">pickup</span>
+                  )}
+                </span>
+                {shippingFee === 0 ? (
+                  <span className="font-bold text-emerald-600">FREE</span>
+                ) : (
+                  <span className="font-bold text-slate-900">{formatPeso(shippingFee)}</span>
+                )}
               </div>
+              {deliveryMethod === 'delivery' && shippingFee > 0 && (
+                <div className="text-[11px] text-slate-500 -mt-2.5 pl-5">
+                  Add {formatPeso(500 - totalAmount)} more for free shipping
+                </div>
+              )}
 
               {/* ─── Delivery method (panel revision #11) ───────────────── */}
               <div className="pt-2 border-t border-slate-100">

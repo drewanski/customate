@@ -75,7 +75,7 @@ export function CustomerLayout() {
               {/* Account last */}
               {!loading && isAuthenticated ? (
                 <>
-                  <NotificationBell />
+                  <NotificationBell userRole="customer" />
                   <Link to="/profile" className="text-gray-600 hover:text-gray-900 transition-colors" aria-label="Profile">
                     <User className="w-5 h-5" />
                   </Link>

@@ -635,10 +635,10 @@ export function OrderTracking() {
               <div className="pt-3 border-t">
                 <h4 className="font-medium text-gray-900 mb-2">Order Summary</h4>
                 <div className="space-y-1 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-600">Subtotal ({order.totalQty} items)</span><span>{formatPeso((order.subtotalBeforeDiscount || order.totalPrice) - (order.rushFeeAmount || 0))}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-600">Subtotal ({order.totalQty} items)</span><span>{formatPeso((order.subtotalBeforeDiscount || order.totalPrice) - (order.rushFeeAmount || 0) - (order.shippingFee || 0))}</span></div>
                   {order.rushFeeAmount > 0 && <div className="flex justify-between"><span className="text-gray-600">Rush fee</span><span>+{formatPeso(order.rushFeeAmount)}</span></div>}
                   {order.discountAmount > 0 && <div className="flex justify-between"><span className="text-gray-600">Discount {order.couponCode ? `(${order.couponCode})` : ''}</span><span>-{formatPeso(order.discountAmount)}</span></div>}
-                  <div className="flex justify-between"><span className="text-gray-600">{deliveryMethod === 'pickup' ? 'Pickup' : 'Shipping'}</span><span>Free</span></div>
+                  <div className="flex justify-between"><span className="text-gray-600">{deliveryMethod === 'pickup' ? 'Pickup' : 'Shipping'}</span><span>{order.shippingFee ? formatPeso(order.shippingFee) : 'Free'}</span></div>
                   <div className="flex justify-between font-medium pt-2 border-t"><span>Total</span><span className="text-blue-600">{formatPeso(order.totalPrice)}</span></div>
                 </div>
               </div>

@@ -125,10 +125,17 @@ export async function notifyCustomerOfStatus(order, to, reason) {
     // `kind: 'system'` message so the customer (and admin/staff opening the
     // same chat) see the whole journey in one conversation — no need to
     // bounce between the bell, the timeline, and the chat.
+    //
+    // Only customer-facing reasons (rejection / cancellation) get appended
+    // to the chat body. Admin override notes for routine advancement
+    // ("walkthrough", "expedite", etc.) stay in the audit log + meta but
+    // never bleed into the customer-visible system message.
     try {
       const { postSystemMessage } = await import('./chat.js');
-      const friendlyBody = reason
-        ? `${m.title}: ${m.message} — Reason: ${reason}`
+      const customerVisibleReason =
+        (to === 'rejected' || to === 'cancelled') && reason ? reason : null;
+      const friendlyBody = customerVisibleReason
+        ? `${m.title}: ${m.message} — Reason: ${customerVisibleReason}`
         : `${m.title}: ${m.message}`;
       await postSystemMessage({
         orderId: order._id,
@@ -197,6 +204,7 @@ function toOrderDto(order) {
     requestedDeliveryDate: o.requestedDeliveryDate,
     urgencyTier: o.urgencyTier || 'standard',
     rushFeeAmount: o.rushFeeAmount || 0,
+    shippingFee: o.shippingFee || 0,
     leadTimeDays: o.leadTimeDays || 0,
     productionPriority: o.productionPriority,
     productionStage: o.productionStage,
@@ -435,6 +443,16 @@ router.post('/', authMiddleware, async (req, res) => {
       subtotalBeforeDiscount += rushFee;
     }
 
+    // ─── Shipping fee (server-authoritative) ────────────────────────────
+    // Pickup is always free. Delivery follows the free-over-₱500 threshold.
+    // Computed here so the frontend can't tamper with the total.
+    const itemsSubtotal = subtotalBeforeDiscount - (urgencySnapshot.rushFee || 0);
+    const shippingFee =
+      deliveryMethod === 'pickup' ? 0 : itemsSubtotal >= 500 ? 0 : 100;
+    // Add shipping into the pre-discount subtotal so coupon math sees a
+    // total that includes shipping — same as how rush already works.
+    subtotalBeforeDiscount += shippingFee;
+
     let totalPrice = subtotalBeforeDiscount;
     let appliedCoupon = null;
     let discountAmount = 0;
@@ -481,6 +499,7 @@ router.post('/', authMiddleware, async (req, res) => {
       requestedDeliveryDate: urgencySnapshot.requestedDeliveryDate,
       urgencyTier: urgencySnapshot.tier,
       rushFeeAmount: urgencySnapshot.rushFee,
+      shippingFee,
       leadTimeDays: urgencySnapshot.leadTimeDays,
       productionPriority: urgencySnapshot.productionPriority,
       // Pickup vs delivery (panel revision #11) — drives the post-Ready pipeline.

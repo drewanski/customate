@@ -46,7 +46,11 @@ const PAYMENT_TINT: Record<string, string> = {
 };
 
 const STATUS_OPTIONS = [
-  'all', 'pending', 'approved', 'in_production', 'ready', 'completed', 'shipped', 'delivered', 'cancelled', 'rejected', 'refunded',
+  // New pipeline statuses match the customer-facing flow (panel revision #11).
+  // Legacy `shipped`/`delivered` are dropped from the chip strip — any old
+  // orders in those states still appear under `all` and in the drawer's
+  // pipeline strip via the legacy-status mapper.
+  'all', 'pending', 'approved', 'in_production', 'ready', 'out_for_delivery', 'for_pickup', 'completed', 'cancelled', 'rejected', 'refunded',
 ];
 
 function shortDate(iso?: string | Date | null) {
@@ -289,7 +293,7 @@ export function AdminOrders() {
                     : 'bg-white text-slate-500 hover:text-slate-700 border border-slate-200'
                 }`}
               >
-                {s === 'all' ? 'All' : s.replace('_', ' ')}
+                {s === 'all' ? 'All' : s.replace(/_/g, ' ')}
               </button>
             ))}
           </div>

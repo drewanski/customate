@@ -389,7 +389,7 @@ export default function AdminDashboard() {
             </div>
 
             <div className="flex items-center gap-3">
-              <NotificationBell />
+              <NotificationBell userRole="admin" />
               <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-white/15 backdrop-blur-sm border border-white/20 text-white text-sm font-medium">
                 <Shield className="w-4 h-4" />
                 <span className="capitalize">{user.role || 'admin'}</span>

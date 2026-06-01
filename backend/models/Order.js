@@ -75,6 +75,11 @@ const orderSchema = new mongoose.Schema({
   },
   // Rush-fee amount frozen at placement (peso). Already included in totalPrice.
   rushFeeAmount: { type: Number, default: 0, min: 0 },
+  // Shipping fee frozen at placement (peso). Already included in totalPrice.
+  // Pickup orders are always 0; delivery orders apply the threshold rule
+  // (free over ₱500, ₱100 otherwise). Computed server-side so the customer
+  // can't manipulate it client-side.
+  shippingFee: { type: Number, default: 0, min: 0 },
   // Business days between order date and requested delivery — frozen for audit.
   leadTimeDays: { type: Number, default: 0, min: 0 },
 

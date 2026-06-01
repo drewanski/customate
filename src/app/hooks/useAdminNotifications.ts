@@ -20,22 +20,27 @@ export interface Notification {
   createdAt: string;
 }
 
+// API base — same env var the rest of the app uses, so the bell hits the
+// real backend (localhost:4000 in dev, Render in prod) instead of 404-ing
+// against the Vite dev server / Hostinger static origin.
+const API_BASE: string = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:4000/api';
+
 // Simple API functions to avoid import issues
 async function fetchNotifications(limit: number = 10, unreadOnly: boolean = false): Promise<{ notifications: Notification[]; unreadCount: number; total: number }> {
   try {
-    const response = await fetch(`/api/notifications?limit=${limit}&unreadOnly=${unreadOnly}`, {
+    const response = await fetch(`${API_BASE}/notifications?limit=${limit}&unreadOnly=${unreadOnly}`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
         'Content-Type': 'application/json'
       }
     });
-    
+
     // Check if response is JSON before parsing
     const contentType = response.headers.get('content-type');
     if (!response.ok || !contentType?.includes('application/json')) {
       throw new Error('Notifications API not available');
     }
-    
+
     return response.json();
   } catch (error) {
     console.log('Notifications API not available - continuing without notifications');
@@ -45,7 +50,7 @@ async function fetchNotifications(limit: number = 10, unreadOnly: boolean = fals
 
 async function markAsRead(notificationId: string): Promise<{ success: boolean; notification: Notification }> {
   try {
-    const response = await fetch(`/api/notifications/${notificationId}/read`, {
+    const response = await fetch(`${API_BASE}/notifications/${notificationId}/read`, {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -62,7 +67,7 @@ async function markAsRead(notificationId: string): Promise<{ success: boolean; n
 
 async function markAllAsRead(): Promise<{ success: boolean; message: string }> {
   try {
-    const response = await fetch('/api/notifications/read-all', {
+    const response = await fetch(`${API_BASE}/notifications/read-all`, {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -95,7 +100,7 @@ export function useAdminNotifications(): UseAdminNotificationsReturn {
   const refreshNotifications = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await getNotifications(50, false);
+      const data = await fetchNotifications(50, false);
       setNotifications(data.notifications);
       setUnreadCount(data.unreadCount);
     } catch (error) {

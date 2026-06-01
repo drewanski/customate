@@ -3,10 +3,16 @@ import { Bell, Check, Trash2, ShoppingBag, Package, AlertTriangle, CheckCircle, 
 import { useAdminNotifications, Notification } from '../hooks/useAdminNotifications';
 import { ToastType } from './Toast';
 
+// API base — relative paths (/api/...) get sent to whatever origin is
+// serving the SPA, which is *not* the backend in prod (Hostinger vs Render)
+// nor in dev (Vite on 5173 vs Express on 4000). Hit the env-configured
+// backend directly so the bell actually populates.
+const API_BASE: string = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:4000/api';
+
 // Simple API functions to avoid import issues
 async function deleteNotification(notificationId: string): Promise<{ success: boolean; message: string }> {
   try {
-    const response = await fetch(`/api/notifications/${notificationId}`, {
+    const response = await fetch(`${API_BASE}/notifications/${notificationId}`, {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -54,7 +60,7 @@ export function NotificationBell({ userRole }: NotificationBellProps) {
   const fetchCustomerNotifications = useCallback(async () => {
     try {
       setCustomerLoading(true);
-      const response = await fetch(`/api/notifications?limit=20&unreadOnly=false`, {
+      const response = await fetch(`${API_BASE}/notifications?limit=20&unreadOnly=false`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
@@ -104,7 +110,7 @@ export function NotificationBell({ userRole }: NotificationBellProps) {
 
   const handleMarkAsRead = isAdmin ? adminNotifications.markAsRead : async (id: string) => {
     try {
-      const response = await fetch(`/api/notifications/${id}/read`, {
+      const response = await fetch(`${API_BASE}/notifications/${id}/read`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -125,7 +131,7 @@ export function NotificationBell({ userRole }: NotificationBellProps) {
   const handleMarkAllAsRead = isAdmin ? adminNotifications.markAllAsRead : async () => {
     try {
       setCustomerLoading(true);
-      const response = await fetch('/api/notifications/read-all', {
+      const response = await fetch(`${API_BASE}/notifications/read-all`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,

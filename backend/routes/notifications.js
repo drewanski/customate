@@ -12,47 +12,32 @@ const router = express.Router();
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const { limit = 20, unreadOnly = false } = req.query;
-    
-    console.log('=== FETCHING NOTIFICATIONS ===');
-    console.log('Request user ID:', req.user.userId);
-    
-    // Convert user ID to ObjectId for proper matching
+
     const userId = new mongoose.Types.ObjectId(req.user.userId);
-    console.log('Converted userId:', userId);
-    
-    // Build query - get notifications for this user OR admin notifications
-    const query = {
-      $or: [
-        { user: userId },
-        { target: 'admin', user: null } // Admin broadcast notifications
-      ]
-    };
-    
-    console.log('Query:', JSON.stringify(query, null, 2));
-    
+    const role = req.user.role;
+
+    // Role-scoped query so customers don't see admin-broadcast notifications
+    // (and vice-versa). Customers see notifications addressed directly to
+    // them (`user: userId`). Admins/staff see their direct ones plus the
+    // shared `target: 'admin'` broadcast fan-out.
+    const isStaffOrAdmin = role === 'admin' || role === 'production_staff';
+    const query = isStaffOrAdmin
+      ? { $or: [{ user: userId }, { target: 'admin', user: null }] }
+      : { user: userId };
+
     if (unreadOnly === 'true') {
       query.read = false;
     }
-    
+
     const notifications = await Notification.find(query)
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .populate('relatedData.productId', 'name image');
-    
-    console.log('Found notifications:', notifications.length);
-    
-    // Get unread count - use the same userId (ObjectId)
-    const unreadQuery = {
-      $or: [
-        { user: userId },
-        { target: 'admin', user: null }
-      ],
-      read: false
-    };
+
+    // Get unread count using the same scoping
+    const unreadQuery = { ...query, read: false };
     const unreadCount = await Notification.countDocuments(unreadQuery);
-    
-    console.log('Unread count:', unreadCount);
-    
+
     res.json({
       notifications,
       unreadCount,

@@ -11,7 +11,22 @@ export async function apiRequest(path, options = {}) {
     ...options,
     headers: { ...headers, ...(options.headers || {}) },
   });
-  if (!res.ok) throw new Error((await res.json()).message || 'API error');
+  // Surface rate-limit responses with a friendly, actionable message so
+  // rapid clicks don't fail silently. Components catching the throw can
+  // toast `err.message` directly.
+  if (res.status === 429) {
+    let payload = {};
+    try { payload = await res.json(); } catch { /* non-json */ }
+    const err = new Error(payload.error || payload.message || 'Too many requests — please slow down and try again in a moment.');
+    err.code = 'RATE_LIMITED';
+    err.status = 429;
+    throw err;
+  }
+  if (!res.ok) {
+    let payload = {};
+    try { payload = await res.json(); } catch { /* non-json */ }
+    throw new Error(payload.message || payload.error || `Request failed (${res.status})`);
+  }
   return res.json();
 }
 

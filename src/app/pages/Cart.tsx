@@ -9,7 +9,10 @@ export function Cart() {
   const navigate = useNavigate();
 
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
-  const shipping = totalAmount > 500 ? 0 : 100;
+  // Default to delivery shipping; pickup waives the fee but the customer
+  // picks the delivery method on Checkout, so the cart shows the
+  // delivery-case estimate.
+  const shipping = totalAmount >= 500 ? 0 : 100;
   const total = totalAmount + shipping;
 
   const handlePlaceOrder = () => {
