@@ -56,6 +56,22 @@ function getFallbackProduct(productId?: string) {
   )) || FALLBACK_PRODUCTS[0];
 }
 
+// CSS preview gradients for fabric swatches in the picker. The actual 3D
+// material lives in ProductCustomizer3D — this is just an at-a-glance
+// preview so the chip is recognisable before the 3D updates.
+function fabricSwatchCss(material: string): string {
+  switch ((material || '').toLowerCase()) {
+    case 'cotton':       return 'repeating-linear-gradient(45deg, #f4ede4 0 2px, #ece2d3 2px 4px)';
+    case 'cotton-poly':  return 'repeating-linear-gradient(35deg, #efe8db 0 2px, #ddd1bd 2px 5px)';
+    case 'poly':         return 'linear-gradient(135deg, #e2e8f0, #cbd5e1)';
+    case 'drifit':       return 'radial-gradient(circle at 30% 30%, #93c5fd 0 1px, transparent 1.5px), linear-gradient(135deg, #dbeafe, #bfdbfe)';
+    case 'linen':        return 'repeating-linear-gradient(0deg, #e7dcc5 0 2px, #d4c5a0 2px 5px), repeating-linear-gradient(90deg, transparent 0 1px, rgba(0,0,0,0.07) 1px 2px)';
+    case 'jersey':       return 'repeating-linear-gradient(60deg, #c7d2fe 0 2px, #a5b4fc 2px 4px)';
+    case 'silk':         return 'linear-gradient(135deg, #fef3c7, #fcd34d, #fef3c7)';
+    default:             return 'linear-gradient(135deg, #f1f5f9, #cbd5e1)';
+  }
+}
+
 export function CustomizationStudio() {
   const { productId } = useParams();
   const navigate = useNavigate();
@@ -315,6 +331,7 @@ export function CustomizationStudio() {
     productColor: '#ffffff',
     size: 'M',
     shirtType: '', // panel revision #2 — set when product offers shirt-type variants
+    fabric: '',    // selected fabric code (e.g. 'cotton', 'drifit') — drives 3D material + price
     placement: 'Center Front',
     image: '',
     textPosition: { x: 50, y: 50, z: 0 },
@@ -609,7 +626,14 @@ export function CustomizationStudio() {
     { value: 'Full Front', label: 'Full Front' },
   ];
   
-  const unitPrice = product.price * 1.25; // 25% markup for custom
+  // Fabric surcharge — look up the picked fabric code against the
+  // product's fabrics[]. Falls through to 0 if the product has no fabrics
+  // configured or the customer hasn't picked yet.
+  const pickedFabric = Array.isArray(product?.fabrics)
+    ? product.fabrics.find((f: any) => f.code === customization.fabric)
+    : null;
+  const fabricMod = Number(pickedFabric?.priceModifier) || 0;
+  const unitPrice = (product.price + fabricMod) * 1.25; // 25% markup for custom
   const totalPrice = (unitPrice * quantity).toFixed(2);
 
   const canUndo = historyRef.current.past.length > 0;
@@ -1563,6 +1587,64 @@ export function CustomizationStudio() {
                 </div>
               )}
 
+              {/* Fabric selector — only renders when the product offers fabric
+                  variants (any wearable item seeded by seedFabrics.js). The
+                  chosen fabric's `material` flows into ProductCustomizer3D
+                  which re-tunes the mesh roughness / weave / sheen so the
+                  customer literally sees the fabric they're paying for. */}
+              {Array.isArray(product?.fabrics) && product.fabrics.length > 0 && (
+                <div>
+                  <div className="flex items-baseline justify-between mb-3">
+                    <label className="text-sm font-bold text-slate-700 uppercase tracking-wider">Fabric</label>
+                    <span className="text-[10px] text-slate-400 font-medium">Texture updates live</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {product.fabrics.map((f: any) => {
+                      const active = customization.fabric === f.code;
+                      return (
+                        <button
+                          key={f.code}
+                          onClick={() => setCustomization({ ...customization, fabric: f.code })}
+                          className={`p-3 rounded-xl text-left transition-all border-2 flex items-start gap-3 ${
+                            active
+                              ? 'bg-gradient-to-br from-blue-600 to-indigo-600 border-blue-600 text-white shadow-lg shadow-blue-200/60'
+                              : 'bg-white border-slate-200 text-slate-700 hover:border-blue-400'
+                          }`}
+                        >
+                          {/* Tiny swatch — a CSS-only preview of the fabric so
+                              the picker is recognizable even before the 3D
+                              redraws. The full material lives in the model. */}
+                          <span
+                            className={`mt-0.5 w-9 h-9 rounded-lg flex-shrink-0 border ${active ? 'border-white/50' : 'border-slate-200'}`}
+                            style={{ background: fabricSwatchCss(f.material || f.code) }}
+                            aria-hidden
+                          />
+                          <span className="flex-1 min-w-0">
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-bold">{f.label || f.code}</span>
+                              {f.priceModifier ? (
+                                <span className={`text-xs font-bold ${active ? 'text-blue-100' : 'text-slate-500'}`}>
+                                  +₱{f.priceModifier}
+                                </span>
+                              ) : (
+                                <span className={`text-[10px] font-bold uppercase tracking-wider ${active ? 'text-blue-100' : 'text-emerald-600'}`}>
+                                  Included
+                                </span>
+                              )}
+                            </span>
+                            {f.description && (
+                              <span className={`block text-xs mt-0.5 ${active ? 'text-blue-100/90' : 'text-slate-500'}`}>
+                                {f.description}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-3 block">Product Color</label>
                 <div className="grid grid-cols-4 gap-2">
@@ -2032,6 +2114,12 @@ export function CustomizationStudio() {
                         .join(' ') || 'default'}
                       productName={product?.name}
                       productColor={customization.productColor}
+                      // Forward the picked fabric's material preset (e.g.
+                      // 'cotton', 'drifit', 'linen') so the mesh re-tunes
+                      // its roughness + weave bump to match. Falls through
+                      // to whatever the productType resolves to when no
+                      // fabric is picked yet.
+                      fabricMaterial={pickedFabric?.material || ''}
                       view={view}
                       placement={customization.placement}
                       onDesignChange={handleDesignChange}

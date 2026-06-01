@@ -133,6 +133,117 @@ const MATERIAL_FINISHES: Record<MaterialFinish, {
   textured: { label: 'Textured', roughness: 0.85, metalness: 0.0, bumpiness: 0.6 },
 };
 
+// ─── Fabric presets ────────────────────────────────────────────────────────
+// One row per fabric material the customer can pick in the Options tab.
+// `roughness`/`metalness` drive Three.js MeshStandardMaterial; `weave` picks
+// the procedural bump pattern (built once and cached) so the texture
+// actually changes between fabrics — cotton looks soft & matte, dri-fit
+// shows a fine mesh dot pattern, linen has a coarse crossweave, etc.
+export type FabricMaterial =
+  | 'cotton'
+  | 'cotton-poly'
+  | 'poly'
+  | 'drifit'
+  | 'linen'
+  | 'jersey'
+  | 'silk';
+
+type FabricPreset = {
+  label: string;
+  roughness: number;
+  metalness: number;
+  bumpScale: number;          // strength of the normal/bump map
+  weave: 'plain' | 'mesh' | 'linen' | 'rib' | 'satin';
+  repeat: number;             // how many tile repeats across the mesh
+};
+
+const FABRIC_PRESETS: Record<FabricMaterial, FabricPreset> = {
+  'cotton':       { label: 'Cotton',        roughness: 0.92, metalness: 0.00, bumpScale: 0.35, weave: 'plain', repeat: 24 },
+  'cotton-poly':  { label: 'Cotton-Poly',   roughness: 0.78, metalness: 0.02, bumpScale: 0.28, weave: 'plain', repeat: 26 },
+  'poly':         { label: 'Polyester',     roughness: 0.55, metalness: 0.06, bumpScale: 0.18, weave: 'plain', repeat: 28 },
+  'drifit':       { label: 'Dri-Fit',       roughness: 0.62, metalness: 0.04, bumpScale: 0.55, weave: 'mesh',  repeat: 40 },
+  'linen':        { label: 'Linen',         roughness: 0.90, metalness: 0.00, bumpScale: 0.75, weave: 'linen', repeat: 18 },
+  'jersey':       { label: 'Jersey Knit',   roughness: 0.70, metalness: 0.02, bumpScale: 0.50, weave: 'rib',   repeat: 30 },
+  'silk':         { label: 'Silk Touch',    roughness: 0.22, metalness: 0.14, bumpScale: 0.10, weave: 'satin', repeat: 32 },
+};
+
+// Build a small (256×256) procedural weave normal map. Cached by weave kind
+// so we don't regenerate the same canvas every frame. Each weave pattern
+// draws a fake "lit from upper-left" gradient so when Three.js samples it
+// as a normal map, the high-frequency dots/threads catch real lighting.
+const _weaveCache: Partial<Record<FabricPreset['weave'], THREE.Texture>> = {};
+function buildWeaveTexture(weave: FabricPreset['weave']): THREE.Texture {
+  if (_weaveCache[weave]) return _weaveCache[weave] as THREE.Texture;
+  const size = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const g = cv.getContext('2d')!;
+  // Neutral normal-map base color (R=128, G=128, B=255 = "flat" normal).
+  g.fillStyle = '#8080ff';
+  g.fillRect(0, 0, size, size);
+
+  switch (weave) {
+    case 'plain': {
+      // Even crosshatch — cotton/poly grain.
+      g.strokeStyle = 'rgba(0,0,0,0.25)';
+      g.lineWidth = 1;
+      for (let i = 0; i < size; i += 4) {
+        g.beginPath(); g.moveTo(0, i); g.lineTo(size, i); g.stroke();
+        g.beginPath(); g.moveTo(i, 0); g.lineTo(i, size); g.stroke();
+      }
+      break;
+    }
+    case 'mesh': {
+      // Athletic Dri-Fit micro-mesh — tiny perforated dots.
+      g.fillStyle = 'rgba(0,0,0,0.45)';
+      for (let y = 0; y < size; y += 8) {
+        for (let x = (y % 16 === 0 ? 0 : 4); x < size; x += 8) {
+          g.beginPath();
+          g.arc(x, y, 1.6, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
+      break;
+    }
+    case 'linen': {
+      // Coarse, irregular crossweave with random thread variation.
+      g.strokeStyle = 'rgba(0,0,0,0.45)';
+      for (let i = 0; i < size; i += 6) {
+        g.lineWidth = 1 + Math.random() * 1.2;
+        g.beginPath(); g.moveTo(0, i + (Math.random() - 0.5)); g.lineTo(size, i + (Math.random() - 0.5)); g.stroke();
+        g.beginPath(); g.moveTo(i + (Math.random() - 0.5), 0); g.lineTo(i + (Math.random() - 0.5), size); g.stroke();
+      }
+      break;
+    }
+    case 'rib': {
+      // Vertical ribbing — jersey-style knit.
+      for (let x = 0; x < size; x += 3) {
+        const dark = (x / 3) % 2 === 0;
+        g.fillStyle = dark ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.10)';
+        g.fillRect(x, 0, 2, size);
+      }
+      break;
+    }
+    case 'satin': {
+      // Subtle diagonal sheen — silk.
+      const grd = g.createLinearGradient(0, 0, size, size);
+      grd.addColorStop(0,   'rgba(255,255,255,0.18)');
+      grd.addColorStop(0.5, 'rgba(0,0,0,0.10)');
+      grd.addColorStop(1,   'rgba(255,255,255,0.18)');
+      g.fillStyle = grd;
+      g.fillRect(0, 0, size, size);
+      break;
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  tex.needsUpdate = true;
+  _weaveCache[weave] = tex;
+  return tex;
+}
+
 // 12-color palette + custom picker. These are the quick-click swatches users
 // can apply to the whole product or to individual clicked sub-meshes.
 const COLOR_PALETTE: { hex: string; name: string }[] = [
@@ -556,6 +667,8 @@ interface ProductMeshProps {
   finish: MaterialFinish;
   pattern: PatternKind;
   patternAccent: string;
+  /** Active fabric preset (cotton, drifit, linen, …). Empty/undefined → fall through to `finish`. */
+  fabric?: string;
   // Which mesh is currently "selected" for paint mode (gets a subtle highlight)
   paintTargetName?: string | null;
   onMeshesReady: (meshes: THREE.Mesh[]) => void;
@@ -570,6 +683,7 @@ function ProductMesh({
   finish,
   pattern,
   patternAccent,
+  fabric,
   paintTargetName,
   onMeshesReady,
   onSurfaceClick,
@@ -642,6 +756,19 @@ function ProductMesh({
   //      coordinates. Less perfect but UV-free.
   useEffect(() => {
     const finishPreset = MATERIAL_FINISHES[finish] || MATERIAL_FINISHES.matte;
+    // Fabric preset override — if the customer picked a fabric, its
+    // roughness/metalness/normal map win over the generic finish. Falls
+    // back to null when no fabric is set so non-wearable products are
+    // unaffected.
+    const fabricKey = (fabric || '').toLowerCase() as FabricMaterial;
+    const fabricPreset = FABRIC_PRESETS[fabricKey] || null;
+    const fabricNormal = fabricPreset ? buildWeaveTexture(fabricPreset.weave) : null;
+    if (fabricNormal && fabricPreset) {
+      // Set how many tiles cover the mesh — high repeat = fine grain.
+      const r = fabricPreset.repeat;
+      fabricNormal.repeat.set(r, r);
+      fabricNormal.needsUpdate = true;
+    }
 
     // Shared CanvasTexture for the UV path — built once per pattern change.
     const patternTex =
@@ -673,6 +800,19 @@ function ProductMesh({
         std.color = new THREE.Color(color);
         std.roughness = finishPreset.roughness;
         std.metalness = finishPreset.metalness;
+
+        // Fabric overrides finish when present. We always reset the normal
+        // map to null first so switching fabrics-off cleans up cleanly.
+        if (fabricPreset && fabricNormal) {
+          std.roughness = fabricPreset.roughness;
+          std.metalness = fabricPreset.metalness;
+          std.normalMap = fabricNormal;
+          std.normalScale = new THREE.Vector2(fabricPreset.bumpScale, fabricPreset.bumpScale);
+        } else {
+          std.normalMap = null;
+          std.normalScale = new THREE.Vector2(1, 1);
+        }
+        std.needsUpdate = true;
 
         // ─── PATH A: real UVs → texture-based pattern ──────────────────
         // Clean, fast, follows the GLB's intended unwrap exactly.
@@ -801,7 +941,7 @@ function ProductMesh({
       const mat = mesh.material as THREE.Material | THREE.Material[];
       if (Array.isArray(mat)) mat.forEach(apply); else apply(mat);
     }
-  }, [baseColor, meshColors, finish, pattern, patternAccent, paintTargetName]);
+  }, [baseColor, meshColors, finish, pattern, patternAccent, fabric, paintTargetName]);
 
   return (
     // The outer group nudges the cloned scene so its bbox center lives at
@@ -1384,6 +1524,14 @@ export interface ProductCustomizer3DProps {
   productType?: string;
   productName?: string;
   productColor?: string;
+  /**
+   * Fabric material preset code from the product's fabrics[] array
+   * (e.g. 'cotton', 'drifit', 'linen'). When set, the model's MeshStandard
+   * material is re-tuned (roughness/metalness) and a procedural weave
+   * bump map is applied so the customer sees the texture they're paying for.
+   * Falls through to the default finish when empty.
+   */
+  fabricMaterial?: string;
   view?: 'front' | 'back';
   placement?: string;
   onDesignChange?: (elements: DesignElement[]) => void;
@@ -1408,6 +1556,7 @@ export interface ProductCustomizer3DProps {
 export function ProductCustomizer3D({
   productType,
   productColor: productColorProp,
+  fabricMaterial,
   view = 'front',
   onDesignChange,
   initialElements,
@@ -1698,6 +1847,7 @@ export function ProductCustomizer3D({
               finish={finish}
               pattern={pattern}
               patternAccent={patternAccent}
+              fabric={fabricMaterial}
               paintTargetName={paintTargetName}
               onMeshesReady={setMeshes}
               onSurfaceClick={handleSurfaceClick}

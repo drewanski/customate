@@ -365,7 +365,27 @@ router.post('/', authMiddleware, async (req, res) => {
     for (const it of items) {
       const qty = Number(it.quantity);
       const inv = inventoryBySku.get(it.sku);
-      subtotalBeforeDiscount += qty * inv.price;
+
+      // ─── Resolve fabric surcharge (server-authoritative) ──────────────
+      // The customer can claim any fabric code; we look it up against the
+      // product's fabrics[] array and apply the priceModifier from there.
+      // If the code doesn't match, the surcharge is silently dropped (the
+      // base price still applies) and fabricLabel stays empty.
+      let fabricMod = 0;
+      let fabricLabel = '';
+      let fabricCode = it.customization?.fabric || '';
+      if (fabricCode && Array.isArray(inv.fabrics) && inv.fabrics.length) {
+        const match = inv.fabrics.find((f) => f.code === fabricCode);
+        if (match) {
+          fabricMod = Number(match.priceModifier) || 0;
+          fabricLabel = match.label || '';
+        } else {
+          fabricCode = ''; // unknown code → discard
+        }
+      }
+
+      const unitPriceWithFabric = inv.price + fabricMod;
+      subtotalBeforeDiscount += qty * unitPriceWithFabric;
 
       // ─── Offload large design previews to Cloudinary ──────────────────
       // In production, base64 previews bloat MongoDB; we upload and replace
@@ -373,6 +393,9 @@ router.post('/', authMiddleware, async (req, res) => {
       // uploadImage returns the input unchanged so the snapshot still
       // works for local testing.
       let customization = it.customization || {};
+      if (fabricCode) {
+        customization = { ...customization, fabric: fabricCode, fabricLabel };
+      }
       if (
         customization.previewImage &&
         typeof customization.previewImage === 'string' &&
@@ -393,7 +416,7 @@ router.post('/', authMiddleware, async (req, res) => {
         sku: inv.sku,
         name: inv.name,
         quantity: qty,
-        unitPrice: inv.price,
+        unitPrice: unitPriceWithFabric,
         customization,
       });
     }

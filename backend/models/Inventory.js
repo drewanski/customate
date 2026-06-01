@@ -23,6 +23,18 @@ const shirtTypeSchema = new mongoose.Schema({
   priceModifier: { type: Number, default: 0 },
 }, { _id: false });
 
+// Fabric variant for wearable products. Each fabric maps to a `material`
+// preset the 3D customizer uses to retune the mesh (roughness / metalness /
+// weave-pattern bump map), so picking "Dri-Fit" vs "Cotton" actually
+// changes how the model looks, not just the price line.
+const fabricOptionSchema = new mongoose.Schema({
+  code: { type: String, required: true },           // 'cotton' | 'poly' | 'drifit' | 'cotton-poly' | 'linen' | 'jersey' | 'silk'
+  label: { type: String, default: '' },             // 'Cotton', 'Polyester', 'Dri-Fit'
+  description: { type: String, default: '' },       // 'Breathable, soft, everyday wear'
+  material: { type: String, default: 'cotton' },    // 3D material preset name (see materialFor in ProductCustomizer3D)
+  priceModifier: { type: Number, default: 0 },      // peso surcharge over base
+}, { _id: false });
+
 const inventorySchema = new mongoose.Schema({
   name: { type: String, required: true },
   sku: { type: String, required: true, unique: true },
@@ -47,6 +59,10 @@ const inventorySchema = new mongoose.Schema({
   // tshirt/jersey/polo/etc), populate this with the variants the customer
   // can pick. Each one can swap the 3D model and modify price.
   shirtTypes: { type: [shirtTypeSchema], default: [] },
+  // fabrics: wearable products can offer fabric choices. The selected
+  // fabric drives the price (priceModifier) AND the 3D material preset so
+  // the customer literally sees the texture they're paying for.
+  fabrics: { type: [fabricOptionSchema], default: [] },
 
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }

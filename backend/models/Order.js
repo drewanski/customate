@@ -12,6 +12,11 @@ const orderSchema = new mongoose.Schema({
         size: { type: String },
         color: { type: String },
         shirtType: { type: String },
+        // Chosen fabric code (e.g. 'cotton', 'drifit'). Looked up against
+        // the product's fabrics[] at order-create so production gets the
+        // exact spec and the customer pays the right priceModifier.
+        fabric: { type: String },
+        fabricLabel: { type: String },
         placement: { type: String },
         text: { type: String },
         font: { type: String },
