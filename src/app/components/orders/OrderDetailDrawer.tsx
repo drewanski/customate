@@ -34,7 +34,7 @@ import {
   setOrderCourier,
   sendQuotation,
 } from '../../api';
-import { estimateUnitPrice } from '../../utils/pricing';
+import { estimateOrderTotal, quotationLinesFromEstimate } from '../../utils/pricing';
 import { formatPeso } from '../../utils/format';
 import { RefundModal } from './RefundModal';
 import { useAuth } from '../../hooks/useAuth';
@@ -138,38 +138,30 @@ function describeLog(log: any) {
  * reasonable number and only adjusts.
  */
 function QuoteBuilderPanel({ order, onSaved }: { order: any; onSaved: () => Promise<void> }) {
-  // Pre-fill line items from cart on first render.
-  const initialItems = React.useMemo(() => {
-    const out: { label: string; amount: number }[] = [];
-    for (const it of order.items || []) {
-      const est = estimateUnitPrice(it);
-      out.push({
-        label: `${it.name} ×${it.quantity} (${est.baseLabel}${est.fabricLabel && est.fabricLabel !== 'Cotton' ? ' · ' + est.fabricLabel : ''})`,
-        amount: est.unit * it.quantity,
-      });
-      if (est.decalTotal > 0) {
-        const decalNames = est.decalSurcharges.map((d) => `${d.tier} ${d.type}`).join(', ');
-        // Already included in est.unit — we don't re-add, just for clarity in the label.
-      }
-    }
-    // Optional rush + shipping pre-lines if applicable on the request.
-    if (order.rushFeeAmount > 0) out.push({ label: 'Rush surcharge', amount: order.rushFeeAmount });
-    if (order.shippingFee > 0)  out.push({ label: 'Shipping fee',    amount: order.shippingFee  });
-    return out;
-  }, [order._id]);
+  // Auto-derive line items from the order configuration using the SAME
+  // pricing engine the customer's Cart used. Admin lands on a fully
+  // pre-filled, math-correct quote and only tweaks if needed.
+  const buildLinesFromOrder = (rushOverride?: number) => {
+    const est = estimateOrderTotal(order.items || [], {
+      rush: order.rushFeeAmount > 0,
+      rushOverride: rushOverride,
+    });
+    return quotationLinesFromEstimate(est);
+  };
+  const initialItems = React.useMemo(() => buildLinesFromOrder(), [order._id]);
 
   const [items, setItems] = useState(initialItems);
   const [downpaymentPct, setDownpaymentPct] = useState(50);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
-  // If the customer already accepted, surface that and bail.
-  if (order.status === 'accepted' || order.status === 'downpayment_paid'
-      || order.status === 'approved' || order.status === 'in_production'
-      || order.status === 'ready' || order.status === 'out_for_delivery'
-      || order.status === 'for_pickup' || order.status === 'completed') {
-    return null;
-  }
+  // Editing a previously-sent quote? Pre-load it.
+  React.useEffect(() => {
+    if (order.status === 'quoted' && order.quotation?.lineItems?.length) {
+      setItems(order.quotation.lineItems.map((li: any) => ({ label: li.label, amount: li.amount })));
+    }
+  }, [order.status, order._id]);
+
   if (!['quote_requested', 'quoted'].includes(order.status)) return null;
 
   const total = items.reduce((s, x) => s + (Number(x.amount) || 0), 0);

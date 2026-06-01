@@ -2,30 +2,36 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../hooks/useCart';
 import { formatPeso } from '../utils/format';
-import { ShoppingBag, Minus, Plus, Trash2, ArrowRight, Tag, Truck, ShieldCheck, ChevronLeft, Info } from 'lucide-react';
-import { estimateOrderTotal, formatRange } from '../utils/pricing';
+import { ShoppingBag, Minus, Plus, Trash2, ArrowRight, Tag, Truck, ShieldCheck, ChevronLeft, Info, Zap } from 'lucide-react';
+import { estimateOrderTotal, formatPeso as fmtPeso } from '../utils/pricing';
 
 export function Cart() {
   const { items, updateQuantity, removeItem, totalAmount } = useCart();
   const navigate = useNavigate();
 
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
-  // Default to delivery shipping; pickup waives the fee but the customer
-  // picks the delivery method on Checkout, so the cart shows the
-  // delivery-case estimate.
-  const shipping = totalAmount >= 500 ? 0 : 100;
-  const total = totalAmount + shipping;
 
-  // Detailed estimate range — uses the same pricing engine the admin's
-  // Quote Builder pre-fills from. Gives the customer an honest ballpark
-  // ("₱2,400 – ₱4,200") rather than a single misleading "final" number.
+  // Rush toggle drives the +₱20/item fee. Persisted in sessionStorage so
+  // the same value is read on Checkout — guarantees the price the customer
+  // sees on Cart equals what they see on Checkout (and what the admin sees
+  // pre-filled in the Quote Builder).
+  const [rush, setRush] = React.useState<boolean>(() => {
+    try { return sessionStorage.getItem('cm_rush') === '1'; } catch { return false; }
+  });
+  React.useEffect(() => {
+    try { sessionStorage.setItem('cm_rush', rush ? '1' : '0'); } catch {}
+  }, [rush]);
+
+  // Single estimate object — same shape used by every page that shows a
+  // price. The numbers here MATCH what the admin sees pre-filled in the
+  // Quote Builder. No more "cart says X, checkout says Y" drift.
   const itemsForEstimate = items.map((it) => ({
     sku: it.product?.sku,
     name: it.product?.name,
     quantity: it.quantity,
     customization: it.customization,
   }));
-  const estimate = estimateOrderTotal(itemsForEstimate as any, { deliveryMethod: 'delivery' });
+  const estimate = estimateOrderTotal(itemsForEstimate as any, { rush });
 
   const handlePlaceOrder = () => {
     if (!items.length) return;
@@ -189,54 +195,77 @@ export function Cart() {
                 </div>
 
                 <div className="p-5 md:p-6 space-y-2.5 text-sm">
-                  {/* Per-item itemized breakdown */}
-                  {estimate.items.map((it, i) => (
+                  {/* Per-item itemized breakdown — base + print size fee,
+                      with bulk discount as a separate line when applicable. */}
+                  {estimate.lines.map((l, i) => (
                     <div key={i} className="rounded-xl bg-slate-50 px-3 py-2.5 border border-slate-100">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-bold text-slate-900 text-sm truncate">{it.name}</span>
-                        <span className="text-xs font-semibold text-slate-600 flex-shrink-0">×{it.quantity}</span>
+                        <span className="font-bold text-slate-900 text-sm truncate">{l.name}</span>
+                        <span className="text-xs font-semibold text-slate-600 flex-shrink-0">×{l.quantity}</span>
                       </div>
                       <div className="text-[11px] text-slate-600 mt-1 space-y-0.5">
-                        <div className="flex justify-between"><span>{it.unit.baseLabel}</span><span>{formatPeso(it.unit.base)}</span></div>
-                        {it.unit.fabricUpcharge > 0 && (
-                          <div className="flex justify-between"><span>{it.unit.fabricLabel}</span><span>+{formatPeso(it.unit.fabricUpcharge)}</span></div>
-                        )}
-                        {it.unit.decalSurcharges.map((d, j) => (
-                          <div key={j} className="flex justify-between">
-                            <span className="capitalize">{d.tier} {d.type === 'text' ? 'text' : 'print'}</span>
-                            <span>+{formatPeso(d.amount)}</span>
+                        <div className="flex justify-between">
+                          <span>{l.unit.baseLabel}</span>
+                          <span>{fmtPeso(l.unit.base)}</span>
+                        </div>
+                        {l.unit.printSizeFee > 0 && (
+                          <div className="flex justify-between">
+                            <span>{l.unit.printSizeLabel} print</span>
+                            <span>+{fmtPeso(l.unit.printSizeFee)}</span>
                           </div>
-                        ))}
-                        {it.unit.multiSideSurcharge > 0 && (
-                          <div className="flex justify-between"><span>Multi-side print (×{it.unit.printAreas})</span><span>+{formatPeso(it.unit.multiSideSurcharge)}</span></div>
+                        )}
+                        <div className="flex justify-between text-[10px] text-slate-500">
+                          <span>{l.unit.printingMethodLabel}</span>
+                        </div>
+                        {l.bulkDiscount > 0 && (
+                          <div className="flex justify-between text-emerald-700 font-semibold">
+                            <span>Bulk discount (≥30 pcs · −₱10/pc)</span>
+                            <span>−{fmtPeso(l.bulkDiscount)}</span>
+                          </div>
                         )}
                       </div>
                       <div className="flex justify-between items-baseline pt-1.5 mt-1.5 border-t border-slate-200">
-                        <span className="text-[11px] text-slate-500 font-semibold">Per-unit</span>
-                        <span className="text-sm font-bold text-slate-900">{formatRange(it.unit.min, it.unit.max)}</span>
+                        <span className="text-[11px] text-slate-500 font-semibold">Line total</span>
+                        <span className="text-sm font-bold text-slate-900">{fmtPeso(l.net)}</span>
                       </div>
                     </div>
                   ))}
 
-                  <div className="flex justify-between text-slate-600 pt-1">
-                    <span>Subtotal ({itemCount} {itemCount === 1 ? 'item' : 'items'})</span>
-                    <span className="font-semibold text-slate-900">{formatRange(estimate.subtotalMin, estimate.subtotalMax)}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span className="flex items-center gap-1.5">
-                      <Truck className="w-3.5 h-3.5" />
-                      Shipping (est.)
-                    </span>
-                    {estimate.shippingFee === 0 ? (
-                      <span className="font-bold text-emerald-600">FREE</span>
-                    ) : (
-                      <span className="font-semibold text-slate-900">{formatPeso(estimate.shippingFee)}</span>
+                  {/* Rush order toggle — drives a +₱20/item fee. Admin can
+                      reduce or waive it in the Quote Builder later. */}
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl bg-orange-50 border border-orange-200 cursor-pointer hover:bg-orange-100/60 transition-colors">
+                    <input type="checkbox" checked={rush} onChange={(e) => setRush(e.target.checked)} className="mt-0.5 w-4 h-4 accent-orange-600" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-orange-900 text-sm flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5" /> Rush order
+                      </p>
+                      <p className="text-[11px] text-orange-700 leading-snug">+₱20 per item. Store may reduce or waive this in the final quote.</p>
+                    </div>
+                    {rush && (
+                      <span className="text-sm font-black text-orange-700 flex-shrink-0">+{fmtPeso(estimate.rushFee)}</span>
                     )}
+                  </label>
+
+                  <div className="flex justify-between text-slate-600 pt-1">
+                    <span>Items ({itemCount} {itemCount === 1 ? 'pc' : 'pcs'})</span>
+                    <span className="font-semibold text-slate-900">{fmtPeso(estimate.itemsGross)}</span>
                   </div>
+                  {estimate.bulkDiscountTotal > 0 && (
+                    <div className="flex justify-between text-emerald-700">
+                      <span>Bulk discount total</span>
+                      <span className="font-semibold">−{fmtPeso(estimate.bulkDiscountTotal)}</span>
+                    </div>
+                  )}
+                  {estimate.rushFee > 0 && (
+                    <div className="flex justify-between text-orange-700">
+                      <span>Rush fee</span>
+                      <span className="font-semibold">+{fmtPeso(estimate.rushFee)}</span>
+                    </div>
+                  )}
 
                   <div className="pt-3 border-t border-slate-100 flex items-baseline justify-between">
                     <span className="font-bold text-slate-900">Estimated total</span>
-                    <span className="text-xl font-black text-slate-900">{formatRange(estimate.totalMin, estimate.totalMax)}</span>
+                    <span className="text-xl font-black text-slate-900">{fmtPeso(estimate.total)}</span>
                   </div>
                 </div>
 

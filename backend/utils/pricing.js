@@ -1,129 +1,159 @@
 /**
- * pricing.js — server-side estimation engine.
+ * pricing.js — server-side mirror of src/app/utils/pricing.ts.
  *
- * Mirror of src/app/utils/pricing.ts. Keep the two in lock-step. See
- * the .ts file for the longer comments — this file holds the same
- * formulas in JS so the API can pre-fill the admin Quote Builder.
+ * Keep these two files in lock-step. The frontend computes the customer-
+ * facing estimate; the backend pre-fills the admin's Quote Builder with
+ * the same numbers. Any divergence is a bug.
  *
- * The Quote Builder admin sees this as the starting point; the admin
- * sets the FINAL price. This file never produces a final number, only
- * an estimate.
+ * Business rules in the .ts file's header comment.
  */
 
-export const BASE_PRICE_WHITE = 240;
-export const BASE_PRICE_COLORED = 250;
-
-export const FABRIC_UPCHARGE = {
-  cotton: 0,
-  poly: 30,
-  drifit: 80,
-  'dri-fit': 80,
-  jersey: 60,
-  linen: 100,
-  silk: 150,
-  cotton_poly: 40,
-  'cotton-poly': 40,
+export const COTTON_PRICE = {
+  XS: 230, S: 230, M: 240, L: 250, XL: 260, '2XL': 270, '3XL': 280, '5XL': 290,
 };
 
-export const DECAL_SURCHARGE = {
-  small: 30,
-  medium: 70,
-  large: 120,
-  xl: 180,
+export const POLYESTER_PRICE = {
+  small: 140, freesize: 170, oversize: 190, plus: 210,
 };
 
-export function classifyDecalSize(scale) {
-  const s = Math.max(0, Math.min(1, Number(scale) || 0));
-  if (s < 0.15) return 'small';
-  if (s < 0.40) return 'medium';
-  if (s < 0.70) return 'large';
-  return 'xl';
+export const FIXED_PRICE = {
+  tote: 180,
+  mug: 120,
+};
+
+export const PRINT_SIZE_FEE = {
+  none: 0, logo: 65, a4: 85, a3: 130, a2: 150,
+};
+
+export const BULK_DISCOUNT_PER_ITEM = 10;
+export const BULK_DISCOUNT_THRESHOLD = 30;
+export const RUSH_FEE_PER_ITEM = 20;
+
+export function availablePrintingMethods(category, fabric) {
+  if (category === 'mug')                return ['sublimation'];
+  if (category === 'tote')               return ['standard'];
+  if (category === 'cotton_shirt')       return ['dtf'];
+  if (category === 'polyester_wearable') return ['dtf', 'sublimation'];
+  const f = String(fabric || '').toLowerCase();
+  if (f === 'cotton')                    return ['dtf'];
+  if (f === 'polyester' || f === 'poly') return ['dtf', 'sublimation'];
+  return ['dtf'];
 }
 
-export const TEXT_DECAL_DISCOUNT = 0.5;
+function inferCategoryFromName(name) {
+  const n = String(name || '').toLowerCase();
+  if (/\bmug\b/.test(n))                          return 'mug';
+  if (/tote|bag/.test(n))                         return 'tote';
+  if (/jersey|polyester|drifit|dri-fit/.test(n))  return 'polyester_wearable';
+  if (/shirt|tee|t-shirt|cotton/.test(n))         return 'cotton_shirt';
+  return 'cotton_shirt';
+}
 
-export const RUSH_MULTIPLIER = {
-  standard: 0,
-  express: 0.10,
-  rush: 0.20,
-  priority: 0.40,
-};
+function normalizeCottonSize(s) {
+  const t = String(s || '').toUpperCase().replace(/\s+/g, '');
+  if (t === 'XS') return 'XS';
+  if (t === 'S')  return 'S';
+  if (t === 'M')  return 'M';
+  if (t === 'L')  return 'L';
+  if (t === 'XL') return 'XL';
+  if (t === '2XL' || t === 'XXL')   return '2XL';
+  if (t === '3XL' || t === 'XXXL')  return '3XL';
+  if (t === '5XL') return '5XL';
+  return 'M';
+}
 
-export const SHIPPING_FEE_FLAT = 100;
-export const SHIPPING_FREE_THRESHOLD = 500;
-export const PRINT_AREA_SURCHARGE = 50;
+function normalizePolyesterSize(s) {
+  const t = String(s || '').toLowerCase();
+  if (t === 'small' || t === 's')                    return 'small';
+  if (t === 'oversize' || t === 'xl' || t === '2xl') return 'oversize';
+  if (t === 'plus' || t === '3xl')                   return 'plus';
+  return 'freesize';
+}
+
+export function getBaseUnitPrice(item) {
+  const c = (item && item.customization) || {};
+  const cat = c.productCategory || inferCategoryFromName(item && item.name);
+
+  if (cat === 'tote') return { price: FIXED_PRICE.tote, label: 'Tote Bag (standard)' };
+  if (cat === 'mug')  return { price: FIXED_PRICE.mug,  label: 'Mug + box + sticker' };
+  if (cat === 'cotton_shirt') {
+    const k = normalizeCottonSize(c.size);
+    return { price: COTTON_PRICE[k], label: `Cotton shirt · ${k}` };
+  }
+  if (cat === 'polyester_wearable') {
+    const k = normalizePolyesterSize(c.size);
+    const pretty = ({ small: 'Small', freesize: 'Freesize (M–L)', oversize: 'Oversize (XL–2XL)', plus: 'Plus Size (3XL)' })[k];
+    return { price: POLYESTER_PRICE[k], label: `Polyester · ${pretty}` };
+  }
+  return { price: 240, label: 'Item · M' };
+}
 
 export function estimateUnitPrice(item) {
   const c = (item && item.customization) || {};
+  const cat = c.productCategory || inferCategoryFromName(item && item.name);
+  const { price: base, label: baseLabel } = getBaseUnitPrice(item);
 
-  const colorStr = String(c.color || '').toLowerCase();
-  const isWhite = colorStr.includes('white') || colorStr === '#ffffff' || colorStr === 'fff';
-  const base = isWhite ? BASE_PRICE_WHITE : BASE_PRICE_COLORED;
-  const baseLabel = isWhite ? 'Base (white shirt)' : 'Base (colored shirt)';
+  const ps = String(c.printSize || 'logo').toLowerCase();
+  const printSize = ['none','logo','a4','a3','a2'].includes(ps) ? ps : 'logo';
+  const printSizeFee = PRINT_SIZE_FEE[printSize] || 0;
 
-  const fabricKey = String(c.fabric || '').toLowerCase().replace(/[\s_-]+/g, '');
-  let fabricUpcharge = 0;
-  for (const [k, v] of Object.entries(FABRIC_UPCHARGE)) {
-    if (k.replace(/[\s_-]+/g, '').toLowerCase() === fabricKey) { fabricUpcharge = v; break; }
-  }
-  const fabricLabel = c.fabricLabel || c.fabric || 'Cotton';
+  const allowed = availablePrintingMethods(cat, c.fabric);
+  let method = c.printingMethod || allowed[0];
+  if (!allowed.includes(method)) method = allowed[0];
 
-  const decals = Array.isArray(c.decals) ? c.decals : [];
-  const decalSurcharges = [];
-  if (decals.length > 0) {
-    for (const d of decals) {
-      const tier = classifyDecalSize(d.scale != null ? d.scale : 0.3);
-      const type = d.type === 'text' ? 'text' : 'image';
-      const base = DECAL_SURCHARGE[tier];
-      const amount = Math.round(type === 'text' ? base * TEXT_DECAL_DISCOUNT : base);
-      decalSurcharges.push({ tier, type, amount });
-    }
-  } else {
-    if (c.text)  decalSurcharges.push({ tier: 'medium', type: 'text',  amount: Math.round(DECAL_SURCHARGE.medium * TEXT_DECAL_DISCOUNT) });
-    if (c.image) decalSurcharges.push({ tier: 'medium', type: 'image', amount: DECAL_SURCHARGE.medium });
-  }
-  const decalTotal = decalSurcharges.reduce((s, x) => s + x.amount, 0);
-
-  const printAreas = Math.max(1, Number(c.printAreas) || 1);
-  const multiSideSurcharge = Math.max(0, printAreas - 1) * PRINT_AREA_SURCHARGE;
-
-  const unit = base + fabricUpcharge + decalTotal + multiSideSurcharge;
   return {
-    base, baseLabel, fabricUpcharge, fabricLabel,
-    decalSurcharges, decalTotal,
-    multiSideSurcharge, printAreas,
-    unit,
-    min: Math.round(unit * 0.95),
-    max: Math.round(unit * 1.15),
+    category: cat,
+    base, baseLabel,
+    printSize, printSizeFee,
+    printingMethod: method,
+    unit: base + printSizeFee,
   };
 }
 
 export function estimateOrderTotal(items, options = {}) {
-  const itemEstimates = (items || []).map((it) => {
+  const lines = (items || []).map((it) => {
     const qty = Math.max(1, Number(it.quantity) || 1);
     const unit = estimateUnitPrice(it);
-    return {
-      sku: it.sku, name: it.name, quantity: qty, unit,
-      lineMin: unit.min * qty, lineMax: unit.max * qty,
-    };
+    const gross = unit.unit * qty;
+    const bulkDiscount = qty >= BULK_DISCOUNT_THRESHOLD ? qty * BULK_DISCOUNT_PER_ITEM : 0;
+    const net = gross - bulkDiscount;
+    return { sku: it.sku, name: it.name, quantity: qty, unit, gross, bulkDiscount, net };
   });
 
-  const subtotalMin = itemEstimates.reduce((s, x) => s + x.lineMin, 0);
-  const subtotalMax = itemEstimates.reduce((s, x) => s + x.lineMax, 0);
+  const totalItems = lines.reduce((s, l) => s + l.quantity, 0);
+  const itemsGross = lines.reduce((s, l) => s + l.gross, 0);
+  const bulkDiscountTotal = lines.reduce((s, l) => s + l.bulkDiscount, 0);
+  const itemsNet = itemsGross - bulkDiscountTotal;
 
-  const rushPct = RUSH_MULTIPLIER[options.urgencyTier || 'standard'] || 0;
-  const rushMin = Math.round(subtotalMin * rushPct);
-  const rushMax = Math.round(subtotalMax * rushPct);
+  let rushFee = options.rush ? totalItems * RUSH_FEE_PER_ITEM : 0;
+  if (typeof options.rushOverride === 'number') rushFee = Math.max(0, options.rushOverride);
 
-  const isPickup = options.deliveryMethod === 'pickup';
-  const shippingFee = isPickup ? 0 : (subtotalMin >= SHIPPING_FREE_THRESHOLD ? 0 : SHIPPING_FEE_FLAT);
+  const manualAdjustment = Number(options.manualAdjustment) || 0;
+  const total = Math.max(0, itemsNet + rushFee + manualAdjustment);
 
   return {
-    items: itemEstimates,
-    subtotalMin, subtotalMax,
-    rushPct, rushMin, rushMax,
-    shippingFee,
-    totalMin: subtotalMin + rushMin + shippingFee,
-    totalMax: subtotalMax + rushMax + shippingFee,
+    lines, totalItems, itemsGross, bulkDiscountTotal, itemsNet,
+    rushFee, rushApplied: !!options.rush || (typeof options.rushOverride === 'number' && options.rushOverride > 0),
+    manualAdjustment,
+    manualAdjustmentLabel: options.manualAdjustmentLabel || (manualAdjustment ? 'Adjustment' : ''),
+    total,
   };
+}
+
+export function quotationLinesFromEstimate(est) {
+  const out = [];
+  for (const l of est.lines) {
+    const parts = [l.name || l.unit.baseLabel];
+    parts.push(`× ${l.quantity} @ ₱${l.unit.base}`);
+    out.push({ label: parts.join(' '), amount: l.unit.base * l.quantity });
+    if (l.unit.printSizeFee > 0) {
+      out.push({ label: `${l.unit.printSize.toUpperCase()} print · × ${l.quantity}`, amount: l.unit.printSizeFee * l.quantity });
+    }
+    if (l.bulkDiscount > 0) {
+      out.push({ label: `Bulk discount (≥${BULK_DISCOUNT_THRESHOLD} pcs · −₱${BULK_DISCOUNT_PER_ITEM}/pc)`, amount: -l.bulkDiscount });
+    }
+  }
+  if (est.rushFee > 0) out.push({ label: `Rush fee (₱${RUSH_FEE_PER_ITEM}/item × ${est.totalItems})`, amount: est.rushFee });
+  if (est.manualAdjustment !== 0) out.push({ label: est.manualAdjustmentLabel || 'Adjustment', amount: est.manualAdjustment });
+  return out;
 }

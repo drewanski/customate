@@ -71,6 +71,13 @@ const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAw
   const inv = await fetch(BASE + '/inventory', { headers: AHDR }).then((r) => r.json());
   const tee = (Array.isArray(inv) ? inv : inv.items || []).find((i) => /shirt|tee|tote/i.test(i.name));
   if (!tee) throw new Error('No shirt/tee/tote SKU in inventory — seed inventory first.');
+  // 3 cotton shirts at size L with A3 print, rush selected.
+  // Expected math (via pricing engine):
+  //   base 250 (Cotton L) + 130 (A3) = 380 / pc
+  //   gross 380 × 3 = 1,140
+  //   bulk discount: 0 (qty < 30)
+  //   rush = 3 × 20 = 60
+  //   total = 1,200
   const order = await fetchJson('/orders', {
     method: 'POST',
     headers: CHDR,
@@ -80,15 +87,19 @@ const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAw
         quantity: 3,
         customization: {
           color: 'white',
-          size: 'M',
+          size: 'L',
           placement: 'Center Front',
           fabric: 'cotton',
           text: 'Hello World',
+          productCategory: 'cotton_shirt',
+          printingMethod: 'dtf',
+          printSize: 'a3',
         },
       }],
       shippingAddress: '742 Demo Avenue, Brgy Real, Quezon City',
       contactPhone: '0917 555 9090',
       deliveryMethod: 'delivery',
+      rush: true,
     }),
   });
   ok(`Order created: ${order.id}  ·  status=${order.status}  ·  workflowVersion=${order.workflowVersion}`);

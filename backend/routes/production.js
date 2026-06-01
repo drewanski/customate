@@ -8,6 +8,7 @@ import ProductionCapacity from '../models/ProductionCapacity.js';
 import { authMiddleware, adminMiddleware, requireRoles, requireManager, requireProductionStaff } from '../middleware/auth.js';
 import { consumeReservedForOrder } from '../services/inventory.js';
 import { notifyCustomerOfStatus } from './orders.js';
+import { postSystemMessage } from './chat.js';
 
 /**
  * Loophole guard: any code path that changes order.status from a production
@@ -1154,6 +1155,22 @@ router.post('/:id/qc-approve', adminMiddleware, async (req, res) => {
       },
       note: 'QC approved — order is ready',
     });
+
+    // Quotation orders: auto-publish a chat card with the QC photo and the
+    // balance-due request the moment QC is approved. Customer doesn't have
+    // to chase anything — the next action is plainly visible.
+    if (order.workflowVersion === 'quotation') {
+      const bal = order.payments?.balance?.amount || 0;
+      await postSystemMessage({
+        orderId: order._id,
+        body:
+          `📸 Your order passed quality control!\n\n` +
+          `The finished product photo is now available on your order page. ` +
+          `To release the order, please pay the remaining balance of ₱${bal.toLocaleString()} ` +
+          `and upload proof of payment here.`,
+        meta: { type: 'qc_published', qcPhoto: order.qcPhoto, balanceAmount: bal },
+      });
+    }
 
     const populated = await attachUsers(order);
     res.json(populated);

@@ -648,10 +648,7 @@ router.post('/', authMiddleware, async (req, res) => {
     // orders get a plain "we received your order" line.
     try {
       if (workflowVersion === 'quotation') {
-        const est = estimateOrderTotal(orderItems, {
-          urgencyTier: urgencySnapshot.tier,
-          deliveryMethod: deliveryMethod === 'pickup' ? 'pickup' : 'delivery',
-        });
+        const est = estimateOrderTotal(orderItems, { rush: !!req.body.rush });
         await postSystemMessage({
           orderId: order._id,
           body:
@@ -659,7 +656,7 @@ router.post('/', authMiddleware, async (req, res) => {
             `We'll review your design and send a final quote here shortly. ` +
             `Once you accept the quote and pay the 50% downpayment, production will start. ` +
             `The remaining 50% balance is due before release.\n\n` +
-            `Estimated range: ₱${est.totalMin.toLocaleString()} – ₱${est.totalMax.toLocaleString()} (final price set by the store).`,
+            `Estimated total: ₱${est.total.toLocaleString()} (final price set by the store).`,
           meta: { type: 'quote_intro', estimate: est },
         });
       } else {

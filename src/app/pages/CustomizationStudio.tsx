@@ -352,6 +352,13 @@ export function CustomizationStudio() {
     textShadow: 0,               // 0..10 — shadow blur radius
     textShadowColor: '#000000',  // shadow color
     textLetterSpacing: 0,        // -5..20 px letter spacing
+    // ─ Quotation-workflow pricing fields ─────────────────────────────────
+    // These map 1:1 to the pricing engine. Defaults are safe values for
+    // a cotton shirt with a logo print — overridden below as soon as the
+    // product loads so the customer's first view matches the real price.
+    productCategory: 'cotton_shirt' as 'cotton_shirt' | 'polyester_wearable' | 'tote' | 'mug' | 'other',
+    printingMethod: 'dtf' as 'dtf' | 'sublimation' | 'standard',
+    printSize: 'logo' as 'none' | 'logo' | 'a4' | 'a3' | 'a2',
   });
 
 
@@ -558,6 +565,21 @@ export function CustomizationStudio() {
     apiRequest(`/inventory/${productId}`)
       .then((data) => {
         setProduct(data);
+        // Auto-derive product category + safe initial printing method based
+        // on the product. Cotton shirt → DTF, Polyester wearable → DTF (with
+        // option to switch to Sublimation), Mug → Sublimation, Tote → Standard.
+        const n = String(data?.name || '').toLowerCase();
+        const cat: 'cotton_shirt' | 'polyester_wearable' | 'tote' | 'mug' | 'other' =
+          /\bmug\b/.test(n) ? 'mug'
+          : /tote|bag/.test(n) ? 'tote'
+          : /jersey|polyester|drifit|dri-fit/.test(n) ? 'polyester_wearable'
+          : /shirt|tee|t-shirt|cotton/.test(n) ? 'cotton_shirt'
+          : 'other';
+        const method: 'dtf' | 'sublimation' | 'standard' =
+          cat === 'mug' ? 'sublimation'
+          : cat === 'tote' ? 'standard'
+          : 'dtf';  // safe default for both cotton & polyester
+        setCustomization((c) => ({ ...c, productCategory: cat, printingMethod: method }));
       })
       .catch(() => setProduct(import.meta.env.DEV ? getFallbackProduct(productId) : null))
       .finally(() => setLoading(false));
@@ -1604,7 +1626,19 @@ export function CustomizationStudio() {
                       return (
                         <button
                           key={f.code}
-                          onClick={() => setCustomization({ ...customization, fabric: f.code })}
+                          onClick={() => {
+                            // Picking a fabric updates productCategory + valid printing
+                            // method together so the picker downstream is always coherent.
+                            const fabricCode = (f.code || '').toLowerCase();
+                            const isPoly = fabricCode === 'polyester' || fabricCode === 'poly';
+                            const isCotton = fabricCode === 'cotton';
+                            const cat = isPoly ? 'polyester_wearable'
+                              : isCotton ? 'cotton_shirt'
+                              : customization.productCategory;
+                            // Cotton has no sublimation option → snap to DTF when switching.
+                            const method = (cat === 'cotton_shirt' && customization.printingMethod === 'sublimation') ? 'dtf' : customization.printingMethod;
+                            setCustomization({ ...customization, fabric: f.code, productCategory: cat as any, printingMethod: method });
+                          }}
                           className={`p-3 rounded-xl text-left transition-all border-2 flex items-start gap-3 ${
                             active
                               ? 'bg-gradient-to-br from-blue-600 to-indigo-600 border-blue-600 text-white shadow-lg shadow-blue-200/60'
@@ -1748,6 +1782,111 @@ export function CustomizationStudio() {
                   onChange={(e) => setCustomization({ ...customization, placement: e.target.value })}
                   className="rounded-xl border-slate-200"
                 />
+              </div>
+
+              {/* ── Printing method picker ─────────────────────────────────
+                  Gated by fabric:  Cotton = DTF only
+                                    Polyester = DTF or Sublimation
+                                    Mug = Sublimation (auto)
+                                    Tote = Standard (auto)
+                  When two are available, show a compact DTF-vs-Sublimation
+                  comparison panel so the customer picks knowingly. */}
+              {(() => {
+                const cat = customization.productCategory;
+                // Available methods by product/fabric
+                const methods = cat === 'mug' ? ['sublimation']
+                  : cat === 'tote' ? ['standard']
+                  : cat === 'polyester_wearable' ? ['dtf', 'sublimation']
+                  : ['dtf'];
+                if (methods.length === 1) {
+                  // Locked — show as info, not a picker.
+                  const m = methods[0];
+                  const label = m === 'dtf' ? 'DTF Printing' : m === 'sublimation' ? 'Sublimation Printing' : 'Standard Print';
+                  return (
+                    <div className="rounded-xl bg-blue-50 border border-blue-200 px-3 py-2.5">
+                      <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Printing method</p>
+                      <p className="text-sm font-bold text-blue-900 mt-0.5">{label}</p>
+                      <p className="text-[11px] text-blue-700/80 mt-0.5">
+                        {cat === 'mug'  && 'Sublimation is the only supported process for mugs.'}
+                        {cat === 'tote' && 'Standard print included with every tote bag.'}
+                        {cat === 'cotton_shirt' && 'DTF (Direct-to-Film) is the only compatible method with cotton.'}
+                      </p>
+                    </div>
+                  );
+                }
+                // Two-option picker (Polyester) + comparison panel
+                return (
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 block">Printing method</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['dtf','sublimation'] as const).map((m) => {
+                        const active = customization.printingMethod === m;
+                        return (
+                          <button
+                            key={m}
+                            onClick={() => setCustomization({ ...customization, printingMethod: m })}
+                            className={`p-3 rounded-xl text-left border-2 transition-all ${active
+                              ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-200'
+                              : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'}`}
+                          >
+                            <p className={`text-sm font-bold ${active ? 'text-white' : 'text-slate-900'}`}>{m === 'dtf' ? 'DTF Printing' : 'Sublimation'}</p>
+                            <p className={`text-[10px] ${active ? 'text-white/85' : 'text-slate-500'}`}>{m === 'dtf' ? 'Direct-to-Film' : 'Heat-bonded into fabric'}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Compact comparison — only shown when both methods are
+                        truly available. Helps customers pick knowingly. */}
+                    <div className="mt-3 rounded-xl bg-slate-50 border border-slate-200 overflow-hidden text-[11px]">
+                      <div className="grid grid-cols-3 bg-slate-100 px-3 py-1.5 font-bold text-slate-700 uppercase tracking-wider text-[10px]">
+                        <span></span><span>DTF</span><span>Sublimation</span>
+                      </div>
+                      {[
+                        ['Compatible fabric', 'Cotton + Polyester', 'Polyester only'],
+                        ['Print quality',     'Sharp, vibrant',     'Photo-realistic'],
+                        ['Durability',        'Excellent',          'Excellent (fades less)'],
+                        ['Color vibrancy',    'Bright (any color)', 'Brightest (light bases)'],
+                        ['Print texture',     'Slight feel on top', 'Dyed into fabric — none'],
+                        ['Best for',          'Logos, designs',     'All-over prints'],
+                        ['Pricing',           'Same base',          'Same base'],
+                      ].map(([row, dtf, sub], i) => (
+                        <div key={i} className={`grid grid-cols-3 gap-2 px-3 py-1.5 ${i % 2 ? 'bg-white' : ''}`}>
+                          <span className="font-semibold text-slate-700">{row}</span>
+                          <span className="text-slate-600">{dtf}</span>
+                          <span className="text-slate-600">{sub}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Print size picker ────────────────────────────────────
+                  Adds the print fee to base price per the rate card. */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 block">Print size</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {([
+                    { code: 'logo' as const, label: 'Logo', fee: 65 },
+                    { code: 'a4'   as const, label: 'A4',   fee: 85 },
+                    { code: 'a3'   as const, label: 'A3',   fee: 130 },
+                    { code: 'a2'   as const, label: 'A2',   fee: 150 },
+                  ]).map((p) => {
+                    const active = customization.printSize === p.code;
+                    return (
+                      <button
+                        key={p.code}
+                        onClick={() => setCustomization({ ...customization, printSize: p.code })}
+                        className={`p-2 rounded-xl border-2 transition-all ${active
+                          ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-200'
+                          : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'}`}
+                      >
+                        <p className={`text-xs font-bold ${active ? 'text-white' : 'text-slate-900'}`}>{p.label}</p>
+                        <p className={`text-[10px] ${active ? 'text-white/80' : 'text-slate-500'}`}>+₱{p.fee}</p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="pt-4 border-t border-slate-100">

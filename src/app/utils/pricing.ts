@@ -1,91 +1,147 @@
 /**
- * pricing.ts — shared estimation engine (frontend mirror).
+ * pricing.ts — single source of truth for ALL price math.
  *
- * Custom merch can't have a "final price" until the admin reviews the design,
- * but we still owe the customer a *useful* estimate at the cart so they know
- * the rough ballpark. This module computes that estimate with a transparent,
- * itemized breakdown.
+ * Every screen that displays a price (Cart, Checkout, Customizer, Order
+ * Tracking, Quote Builder, Order Detail Drawer, Invoice) calls into this
+ * file. Keep in lock-step with backend/utils/pricing.js — both files
+ * implement the SAME formulas so the customer's estimate matches what the
+ * admin sees when opening the Quote Builder.
  *
- * Keep in lock-step with backend/utils/pricing.js — the two files implement
- * the same formula so the customer's estimate matches the admin's pre-fill
- * when the admin opens the Quote Builder.
+ * BUSINESS RULES (set by the shop owner, do not change without sign-off):
  *
- * Final price is set by the admin via the Quote Builder; this is purely an
- * estimate shown on cart/checkout/order-tracking with a disclaimer.
+ *   DTF Cotton (shirts)
+ *     XS/S = ₱230, M = ₱240, L = ₱250, XL = ₱260,
+ *     2XL  = ₱270, 3XL = ₱280, 5XL = ₱290
+ *
+ *   Sublimation on Polyester wearables
+ *     Small = ₱140, Freesize (M-L) = ₱170,
+ *     Oversize (XL-2XL) = ₱190, Plus Size (3XL) = ₱210
+ *
+ *   Tote bag = ₱180 fixed (standard print included)
+ *   Mug      = ₱120 fixed (mug + box + sticker, sublimation)
+ *
+ *   Print size add-on
+ *     Logo only = ₱65, A4 = ₱85, A3 = ₱130, A2 = ₱150
+ *
+ *   Bulk discount  = −₱10 per item when quantity of a line ≥ 30
+ *   Rush fee       = +₱20 per item across the order (admin can waive/override)
+ *
+ * Compatibility:
+ *   Cotton    → DTF only
+ *   Polyester → DTF or Sublimation
+ *   Mug       → Sublimation auto
+ *   Tote      → standard auto
  */
 
-// ── Base price per shirt color ───────────────────────────────────────
-// Source: business owner specification.
-export const BASE_PRICE_WHITE = 240;
-export const BASE_PRICE_COLORED = 250;
+// ── Types ────────────────────────────────────────────────────────────
+export type ProductCategory =
+  | 'cotton_shirt'
+  | 'polyester_wearable'
+  | 'tote'
+  | 'mug'
+  | 'other';
 
-// ── Fabric upcharges (peso) — paid on TOP of base ────────────────────
-// Set per the available fabrics in PRODUCT_MODELS / Inventory.fabrics.
-export const FABRIC_UPCHARGE: Record<string, number> = {
-  cotton: 0,
-  poly: 30,
-  drifit: 80,
-  'dri-fit': 80,
-  jersey: 60,
-  linen: 100,
-  silk: 150,
-  cotton_poly: 40,
-  'cotton-poly': 40,
+export type CottonSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | '2XL' | '3XL' | '5XL';
+export type PolyesterSize = 'small' | 'freesize' | 'oversize' | 'plus';
+export type AnySize = CottonSize | PolyesterSize | string;
+
+export type PrintingMethod = 'dtf' | 'sublimation' | 'standard';
+export type PrintSize = 'none' | 'logo' | 'a4' | 'a3' | 'a2';
+
+// ── Lookup tables ────────────────────────────────────────────────────
+export const COTTON_PRICE: Record<CottonSize, number> = {
+  XS: 230, S: 230, M: 240, L: 250, XL: 260, '2XL': 270, '3XL': 280, '5XL': 290,
 };
 
-// ── Decal coverage tiers ──────────────────────────────────────────────
-// `scale` is a normalised 0–1 ratio of the decal's bounding box vs the
-// canvas. We rank into four tiers because printing cost jumps non-linearly
-// (a small chest logo vs a full-front print is a 4× cost difference IRL).
-export type DecalSizeTier = 'small' | 'medium' | 'large' | 'xl';
-
-export const DECAL_SURCHARGE: Record<DecalSizeTier, number> = {
-  small: 30,   // < 15% — chest badge / small logo
-  medium: 70,  // 15-40% — typical front graphic
-  large: 120,  // 40-70% — large front print
-  xl: 180,     // > 70% — full coverage
+export const POLYESTER_PRICE: Record<PolyesterSize, number> = {
+  small: 140, freesize: 170, oversize: 190, plus: 210,
 };
 
-export function classifyDecalSize(scale: number): DecalSizeTier {
-  const s = Math.max(0, Math.min(1, Number(scale) || 0));
-  if (s < 0.15) return 'small';
-  if (s < 0.40) return 'medium';
-  if (s < 0.70) return 'large';
-  return 'xl';
+export const FIXED_PRICE: Partial<Record<ProductCategory, number>> = {
+  tote: 180,
+  mug: 120,
+};
+
+export const PRINT_SIZE_FEE: Record<PrintSize, number> = {
+  none: 0,
+  logo: 65,
+  a4: 85,
+  a3: 130,
+  a2: 150,
+};
+
+export const BULK_DISCOUNT_PER_ITEM = 10;
+export const BULK_DISCOUNT_THRESHOLD = 30;
+export const RUSH_FEE_PER_ITEM = 20;
+
+// Compatibility — what printing methods are available for each (category, fabric).
+export function availablePrintingMethods(
+  category: ProductCategory,
+  fabric?: string,
+): PrintingMethod[] {
+  if (category === 'mug') return ['sublimation'];
+  if (category === 'tote') return ['standard'];
+  if (category === 'cotton_shirt') return ['dtf'];  // cotton → DTF only
+  if (category === 'polyester_wearable') {
+    // Polyester can do both DTF and Sublimation
+    return ['dtf', 'sublimation'];
+  }
+  // Fallback: use fabric explicitly
+  const f = String(fabric || '').toLowerCase();
+  if (f === 'cotton') return ['dtf'];
+  if (f === 'polyester' || f === 'poly') return ['dtf', 'sublimation'];
+  return ['dtf'];
 }
 
-// Text decals are ~50% cheaper to produce than image decals at the same size.
-export const TEXT_DECAL_DISCOUNT = 0.5;
-
-// ── Rush fee (% of subtotal) ─────────────────────────────────────────
-export const RUSH_MULTIPLIER: Record<string, number> = {
-  standard: 0,
-  express: 0.10,
-  rush: 0.20,
-  priority: 0.40,
+// ── Helpers ──────────────────────────────────────────────────────────
+const PRETTY_SIZE: Record<string, string> = {
+  XS: 'XS', S: 'S', M: 'M', L: 'L', XL: 'XL',
+  '2XL': '2XL', '3XL': '3XL', '5XL': '5XL',
+  small: 'Small', freesize: 'Freesize (M–L)',
+  oversize: 'Oversize (XL–2XL)', plus: 'Plus Size (3XL)',
 };
 
-// ── Shipping ──────────────────────────────────────────────────────────
-// Free over ₱500, ₱100 otherwise. Pickup is always free.
-export const SHIPPING_FEE_FLAT = 100;
-export const SHIPPING_FREE_THRESHOLD = 500;
+const PRETTY_PRINT_SIZE: Record<PrintSize, string> = {
+  none: 'No print',
+  logo: 'Logo only',
+  a4: 'A4',
+  a3: 'A3',
+  a2: 'A2',
+};
 
-// ── Multi-print-area surcharge ───────────────────────────────────────
-export const PRINT_AREA_SURCHARGE = 50;  // +₱50 per area after the first
+const PRETTY_METHOD: Record<PrintingMethod, string> = {
+  dtf: 'DTF Printing',
+  sublimation: 'Sublimation Printing',
+  standard: 'Standard Print',
+};
 
-export interface DecalLike {
-  type?: 'text' | 'image';
-  scale?: number;
-}
+const PRETTY_CATEGORY: Record<ProductCategory, string> = {
+  cotton_shirt: 'Cotton Shirt',
+  polyester_wearable: 'Polyester Wearable',
+  tote: 'Tote Bag',
+  mug: 'Mug',
+  other: 'Item',
+};
 
+export function getCategoryLabel(c: ProductCategory) { return PRETTY_CATEGORY[c] || c; }
+export function getSizeLabel(s: string)              { return PRETTY_SIZE[s] || s; }
+export function getPrintSizeLabel(p: PrintSize)      { return PRETTY_PRINT_SIZE[p] || p; }
+export function getMethodLabel(m: PrintingMethod)    { return PRETTY_METHOD[m] || m; }
+
+// ── Item shape ───────────────────────────────────────────────────────
 export interface ItemCustomization {
-  color?: string;
+  productCategory?: ProductCategory | string;
+  size?: AnySize;
   fabric?: string;
   fabricLabel?: string;
+  printingMethod?: PrintingMethod | string;
+  printSize?: PrintSize | string;
+  color?: string;
+  // legacy / supplementary
   text?: string;
   image?: string;
-  printAreas?: number;
-  decals?: DecalLike[];
+  decals?: any[];
+  rush?: boolean;
 }
 
 export interface ItemLike {
@@ -95,168 +151,227 @@ export interface ItemLike {
   customization?: ItemCustomization;
 }
 
-export interface UnitEstimate {
-  base: number;
-  baseLabel: string;
-  fabricUpcharge: number;
-  fabricLabel: string;
-  decalSurcharges: { tier: DecalSizeTier; type: 'text' | 'image'; amount: number }[];
-  decalTotal: number;
-  multiSideSurcharge: number;
-  printAreas: number;
-  unit: number;
-  /** Range bounds — give the customer a ballpark band. */
-  min: number;
-  max: number;
+// ── Base unit price ─────────────────────────────────────────────────
+/**
+ * Returns the BASE price for one piece of this item (NOT including print
+ * size fee). Resolves from (category, size). Falls back gracefully for
+ * unknown combos so the engine never crashes on bad input.
+ */
+export function getBaseUnitPrice(item: ItemLike): { price: number; label: string } {
+  const c = item.customization || {};
+  const cat = (c.productCategory || inferCategoryFromName(item.name)) as ProductCategory;
+
+  // Tote + Mug are flat-priced.
+  if (cat === 'tote') return { price: FIXED_PRICE.tote || 180, label: 'Tote Bag (standard)' };
+  if (cat === 'mug')  return { price: FIXED_PRICE.mug  || 120, label: 'Mug + box + sticker' };
+
+  if (cat === 'cotton_shirt') {
+    const k = normalizeCottonSize(c.size);
+    return { price: COTTON_PRICE[k], label: `Cotton shirt · ${PRETTY_SIZE[k]}` };
+  }
+
+  if (cat === 'polyester_wearable') {
+    const k = normalizePolyesterSize(c.size);
+    return { price: POLYESTER_PRICE[k], label: `Polyester · ${PRETTY_SIZE[k]}` };
+  }
+
+  // Unknown category — assume cotton M as a safe fallback.
+  return { price: 240, label: 'Item · M' };
+}
+
+function normalizeCottonSize(s: any): CottonSize {
+  const t = String(s || '').toUpperCase().replace(/\s+/g, '');
+  if (t === 'XS') return 'XS';
+  if (t === 'S')  return 'S';
+  if (t === 'M')  return 'M';
+  if (t === 'L')  return 'L';
+  if (t === 'XL') return 'XL';
+  if (t === '2XL' || t === 'XXL')   return '2XL';
+  if (t === '3XL' || t === 'XXXL')  return '3XL';
+  if (t === '5XL' || t === 'XXXXXL') return '5XL';
+  return 'M';
+}
+
+function normalizePolyesterSize(s: any): PolyesterSize {
+  const t = String(s || '').toLowerCase();
+  if (t === 'small' || t === 's')                          return 'small';
+  if (t === 'oversize' || t === 'xl' || t === '2xl')       return 'oversize';
+  if (t === 'plus' || t === '3xl')                         return 'plus';
+  return 'freesize';
 }
 
 /**
- * Estimate the per-unit price for a single line item.
- *
- * The breakdown is the important part — it lets the cart show:
- *   "₱250 base + ₱80 Dri-Fit + ₱120 large front print = ₱450/each"
- * so the customer can see *why* it costs what it does.
+ * Best-effort category inference from a product name when the explicit
+ * `customization.productCategory` is missing. Keeps legacy orders working.
  */
+function inferCategoryFromName(name?: string): ProductCategory {
+  const n = String(name || '').toLowerCase();
+  if (/\bmug\b/.test(n))                          return 'mug';
+  if (/tote|bag/.test(n))                         return 'tote';
+  if (/jersey|polyester|drifit|dri-fit/.test(n))  return 'polyester_wearable';
+  if (/shirt|tee|t-shirt|cotton/.test(n))         return 'cotton_shirt';
+  return 'cotton_shirt';
+}
+
+// ── Detailed per-unit estimate ──────────────────────────────────────
+export interface UnitEstimate {
+  category: ProductCategory;
+  categoryLabel: string;
+  base: number;
+  baseLabel: string;
+  printSize: PrintSize;
+  printSizeLabel: string;
+  printSizeFee: number;
+  printingMethod: PrintingMethod;
+  printingMethodLabel: string;
+  unit: number;
+}
+
 export function estimateUnitPrice(item: ItemLike): UnitEstimate {
   const c = item.customization || {};
+  const cat = (c.productCategory || inferCategoryFromName(item.name)) as ProductCategory;
+  const { price: base, label: baseLabel } = getBaseUnitPrice(item);
 
-  // Base price — white vs colored.
-  const colorStr = String(c.color || '').toLowerCase();
-  const isWhite = colorStr.includes('white') || colorStr === '#ffffff' || colorStr === 'fff';
-  const base = isWhite ? BASE_PRICE_WHITE : BASE_PRICE_COLORED;
-  const baseLabel = isWhite ? 'Base (white shirt)' : 'Base (colored shirt)';
+  const ps = String(c.printSize || 'logo').toLowerCase() as PrintSize;
+  const printSize: PrintSize = (['none', 'logo', 'a4', 'a3', 'a2'] as PrintSize[]).includes(ps) ? ps : 'logo';
+  const printSizeFee = PRINT_SIZE_FEE[printSize] || 0;
 
-  // Fabric upcharge.
-  const fabricKey = String(c.fabric || '').toLowerCase().replace(/[\s_-]+/g, '');
-  const fabricUpcharge = (() => {
-    // Try fuzzy match — fabric codes vary slightly between sources.
-    for (const [k, v] of Object.entries(FABRIC_UPCHARGE)) {
-      if (k.replace(/[\s_-]+/g, '').toLowerCase() === fabricKey) return v;
-    }
-    return 0;
-  })();
-  const fabricLabel = c.fabricLabel || c.fabric || 'Cotton';
-
-  // Decal surcharges — each decal's size class contributes a fee.
-  const decals = Array.isArray(c.decals) ? c.decals : [];
-  const decalSurcharges: { tier: DecalSizeTier; type: 'text' | 'image'; amount: number }[] = [];
-
-  if (decals.length > 0) {
-    for (const d of decals) {
-      const tier = classifyDecalSize(d.scale ?? 0.3);
-      const type: 'text' | 'image' = d.type === 'text' ? 'text' : 'image';
-      const base = DECAL_SURCHARGE[tier];
-      const amount = Math.round(type === 'text' ? base * TEXT_DECAL_DISCOUNT : base);
-      decalSurcharges.push({ tier, type, amount });
-    }
-  } else {
-    // Legacy customization shape (single text + single image fields).
-    // Each counts as a medium decal.
-    if (c.text) decalSurcharges.push({ tier: 'medium', type: 'text', amount: Math.round(DECAL_SURCHARGE.medium * TEXT_DECAL_DISCOUNT) });
-    if (c.image) decalSurcharges.push({ tier: 'medium', type: 'image', amount: DECAL_SURCHARGE.medium });
-  }
-  const decalTotal = decalSurcharges.reduce((s, x) => s + x.amount, 0);
-
-  // Multi-side surcharge.
-  const printAreas = Math.max(1, Number(c.printAreas) || 1);
-  const multiSideSurcharge = Math.max(0, printAreas - 1) * PRINT_AREA_SURCHARGE;
-
-  const unit = base + fabricUpcharge + decalTotal + multiSideSurcharge;
+  // Default printing method — first allowed for this category/fabric.
+  const allowed = availablePrintingMethods(cat, c.fabric);
+  let method: PrintingMethod = (c.printingMethod as PrintingMethod) || allowed[0];
+  if (!allowed.includes(method)) method = allowed[0];
 
   return {
+    category: cat,
+    categoryLabel: PRETTY_CATEGORY[cat],
     base,
     baseLabel,
-    fabricUpcharge,
-    fabricLabel,
-    decalSurcharges,
-    decalTotal,
-    multiSideSurcharge,
-    printAreas,
-    unit,
-    // Range: -5% / +15% spread for uncertainty (admin may add minor
-    // production extras like specialty thread, larger size XL+ shirts, etc.)
-    min: Math.round(unit * 0.95),
-    max: Math.round(unit * 1.15),
+    printSize,
+    printSizeLabel: PRETTY_PRINT_SIZE[printSize],
+    printSizeFee,
+    printingMethod: method,
+    printingMethodLabel: PRETTY_METHOD[method],
+    unit: base + printSizeFee,
   };
 }
 
+// ── Order-level estimate ────────────────────────────────────────────
 export interface OrderEstimateOptions {
-  urgencyTier?: string;
-  deliveryMethod?: 'delivery' | 'pickup';
+  rush?: boolean;
+  /** If admin manually adjusted/waived the rush fee, pass the override
+      amount (in pesos). Set to 0 to fully waive. */
+  rushOverride?: number;
+  /** Manual adjustment (admin's "extras" line) — added at the very end. */
+  manualAdjustment?: number;
+  manualAdjustmentLabel?: string;
+}
+
+export interface OrderLineEstimate {
+  sku?: string;
+  name?: string;
+  quantity: number;
+  unit: UnitEstimate;
+  /** unit.unit × quantity, BEFORE bulk discount. */
+  gross: number;
+  /** Total bulk discount on this line (peso, positive value). */
+  bulkDiscount: number;
+  /** Net line total after bulk discount. */
+  net: number;
 }
 
 export interface OrderEstimate {
-  items: {
-    sku?: string;
-    name?: string;
-    quantity: number;
-    unit: UnitEstimate;
-    lineMin: number;
-    lineMax: number;
-  }[];
-  subtotalMin: number;
-  subtotalMax: number;
-  rushPct: number;
-  rushMin: number;
-  rushMax: number;
-  shippingFee: number;
-  totalMin: number;
-  totalMax: number;
+  lines: OrderLineEstimate[];
+  totalItems: number;
+  /** Sum of line.gross. */
+  itemsGross: number;
+  /** Sum of line.bulkDiscount (positive). */
+  bulkDiscountTotal: number;
+  /** itemsGross − bulkDiscountTotal. */
+  itemsNet: number;
+  rushFee: number;
+  rushApplied: boolean;
+  manualAdjustment: number;
+  manualAdjustmentLabel: string;
+  total: number;
 }
 
-/**
- * Estimate the order total — calls estimateUnitPrice() per item then layers
- * on rush + shipping. Returns a range; final number is set by the admin via
- * the Quote Builder once the design has been reviewed.
- */
 export function estimateOrderTotal(items: ItemLike[], options: OrderEstimateOptions = {}): OrderEstimate {
-  const itemEstimates = items.map((it) => {
+  const lines: OrderLineEstimate[] = (items || []).map((it) => {
     const qty = Math.max(1, Number(it.quantity) || 1);
     const unit = estimateUnitPrice(it);
-    return {
-      sku: it.sku,
-      name: it.name,
-      quantity: qty,
-      unit,
-      lineMin: unit.min * qty,
-      lineMax: unit.max * qty,
-    };
+    const gross = unit.unit * qty;
+    const bulkDiscount = qty >= BULK_DISCOUNT_THRESHOLD ? qty * BULK_DISCOUNT_PER_ITEM : 0;
+    const net = gross - bulkDiscount;
+    return { sku: it.sku, name: it.name, quantity: qty, unit, gross, bulkDiscount, net };
   });
 
-  const subtotalMin = itemEstimates.reduce((s, x) => s + x.lineMin, 0);
-  const subtotalMax = itemEstimates.reduce((s, x) => s + x.lineMax, 0);
+  const totalItems = lines.reduce((s, l) => s + l.quantity, 0);
+  const itemsGross = lines.reduce((s, l) => s + l.gross, 0);
+  const bulkDiscountTotal = lines.reduce((s, l) => s + l.bulkDiscount, 0);
+  const itemsNet = itemsGross - bulkDiscountTotal;
 
-  const rushPct = RUSH_MULTIPLIER[options.urgencyTier || 'standard'] ?? 0;
-  const rushMin = Math.round(subtotalMin * rushPct);
-  const rushMax = Math.round(subtotalMax * rushPct);
+  // Rush fee — auto +₱20/item if customer ticked rush, but admin can override.
+  const rushApplied = !!options.rush || (typeof options.rushOverride === 'number' && options.rushOverride > 0);
+  let rushFee = options.rush ? totalItems * RUSH_FEE_PER_ITEM : 0;
+  if (typeof options.rushOverride === 'number') rushFee = Math.max(0, options.rushOverride);
 
-  const isPickup = options.deliveryMethod === 'pickup';
-  // Use the LOW estimate for the shipping threshold check (more
-  // conservative — if there's any chance the order will be over the
-  // threshold, customer might think shipping is free when it isn't).
-  const shippingFee = isPickup ? 0 : (subtotalMin >= SHIPPING_FREE_THRESHOLD ? 0 : SHIPPING_FLAT_FEE());
+  const manualAdjustment = Number(options.manualAdjustment) || 0;
+  const manualAdjustmentLabel = options.manualAdjustmentLabel || (manualAdjustment ? 'Adjustment' : '');
+
+  const total = Math.max(0, itemsNet + rushFee + manualAdjustment);
 
   return {
-    items: itemEstimates,
-    subtotalMin,
-    subtotalMax,
-    rushPct,
-    rushMin,
-    rushMax,
-    shippingFee,
-    totalMin: subtotalMin + rushMin + shippingFee,
-    totalMax: subtotalMax + rushMax + shippingFee,
+    lines, totalItems,
+    itemsGross, bulkDiscountTotal, itemsNet,
+    rushFee, rushApplied,
+    manualAdjustment, manualAdjustmentLabel,
+    total,
   };
 }
 
-function SHIPPING_FLAT_FEE() { return SHIPPING_FEE_FLAT; }
-
 /**
- * Format a price range as "₱2,400 – ₱4,200" for compact display.
- * When min == max, returns a single number.
+ * Convert an OrderEstimate into the line-item shape the Quote Builder
+ * (and the saved Order.quotation.lineItems[]) expect. This is what the
+ * admin sees pre-filled when they open the Quote Builder — the customer's
+ * exact configuration translated into an itemized invoice.
  */
+export interface QuoteLine { label: string; amount: number; }
+
+export function quotationLinesFromEstimate(est: OrderEstimate): QuoteLine[] {
+  const lines: QuoteLine[] = [];
+  for (const l of est.lines) {
+    // Compact descriptive label — fits the limited width of the chat Quote Card.
+    const parts = [l.name || l.unit.categoryLabel];
+    if (l.unit.base) parts.push(`× ${l.quantity} @ ₱${l.unit.base}`);
+    lines.push({ label: parts.join(' '), amount: l.unit.base * l.quantity });
+    if (l.unit.printSizeFee > 0) {
+      lines.push({
+        label: `${l.unit.printSizeLabel} print · × ${l.quantity}`,
+        amount: l.unit.printSizeFee * l.quantity,
+      });
+    }
+    if (l.bulkDiscount > 0) {
+      lines.push({
+        label: `Bulk discount (≥30 pcs · −₱${BULK_DISCOUNT_PER_ITEM}/pc)`,
+        amount: -l.bulkDiscount,
+      });
+    }
+  }
+  if (est.rushFee > 0) {
+    lines.push({ label: `Rush fee (₱${RUSH_FEE_PER_ITEM}/item × ${est.totalItems})`, amount: est.rushFee });
+  }
+  if (est.manualAdjustment !== 0) {
+    lines.push({ label: est.manualAdjustmentLabel || 'Adjustment', amount: est.manualAdjustment });
+  }
+  return lines;
+}
+
+// Peso formatter shared by every price-displaying surface.
+export function formatPeso(n: number): string {
+  return `₱${Math.round(n).toLocaleString()}`;
+}
+
 export function formatRange(min: number, max: number): string {
-  const f = (n: number) => `₱${Math.round(n).toLocaleString()}`;
-  if (Math.round(min) === Math.round(max)) return f(min);
-  return `${f(min)} – ${f(max)}`;
+  if (Math.round(min) === Math.round(max)) return formatPeso(min);
+  return `${formatPeso(min)} – ${formatPeso(max)}`;
 }
