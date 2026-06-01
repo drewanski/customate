@@ -10,9 +10,27 @@ import {
   User as UserIcon,
   AlertCircle,
   Sparkles,
+  Zap,
 } from 'lucide-react';
 import { scheduleProductionOrder, getProductionTeam } from '../../api';
 import { OrderDesignPreview } from './OrderDesignPreview';
+
+/**
+ * Map the order's urgencyTier (set at checkout when the customer picks a
+ * rush option or a tight delivery date) to one of the four production
+ * priority levels the modal shows. The backend already computes
+ * productionPriority for us, so we mostly read that — this is the
+ * fallback path for older orders where productionPriority wasn't set yet.
+ */
+function priorityFromTier(tier?: string): 'urgent' | 'high' | 'medium' | 'low' {
+  switch ((tier || '').toLowerCase()) {
+    case 'priority': return 'urgent';
+    case 'rush':     return 'high';
+    case 'express':  return 'high';
+    case 'standard': return 'medium';
+    default:         return 'medium';
+  }
+}
 
 interface Props {
   isOpen: boolean;
@@ -43,22 +61,54 @@ export function ScheduleOrderModal({ isOpen, onClose, order, onSuccess }: Props)
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Pre-fill form when opened
+  // Pre-fill form when opened. Order of precedence for each field:
+  //   Due date    → admin's existing pick > customer's requestedDeliveryDate > auto from start+duration
+  //   Priority    → admin's existing pick > backend productionPriority > derived from urgencyTier > 'medium'
+  //   Assignee    → admin's existing pick > (empty — must be a production_staff user)
   useEffect(() => {
     if (!isOpen || !order) return;
     setError(null);
     setSubmitting(false);
     setDate(order.productionDate ? new Date(order.productionDate).toISOString().slice(0, 10) : '');
     setDuration(order.estimatedDurationDays || 3);
-    setDueDate(order.productionDueDate ? new Date(order.productionDueDate).toISOString().slice(0, 10) : '');
-    setPriority(order.productionPriority || 'medium');
+
+    // Due-date precedence:
+    //  1. A previously-saved productionDueDate (admin override sticks)
+    //  2. The customer's requestedDeliveryDate from checkout — this is
+    //     the deadline the customer is paying us to meet, so default
+    //     the production due to that instead of inventing one.
+    //  3. Empty (the auto-compute effect below fills it from start + duration)
+    const customerDeadline = order.requestedDeliveryDate
+      ? new Date(order.requestedDeliveryDate).toISOString().slice(0, 10)
+      : '';
+    setDueDate(
+      order.productionDueDate
+        ? new Date(order.productionDueDate).toISOString().slice(0, 10)
+        : customerDeadline || ''
+    );
+
+    // Priority precedence:
+    //  1. The order's own productionPriority (set by the backend based on
+    //     the urgency tier at checkout — rush picks 'urgent'/'high'
+    //     automatically, standard picks 'medium').
+    //  2. Derived from urgencyTier (handles older orders without
+    //     productionPriority set).
+    //  3. 'medium' default.
+    setPriority(order.productionPriority || priorityFromTier(order.urgencyTier));
+
     setAssignedTo(order.assignedTo?._id || '');
     setNotes(order.productionNotes || '');
 
     (async () => {
       try {
         const list = await getProductionTeam();
-        setTeam(list);
+        // Only production_staff can be assigned tasks. Production Manager
+        // (admin) sees the dropdown but isn't a valid assignee — they
+        // route work, they don't sew it.
+        const staffOnly = (Array.isArray(list) ? list : []).filter(
+          (m: any) => m.role === 'production_staff'
+        );
+        setTeam(staffOnly);
       } catch {
         setTeam([]);
       }
@@ -153,6 +203,63 @@ export function ScheduleOrderModal({ isOpen, onClose, order, onSuccess }: Props)
             </div>
           </div>
         </div>
+
+        {/* ─── Customer expectations banner ──────────────────────────────
+            Surface the deadline the customer chose at checkout AND
+            whether they paid for rush — both are the reason the due
+            date + priority chip below got auto-filled the way they
+            did. Admin sees this BEFORE they look at the date pickers
+            so the defaults make sense at a glance. */}
+        {(order.requestedDeliveryDate || order.rushFeeAmount > 0 || order.urgencyTier !== 'standard') && (
+          <div className={`p-3 rounded-2xl border ${
+            order.rushFeeAmount > 0 || order.urgencyTier !== 'standard'
+              ? 'bg-rose-50 border-rose-200'
+              : 'bg-amber-50 border-amber-200'
+          }`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                {order.rushFeeAmount > 0 || order.urgencyTier !== 'standard' ? (
+                  <Zap className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                ) : (
+                  <Calendar className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <p className={`text-[10px] uppercase tracking-wider font-bold ${
+                    order.rushFeeAmount > 0 || order.urgencyTier !== 'standard'
+                      ? 'text-rose-700'
+                      : 'text-amber-700'
+                  }`}>
+                    {order.rushFeeAmount > 0 || order.urgencyTier !== 'standard'
+                      ? 'Rush order — customer paid for fast delivery'
+                      : 'Customer-set deadline'}
+                  </p>
+                  {order.requestedDeliveryDate && (
+                    <p className="text-sm font-bold text-slate-900">
+                      Customer expects this by{' '}
+                      <span className="underline">
+                        {new Date(order.requestedDeliveryDate).toLocaleDateString(undefined, {
+                          weekday: 'short', month: 'short', day: 'numeric',
+                        })}
+                      </span>
+                    </p>
+                  )}
+                </div>
+              </div>
+              {order.urgencyTier && order.urgencyTier !== 'standard' && (
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-rose-600 text-white">
+                  {order.urgencyTier}
+                </span>
+              )}
+            </div>
+            <p className={`text-[11px] mt-1 ${
+              order.rushFeeAmount > 0 || order.urgencyTier !== 'standard'
+                ? 'text-rose-700/80'
+                : 'text-amber-700/80'
+            }`}>
+              We've auto-filled the due date and priority for you — change them if you need to.
+            </p>
+          </div>
+        )}
 
         {/* Date row */}
         <div className="grid grid-cols-3 gap-3">
