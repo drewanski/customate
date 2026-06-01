@@ -7,6 +7,7 @@ import {
 import {
   getOrderChat, sendOrderChatMessage, apiRequest,
   acceptQuotation, declineQuotation, verifyPayment, rejectPayment, uploadPaymentProof,
+  createQuotationPaymentLink,
 } from '../../api';
 import { formatPeso } from '../../utils/format';
 import { useAuth } from '../../hooks/useAuth';
@@ -567,24 +568,51 @@ export function OrderChatPanel({
           </div>
         )}
 
-        {/* Payment-proof CTA — only shown when customer needs to pay
-            something. Big, obvious, can't-miss-it. Tapping opens the
-            upload modal. */}
-        {myRole === 'customer' && order?.status === 'accepted' && !order?.payments?.downpayment?.submittedAt && (
-          <button
-            onClick={() => { setProofStage('downpayment'); setProofOpen(true); }}
-            className="mb-2.5 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white font-bold text-sm shadow-md hover:shadow-lg"
-          >
-            <Upload className="w-4 h-4" /> Send downpayment proof (₱{Number(order?.payments?.downpayment?.amount || 0).toLocaleString()})
-          </button>
+        {/* Payment CTAs — two clear options side-by-side. Pay Online is
+            the one-click path (PayMongo Link → GCash/Maya/card in a new
+            tab; webhook auto-verifies). Upload Proof is the fallback for
+            customers who prefer manual transfer. */}
+        {myRole === 'customer' && order?.status === 'accepted' && !order?.payments?.downpayment?.verifiedAt && (
+          <div className="mb-2.5 grid grid-cols-2 gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  const r = await createQuotationPaymentLink(orderId, 'downpayment');
+                  if (r?.checkoutUrl) window.open(r.checkoutUrl, '_blank', 'noopener');
+                } catch (e: any) { alert(e?.message || 'Failed to start payment'); }
+              }}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-bold text-sm shadow-md hover:shadow-lg"
+            >
+              💳 Pay ₱{Number(order?.payments?.downpayment?.amount || 0).toLocaleString()} online →
+            </button>
+            <button
+              onClick={() => { setProofStage('downpayment'); setProofOpen(true); }}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white text-amber-700 border-2 border-amber-300 hover:bg-amber-50 font-bold text-xs"
+            >
+              <Upload className="w-3.5 h-3.5" /> Upload proof manually
+            </button>
+          </div>
         )}
-        {myRole === 'customer' && order?.status === 'ready' && order?.workflowVersion === 'quotation' && !order?.payments?.balance?.submittedAt && (
-          <button
-            onClick={() => { setProofStage('balance'); setProofOpen(true); }}
-            className="mb-2.5 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-md hover:shadow-lg"
-          >
-            <Upload className="w-4 h-4" /> Send balance payment proof (₱{Number(order?.payments?.balance?.amount || 0).toLocaleString()})
-          </button>
+        {myRole === 'customer' && order?.status === 'ready' && order?.workflowVersion === 'quotation' && !order?.payments?.balance?.verifiedAt && (
+          <div className="mb-2.5 grid grid-cols-2 gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  const r = await createQuotationPaymentLink(orderId, 'balance');
+                  if (r?.checkoutUrl) window.open(r.checkoutUrl, '_blank', 'noopener');
+                } catch (e: any) { alert(e?.message || 'Failed to start payment'); }
+              }}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-bold text-sm shadow-md hover:shadow-lg"
+            >
+              💳 Pay ₱{Number(order?.payments?.balance?.amount || 0).toLocaleString()} balance online →
+            </button>
+            <button
+              onClick={() => { setProofStage('balance'); setProofOpen(true); }}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white text-emerald-700 border-2 border-emerald-300 hover:bg-emerald-50 font-bold text-xs"
+            >
+              <Upload className="w-3.5 h-3.5" /> Upload proof manually
+            </button>
+          </div>
         )}
 
         <div className="flex gap-2 items-end">

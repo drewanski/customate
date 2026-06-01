@@ -749,3 +749,14 @@ export async function rejectPayment(orderId, type, reason) {
     body: JSON.stringify({ reason }),
   });
 }
+
+// ─── One-click PayMongo for quotation orders ─────────────────────────────
+// Creates a PayMongo Link for the exact downpayment/balance amount. Returns
+// { checkoutUrl } — frontend opens it in a new tab. Webhook auto-verifies
+// the payment on PayMongo's success callback.
+export async function createQuotationPaymentLink(orderId, type) {
+  return apiRequest('/paymongo/link/quotation', {
+    method: 'POST',
+    body: JSON.stringify({ orderId, type }),
+  });
+}

@@ -120,6 +120,10 @@ const orderSchema = new mongoose.Schema({
       method: { type: String, default: '' },          // 'gcash', 'paymaya', 'bank', 'paymongo', 'cash'
       reference: { type: String, default: '' },       // GCash ref #, bank txn id, etc.
       proofUrls: { type: [String], default: [] },     // Customer-uploaded screenshots
+      // PayMongo Link id (set when customer chose "Pay Online"). The webhook
+      // matches incoming events back to this order via this id and auto-
+      // stamps verifiedAt so admin doesn't manually verify a paid order.
+      paymongoLinkId: { type: String, default: '' },
       submittedAt: { type: Date, default: null },
       verifiedAt: { type: Date, default: null },
       verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
@@ -131,6 +135,7 @@ const orderSchema = new mongoose.Schema({
       method: { type: String, default: '' },
       reference: { type: String, default: '' },
       proofUrls: { type: [String], default: [] },
+      paymongoLinkId: { type: String, default: '' },
       submittedAt: { type: Date, default: null },
       verifiedAt: { type: Date, default: null },
       verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
