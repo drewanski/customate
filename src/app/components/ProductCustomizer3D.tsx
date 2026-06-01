@@ -1111,11 +1111,14 @@ function ProjectedDecal({
       }
     }
 
-    // Generous depth — must span the full mesh thickness so the projection box
-    // captures triangles on both the front face and the curved sides without
-    // leaving gaps. DecalGeometry backface-culls the actual far side anyway.
+    // Projection depth — has to span enough of the mesh that curved areas
+    // (mug walls, sleeve cuffs) get captured, but not so deep that it punches
+    // through to the back face. Using meshSize.z (the mesh's natural
+    // thickness in the local-Z axis) is the right axis to scale; the
+    // old version used meshSize.x*0.6 which was huge for flat products
+    // like the hand fan and caused decals to leak onto back-facing wrinkles.
     const depth = meshSize
-      ? Math.max(meshSize.z * 2, meshSize.x * 0.6, meshSize.y * 0.6, 0.3)
+      ? Math.max(meshSize.z * 1.2, 0.3)
       : Math.max(w * 1.5, 0.3);
     return new THREE.Vector3(w, h, depth);
   }, [element.scale, element.aspectRatio, element.type, targetMesh, maxDecalFraction]);
@@ -1174,7 +1177,11 @@ function ProjectedDecal({
       // normal aligns with the user's chosen surface normal (front-
       // facing relative to where the decal was placed). Anything pointing
       // the opposite direction is the unwanted "back-side" geometry.
-      const filtered = filterDecalByFacing(geometry, pose.normal, 0.15);
+      // Tighter facing threshold (0.5 ~= within 60° of the click normal)
+      // so side-facing wrinkle triangles don't survive the filter and bleed
+      // through when the customer rotates the camera around to the back.
+      // Old 0.15 (within ~81°) was too permissive on bumpy surfaces.
+      const filtered = filterDecalByFacing(geometry, pose.normal, 0.5);
       if (!filtered) {
         geometry.dispose();
         continue;
@@ -1207,6 +1214,12 @@ function ProjectedDecal({
         polygonOffsetFactor: -10,
         opacity: element.opacity ?? 1,
         toneMapped: false,
+        // Pin front-face culling explicitly. MeshStandardMaterial defaults
+        // to FrontSide, but some loaded GLB materials get flipped to
+        // DoubleSide and the cloned material inherits that — which would
+        // make the decal visible from inside the product (back of a tote,
+        // inside of a fan). FrontSide guarantees back-face culling.
+        side: THREE.FrontSide,
       });
       const decal = new THREE.Mesh(geometry, material);
       decal.renderOrder = selected ? 4 : 3;
