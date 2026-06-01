@@ -37,8 +37,11 @@ async function fetchJson(path, opts = {}) {
 }
 
 (async () => {
-  const c = await fetchJson('/auth/login', { method: 'POST', body: JSON.stringify({ email: 'demo.customer@local.test', password: 'DemoPass123!' }) });
-  const a = await fetchJson('/auth/login', { method: 'POST', body: JSON.stringify({ email: 'demo.admin@local.test',    password: 'DemoPass123!' }) });
+  // Customer + admin logins are independent — fire them in parallel.
+  const [c, a] = await Promise.all([
+    fetchJson('/auth/login', { method: 'POST', body: JSON.stringify({ email: 'demo.customer@local.test', password: 'DemoPass123!' }) }),
+    fetchJson('/auth/login', { method: 'POST', body: JSON.stringify({ email: 'demo.admin@local.test',    password: 'DemoPass123!' }) }),
+  ]);
   const CHDR = { Authorization: 'Bearer ' + c.token };
   const AHDR = { Authorization: 'Bearer ' + a.token };
 

@@ -44,21 +44,24 @@ function forwardOf(order: OrderForWorkflow): OrderStatus | null {
     case 'approved':         return 'in_production';
     case 'in_production':    return 'ready';
     case 'ready':            return isPickup ? 'for_pickup' : 'out_for_delivery';
-    case 'out_for_delivery': return 'completed';
+    case 'out_for_delivery':
     case 'for_pickup':       return 'completed';
     default:                 return null; // terminal or legacy
   }
 }
 
+const ACTION_LABELS: Partial<Record<OrderStatus, string>> = {
+  approved:         'Approve order',
+  in_production:    'Start production',
+  ready:            'Mark Ready',
+  out_for_delivery: 'Send out for delivery',
+  for_pickup:       'Mark ready for pickup',
+};
+
 /** Human-friendly action label for the next-step button. */
 function actionLabelFor(from: OrderStatus, to: OrderStatus, isPickup: boolean): string {
-  if (to === 'approved')         return 'Approve order';
-  if (to === 'in_production')    return 'Start production';
-  if (to === 'ready')            return 'Mark Ready';
-  if (to === 'out_for_delivery') return 'Send out for delivery';
-  if (to === 'for_pickup')       return 'Mark ready for pickup';
-  if (to === 'completed')        return isPickup ? 'Mark picked up & completed' : 'Mark delivered & completed';
-  return `Move to ${String(to).replace(/_/g, ' ')}`;
+  if (to === 'completed') return isPickup ? 'Mark picked up & completed' : 'Mark delivered & completed';
+  return ACTION_LABELS[to] || `Move to ${String(to).replace(/_/g, ' ')}`;
 }
 
 export interface PreCondition {
@@ -113,23 +116,26 @@ function preconditionsFor(order: OrderForWorkflow, to: OrderStatus): PreConditio
     });
   }
 
-  // ready → out_for_delivery / for_pickup : delivery method must match
-  if (from === 'ready' && to === 'out_for_delivery') {
-    const isDelivery = order.deliveryMethod === 'delivery';
+  // ready → out_for_delivery / for_pickup : delivery method must match AND
+  // QC must have passed. The backend (Order.js checkTransitionPrecondition)
+  // enforces both — keep the mirror in sync so the button doesn't go
+  // green and then 400.
+  if (from === 'ready' && (to === 'out_for_delivery' || to === 'for_pickup')) {
+    const wantMethod: DeliveryMethod = to === 'for_pickup' ? 'pickup' : 'delivery';
+    const otherLabel = to === 'for_pickup' ? 'Send out for delivery' : 'Mark ready for pickup';
+    const methodOk = order.deliveryMethod === wantMethod;
     conds.push({
-      met: isDelivery,
-      message: isDelivery
-        ? 'Delivery order'
-        : 'This is a pickup order — use "Mark ready for pickup" instead',
+      met: methodOk,
+      message: methodOk
+        ? `${wantMethod[0].toUpperCase() + wantMethod.slice(1)} order`
+        : `Wrong delivery method — use "${otherLabel}" instead`,
     });
-  }
-  if (from === 'ready' && to === 'for_pickup') {
-    const isPickup = order.deliveryMethod === 'pickup';
+    const qcOk = order.qcStatus === 'approved';
     conds.push({
-      met: isPickup,
-      message: isPickup
-        ? 'Pickup order'
-        : 'This is a delivery order — use "Send out for delivery" instead',
+      met: qcOk,
+      message: qcOk ? 'QC approved' : 'Quality check must be approved before shipping',
+      fixHref: qcOk ? undefined : '/admin/production',
+      hint: qcOk ? undefined : 'QC',
     });
   }
 

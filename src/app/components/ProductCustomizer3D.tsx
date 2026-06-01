@@ -133,6 +133,13 @@ const MATERIAL_FINISHES: Record<MaterialFinish, {
   textured: { label: 'Textured', roughness: 0.85, metalness: 0.0, bumpiness: 0.6 },
 };
 
+// Shared decal-material constants. Hoisted to module scope so we don't
+// allocate a fresh Color/Vector2 on every decal rebuild (hot path during
+// drag — the effect refires on every pose/size/opacity change).
+const DECAL_EMISSIVE = new THREE.Color(0xffffff);
+const DECAL_NORMAL_SCALE_HALF = new THREE.Vector2(0.5, 0.5);
+const DECAL_NORMAL_SCALE_FULL = new THREE.Vector2(1, 1);
+
 // ─── Fabric presets ────────────────────────────────────────────────────────
 // One row per fabric material the customer can pick in the Options tab.
 // `roughness`/`metalness` drive Three.js MeshStandardMaterial; `weave` picks
@@ -1173,29 +1180,25 @@ function ProjectedDecal({
         continue;
       }
       geometry = filtered as DecalGeometry;
-      // MeshBasicMaterial is unlit — it shows the texture exactly as it is
-      // in the source PNG, with zero interaction with scene lighting, tone
-      // mapping, or shadows. For a printed decal that's what you want:
-      // the customer picked specific colors in their design, and they should
-      // appear on the 3D preview at full saturation regardless of the
-      // ambient light direction or the scene's tone-mapping curve.
-      //
-      // Why not MeshStandardMaterial:
-      //   - StandardMaterial multiplies the texture by ambient/diffuse light,
-      //     which dims and tints the design depending on where the user
-      //     rotated the camera (logo looks brick-red in shadow, bright red
-      //     in light — confusing for a "what will be printed" preview).
-      //   - The renderer's ACES Filmic tone mapping further desaturates
-      //     highlights, making whites look gray and reds look brick.
-      //
-      // alphaTest: pixels with alpha < 0.05 are discarded. Without this the
-      // PNG's transparent rectangle still claims depth-buffer space,
-      // producing the square halo around uploaded logos. We keep the
-      // threshold low (5%) so feathered edges from the in-studio image
-      // refiner survive as a clean alpha gradient rather than getting
-      // chopped to a hard outline.
-      const material = new THREE.MeshBasicMaterial({
+      // MeshStandardMaterial so decals receive scene lighting (wrinkles cast
+      // shadows on the fabric → on the decal too). The 0.15 emissive boost
+      // keeps customer colors readable in shadowed areas without looking
+      // like a glowing LED; toneMapped:false preserves vivid reds/whites
+      // even when the rest of the scene gets tone-mapped. Inheriting the
+      // source mesh's normalMap (at half scale) makes the decal "follow"
+      // the fabric weave so it reads as printed-in rather than pasted-on.
+      const sourceMat = m.material as THREE.MeshStandardMaterial;
+      const sourceNormal = sourceMat?.normalMap ?? null;
+      const sourceRoughness = typeof sourceMat?.roughness === 'number' ? sourceMat.roughness : 0.85;
+      const material = new THREE.MeshStandardMaterial({
         map: texture,
+        emissive: DECAL_EMISSIVE,
+        emissiveMap: texture,
+        emissiveIntensity: 0.15,
+        roughness: Math.max(0.7, sourceRoughness),
+        metalness: 0,
+        normalMap: sourceNormal,
+        normalScale: sourceNormal ? DECAL_NORMAL_SCALE_HALF : DECAL_NORMAL_SCALE_FULL,
         transparent: true,
         alphaTest: 0.05,
         depthTest: true,
@@ -1203,7 +1206,6 @@ function ProjectedDecal({
         polygonOffset: true,
         polygonOffsetFactor: -10,
         opacity: element.opacity ?? 1,
-        // Bypass tone mapping so the customer's chosen colors stay accurate.
         toneMapped: false,
       });
       const decal = new THREE.Mesh(geometry, material);
