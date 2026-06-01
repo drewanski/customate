@@ -32,7 +32,9 @@ import {
   addOrderNote,
   getOrderHistory,
   setOrderCourier,
+  sendQuotation,
 } from '../../api';
+import { estimateUnitPrice } from '../../utils/pricing';
 import { formatPeso } from '../../utils/format';
 import { RefundModal } from './RefundModal';
 import { useAuth } from '../../hooks/useAuth';
@@ -126,6 +128,150 @@ function describeLog(log: any) {
   }
   if (log.type === 'payment_confirmed') return `${formatPeso(log.amount || 0)}`;
   return log.note || '';
+}
+
+/**
+ * Quote Builder — only visible while the order is in quote_requested or
+ * quoted. Admin enters line items + total, hits Send Quotation, and the
+ * customer gets a Quote Card in chat with Accept/Decline buttons. The
+ * pre-fill comes from estimateUnitPrice() so the admin starts from a
+ * reasonable number and only adjusts.
+ */
+function QuoteBuilderPanel({ order, onSaved }: { order: any; onSaved: () => Promise<void> }) {
+  // Pre-fill line items from cart on first render.
+  const initialItems = React.useMemo(() => {
+    const out: { label: string; amount: number }[] = [];
+    for (const it of order.items || []) {
+      const est = estimateUnitPrice(it);
+      out.push({
+        label: `${it.name} ×${it.quantity} (${est.baseLabel}${est.fabricLabel && est.fabricLabel !== 'Cotton' ? ' · ' + est.fabricLabel : ''})`,
+        amount: est.unit * it.quantity,
+      });
+      if (est.decalTotal > 0) {
+        const decalNames = est.decalSurcharges.map((d) => `${d.tier} ${d.type}`).join(', ');
+        // Already included in est.unit — we don't re-add, just for clarity in the label.
+      }
+    }
+    // Optional rush + shipping pre-lines if applicable on the request.
+    if (order.rushFeeAmount > 0) out.push({ label: 'Rush surcharge', amount: order.rushFeeAmount });
+    if (order.shippingFee > 0)  out.push({ label: 'Shipping fee',    amount: order.shippingFee  });
+    return out;
+  }, [order._id]);
+
+  const [items, setItems] = useState(initialItems);
+  const [downpaymentPct, setDownpaymentPct] = useState(50);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  // If the customer already accepted, surface that and bail.
+  if (order.status === 'accepted' || order.status === 'downpayment_paid'
+      || order.status === 'approved' || order.status === 'in_production'
+      || order.status === 'ready' || order.status === 'out_for_delivery'
+      || order.status === 'for_pickup' || order.status === 'completed') {
+    return null;
+  }
+  if (!['quote_requested', 'quoted'].includes(order.status)) return null;
+
+  const total = items.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const downpayment = Math.round((total * downpaymentPct) / 100);
+  const balance = total - downpayment;
+
+  const updateItem = (i: number, patch: Partial<{ label: string; amount: number }>) =>
+    setItems((arr) => arr.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
+  const removeItem = (i: number) => setItems((arr) => arr.filter((_, idx) => idx !== i));
+  const addItem = () => setItems((arr) => [...arr, { label: '', amount: 0 }]);
+
+  const onSend = async () => {
+    if (items.length === 0 || total <= 0) {
+      setErr('Add at least one line item with a positive amount.');
+      return;
+    }
+    for (const li of items) {
+      if (!li.label.trim()) { setErr('Every line item needs a label.'); return; }
+    }
+    setBusy(true); setErr('');
+    try {
+      await sendQuotation(order._id || order.id, items, total, downpaymentPct);
+      await onSaved();
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to send quotation');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border-2 border-blue-300 bg-gradient-to-br from-blue-50 to-indigo-50 p-4 shadow-sm">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <p className="text-[10px] font-black text-blue-700 uppercase tracking-widest">Quote Builder</p>
+          <p className="text-base font-bold text-slate-900">Send the customer a final price</p>
+          <p className="text-xs text-slate-600 mt-0.5">Pre-filled from the estimation engine. Adjust the numbers as needed, then send.</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total</p>
+          <p className="text-2xl font-black text-blue-700">₱{total.toLocaleString()}</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {items.map((it, i) => (
+          <div key={i} className="flex gap-2 items-center">
+            <input
+              value={it.label}
+              onChange={(e) => updateItem(i, { label: e.target.value })}
+              placeholder="Description (e.g. T-Shirt + Front print)"
+              className="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+            />
+            <input
+              type="number"
+              value={it.amount}
+              onChange={(e) => updateItem(i, { amount: Math.max(0, Number(e.target.value) || 0) })}
+              className="w-28 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-right font-bold focus:outline-none focus:ring-2 focus:ring-blue-300"
+            />
+            <button onClick={() => removeItem(i)} className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-rose-50 hover:text-rose-700 flex items-center justify-center" title="Remove">
+              ×
+            </button>
+          </div>
+        ))}
+        <button onClick={addItem} className="text-xs font-bold text-blue-700 hover:text-blue-900 inline-flex items-center gap-1">
+          <Plus className="w-3 h-3" /> Add line
+        </button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-blue-200">
+        <div>
+          <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">Downpayment %</label>
+          <input
+            type="number"
+            min={10}
+            max={100}
+            value={downpaymentPct}
+            onChange={(e) => setDownpaymentPct(Math.max(10, Math.min(100, Number(e.target.value) || 50)))}
+            className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-300"
+          />
+        </div>
+        <div className="rounded-lg bg-amber-50 border border-amber-200 px-2 py-1.5">
+          <p className="text-[9px] font-bold text-amber-700 uppercase tracking-wider">Downpayment</p>
+          <p className="font-black text-amber-900 text-sm">₱{downpayment.toLocaleString()}</p>
+        </div>
+        <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-1.5">
+          <p className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider">Balance</p>
+          <p className="font-black text-emerald-900 text-sm">₱{balance.toLocaleString()}</p>
+        </div>
+      </div>
+
+      {err && <p className="text-xs text-rose-700 font-bold mt-2">{err}</p>}
+
+      <button
+        onClick={onSend}
+        disabled={busy || total <= 0}
+        className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white font-black text-sm shadow-md hover:shadow-lg disabled:opacity-50"
+      >
+        <Send className="w-4 h-4" /> {busy ? 'Sending…' : (order.status === 'quoted' ? 'Send revised quotation' : 'Send quotation to customer')}
+      </button>
+    </div>
+  );
 }
 
 /**
@@ -619,6 +765,13 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
                 );
               })}
             </div>
+
+            {/* Quote Builder — appears for quote_requested / quoted orders.
+                Pre-fills from the estimation engine, lets admin send a
+                final quotation that posts as a Quote Card in chat. */}
+            {(order.status === 'quote_requested' || order.status === 'quoted') && (
+              <QuoteBuilderPanel order={order} onSaved={onChanged} />
+            )}
 
             {/* ─── Next-step action card ─────────────────────────────────
                 Drives the entire forward progression. The label + button

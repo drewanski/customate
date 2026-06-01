@@ -35,6 +35,8 @@ import {
 import { markRecovered } from '../services/abandonedCart.js';
 import { uploadImage } from '../services/imageUpload.js';
 import { sendPushToUser, getPushContentForStatus } from '../services/pushNotification.js';
+import { postSystemMessage } from './chat.js';
+import { estimateOrderTotal } from '../utils/pricing.js';
 
 const router = express.Router();
 
@@ -335,7 +337,13 @@ router.post('/', authMiddleware, async (req, res) => {
       couponCode,
       requestedDeliveryDate, // ISO date string from the customer
       deliveryMethod,        // 'delivery' | 'pickup' (panel revision #11)
+      workflowVersion: requestedWorkflow, // 'quotation' (new) | 'classic' (legacy)
     } = req.body;
+    // Default new orders to the quotation workflow. Customers no longer
+    // pay at checkout — they submit a request, admin sends a quote in
+    // chat, customer accepts + pays the 50% deposit, then the order
+    // enters production. See VALID_TRANSITIONS in Order.js.
+    const workflowVersion = requestedWorkflow === 'classic' ? 'classic' : 'quotation';
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'Items are required' });
     }
@@ -516,10 +524,18 @@ router.post('/', authMiddleware, async (req, res) => {
       shippingAddress: String(shippingAddress).trim(),
       contactPhone: contactPhone ? String(contactPhone).trim() : undefined,
       notes: notes ? String(notes).trim() : undefined,
-      paymentMethod: paymentMethod || 'cod',
-      status: 'pending',
-      paymentStatus: paymentMethod === 'cod' ? 'pending' : 'awaiting_payment', // Mark as awaiting for e-wallet payments
-      requiredPayment: isBulk ? totalPrice * BULK_PAYMENT_RATIO : totalPrice,
+      // Workflow version drives every downstream gate. Quotation orders
+      // skip payment validation here — payment happens AFTER the admin
+      // sends a quote and the customer accepts it.
+      workflowVersion,
+      paymentMethod: paymentMethod || (workflowVersion === 'quotation' ? '' : 'cod'),
+      // Quotation orders start at quote_requested, not pending. There's no
+      // payment at checkout — the customer is just submitting a request.
+      status: workflowVersion === 'quotation' ? 'quote_requested' : 'pending',
+      paymentStatus: workflowVersion === 'quotation'
+        ? 'pending'  // No payment expected yet on quote_requested
+        : (paymentMethod === 'cod' ? 'pending' : 'awaiting_payment'),
+      requiredPayment: workflowVersion === 'quotation' ? 0 : (isBulk ? totalPrice * BULK_PAYMENT_RATIO : totalPrice),
       paidAmount: 0, // Will be updated after successful payment
       // Coupon snapshot — frozen at placement so future coupon edits don't
       // retroactively change this order's discount.
@@ -616,6 +632,36 @@ router.post('/', authMiddleware, async (req, res) => {
           priority: 'urgent',
         });
       } catch (e) { /* non-fatal */ }
+    }
+
+    // Auto-create the order chat room with a welcome message. Quotation
+    // orders post a detailed intro that explains next steps; classic
+    // orders get a plain "we received your order" line.
+    try {
+      if (workflowVersion === 'quotation') {
+        const est = estimateOrderTotal(orderItems, {
+          urgencyTier: urgencySnapshot.tier,
+          deliveryMethod: deliveryMethod === 'pickup' ? 'pickup' : 'delivery',
+        });
+        await postSystemMessage({
+          orderId: order._id,
+          body:
+            `📝 New order request received\n\n` +
+            `We'll review your design and send a final quote here shortly. ` +
+            `Once you accept the quote and pay the 50% downpayment, production will start. ` +
+            `The remaining 50% balance is due before release.\n\n` +
+            `Estimated range: ₱${est.totalMin.toLocaleString()} – ₱${est.totalMax.toLocaleString()} (final price set by the store).`,
+          meta: { type: 'quote_intro', estimate: est },
+        });
+      } else {
+        await postSystemMessage({
+          orderId: order._id,
+          body: `✅ Order received — we'll be in touch shortly.`,
+          meta: { type: 'order_received' },
+        });
+      }
+    } catch (chatErr) {
+      console.error('Auto-create chat message failed (non-fatal):', chatErr.message);
     }
 
     // Trigger real-time admin notification via Socket.io
@@ -1771,6 +1817,313 @@ router.get('/queue/priority', authMiddleware, adminMiddleware, async (req, res) 
     res.json(orders.map((o) => toOrderDto(o)));
   } catch (err) {
     console.error('Priority queue error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ─── QUOTATION WORKFLOW ROUTES ───────────────────────────────────────────
+//
+// These power the new flow: customer submits request → admin sends quote →
+// customer accepts → customer uploads downpayment proof → admin verifies →
+// production runs → customer uploads balance proof → admin verifies →
+// release. Hard payment gates live in Order.checkTransitionPrecondition.
+
+/**
+ * POST /orders/:id/quotation
+ *
+ * Admin sends a quotation. Body: { lineItems: [{label, amount}], total,
+ * downpaymentPct? } — defaults to 50% downpayment. Order must currently be
+ * in quote_requested or quoted (re-quote). Sets quotation + transitions
+ * status to 'quoted' atomically.
+ */
+router.post('/:id/quotation', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { lineItems, total, downpaymentPct = 50 } = req.body;
+    if (!Array.isArray(lineItems) || lineItems.length === 0) {
+      return res.status(400).json({ message: 'lineItems is required' });
+    }
+    const totalNum = Number(total);
+    if (!Number.isFinite(totalNum) || totalNum <= 0) {
+      return res.status(400).json({ message: 'total must be a positive number' });
+    }
+    const pct = Math.max(10, Math.min(100, Number(downpaymentPct) || 50));
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (!['quote_requested', 'quoted'].includes(order.status)) {
+      return res.status(400).json({ message: `Cannot send quote from status ${order.status}` });
+    }
+
+    // Archive the previous quote (if any) into revisions[] for the audit trail.
+    if (order.quotation && order.quotation.sentAt) {
+      order.quotation.revisions.push({
+        sentAt: order.quotation.sentAt,
+        sentBy: order.quotation.sentBy,
+        total: order.quotation.total,
+        lineItems: order.quotation.lineItems,
+      });
+    }
+
+    const downpaymentAmount = Math.round((totalNum * pct) / 100);
+    const balanceAmount = Math.round(totalNum - downpaymentAmount);
+
+    order.quotation = {
+      ...(order.quotation || {}),
+      lineItems: lineItems.map((li) => ({ label: String(li.label || '').slice(0, 200), amount: Math.max(0, Number(li.amount) || 0) })),
+      total: totalNum,
+      downpaymentAmount,
+      balanceAmount,
+      sentAt: new Date(),
+      sentBy: req.user.userId,
+      acceptedAt: null,
+      declinedAt: null,
+      declinedReason: '',
+      revisions: order.quotation?.revisions || [],
+    };
+    order.payments = order.payments || {};
+    order.payments.downpayment = { ...(order.payments.downpayment || {}), amount: downpaymentAmount };
+    order.payments.balance = { ...(order.payments.balance || {}), amount: balanceAmount };
+    order.status = 'quoted';
+    // Bring totalPrice in line with the quoted total so admin tables show real numbers.
+    order.totalPrice = totalNum;
+    await order.save();
+
+    // Quote Card in chat (special meta so frontend renders with Accept button).
+    await postSystemMessage({
+      orderId: order._id,
+      body: `📄 Quotation sent — ₱${totalNum.toLocaleString()} total. Downpayment ₱${downpaymentAmount.toLocaleString()} (${pct}%), balance ₱${balanceAmount.toLocaleString()} on release.`,
+      meta: { type: 'quotation', quotation: order.quotation.toObject ? order.quotation.toObject() : order.quotation },
+    });
+
+    res.json({ ok: true, order });
+  } catch (err) {
+    console.error('POST /:id/quotation error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * POST /orders/:id/quotation/accept
+ *
+ * Customer accepts the quote. Only the order owner can call this. Order
+ * must be in 'quoted' status. Flips to 'accepted' and posts a system msg.
+ */
+router.post('/:id/quotation/accept', authMiddleware, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (String(order.customer) !== String(req.user.userId)) {
+      return res.status(403).json({ message: 'Only the customer can accept this quote' });
+    }
+    if (order.status !== 'quoted') {
+      return res.status(400).json({ message: `Cannot accept quote from status ${order.status}` });
+    }
+    order.quotation.acceptedAt = new Date();
+    order.status = 'accepted';
+    await order.save();
+
+    await postSystemMessage({
+      orderId: order._id,
+      body: `✅ Customer accepted the quotation of ₱${order.quotation.total.toLocaleString()}. Please send the 50% downpayment of ₱${order.payments.downpayment.amount.toLocaleString()} and upload a screenshot of the payment here.`,
+      meta: { type: 'quote_accepted' },
+    });
+
+    res.json({ ok: true, order });
+  } catch (err) {
+    console.error('POST /:id/quotation/accept error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * POST /orders/:id/quotation/decline
+ *
+ * Customer declines — order stays 'quoted' so admin can revise via chat.
+ * Records the reason so admin sees it without scrolling chat.
+ */
+router.post('/:id/quotation/decline', authMiddleware, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (String(order.customer) !== String(req.user.userId)) {
+      return res.status(403).json({ message: 'Only the customer can decline' });
+    }
+    if (order.status !== 'quoted') {
+      return res.status(400).json({ message: `Cannot decline from status ${order.status}` });
+    }
+    order.quotation.declinedAt = new Date();
+    order.quotation.declinedReason = String(reason || '').slice(0, 500);
+    // Drop back to quote_requested so admin sees a "quote needed" bucket again.
+    order.status = 'quote_requested';
+    await order.save();
+
+    await postSystemMessage({
+      orderId: order._id,
+      body: `↩️ Customer declined the quote. Reason: "${order.quotation.declinedReason || 'not provided'}". Please discuss in chat and send a revised quote.`,
+      meta: { type: 'quote_declined', reason: order.quotation.declinedReason },
+    });
+    res.json({ ok: true, order });
+  } catch (err) {
+    console.error('POST /:id/quotation/decline error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * POST /orders/:id/payment-proof
+ *
+ * Customer uploads payment proof for either the downpayment or balance.
+ * Body: { type: 'downpayment'|'balance', method, reference, proofUrls[] }.
+ * proofUrls can be data URLs — they get uploaded to Cloudinary if available.
+ */
+router.post('/:id/payment-proof', authMiddleware, async (req, res) => {
+  try {
+    const { type, method, reference, proofUrls } = req.body;
+    if (!['downpayment', 'balance'].includes(type)) {
+      return res.status(400).json({ message: 'type must be "downpayment" or "balance"' });
+    }
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (String(order.customer) !== String(req.user.userId)) {
+      return res.status(403).json({ message: 'Only the customer can upload payment proof' });
+    }
+    // Gate which stage accepts which type.
+    if (type === 'downpayment' && order.status !== 'accepted') {
+      return res.status(400).json({ message: 'Downpayment proof only accepted after quote is accepted' });
+    }
+    if (type === 'balance' && order.status !== 'ready') {
+      return res.status(400).json({ message: 'Balance proof only accepted when order is Ready' });
+    }
+
+    // Upload data URLs to Cloudinary so the chat doesn't carry ~MB blobs.
+    const urls = Array.isArray(proofUrls) ? proofUrls : [];
+    const uploaded = [];
+    for (const u of urls.slice(0, 5)) {
+      if (typeof u === 'string' && u.startsWith('data:')) {
+        try {
+          const cdnUrl = await uploadImage(u, {
+            folder: `payment-proofs/${order._id}`,
+            tags: [type, 'payment-proof'],
+          });
+          uploaded.push(cdnUrl);
+        } catch (err) {
+          console.warn('Payment proof upload failed:', err.message);
+          uploaded.push(u); // fallback: keep data URL
+        }
+      } else if (typeof u === 'string' && u) {
+        uploaded.push(u);
+      }
+    }
+
+    order.payments[type].method = String(method || 'gcash').slice(0, 30);
+    order.payments[type].reference = String(reference || '').slice(0, 100);
+    order.payments[type].proofUrls = uploaded;
+    order.payments[type].submittedAt = new Date();
+    // Clear any prior rejection so admin sees the fresh attempt as pending.
+    order.payments[type].rejectedAt = null;
+    order.payments[type].rejectionReason = '';
+    await order.save();
+
+    await postSystemMessage({
+      orderId: order._id,
+      body: `💸 Customer uploaded ${type === 'downpayment' ? 'DOWNPAYMENT' : 'BALANCE'} payment proof — ${uploaded.length} image(s). Please verify.`,
+      meta: { type: 'payment_proof', stage: type, proofUrls: uploaded, method: order.payments[type].method, reference: order.payments[type].reference, amount: order.payments[type].amount },
+    });
+
+    res.json({ ok: true, order });
+  } catch (err) {
+    console.error('POST /:id/payment-proof error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * POST /orders/:id/payments/:type/verify
+ *
+ * Admin marks the downpayment or balance as verified. For downpayment,
+ * this auto-transitions the order to 'downpayment_paid'. For balance,
+ * it just stamps verifiedAt — release is then unblocked by the state
+ * machine gate in checkTransitionPrecondition.
+ */
+router.post('/:id/payments/:type/verify', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { type } = req.params;
+    if (!['downpayment', 'balance'].includes(type)) {
+      return res.status(400).json({ message: 'type must be "downpayment" or "balance"' });
+    }
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    if (!order.payments[type].submittedAt) {
+      return res.status(400).json({ message: 'No payment proof submitted yet for this stage' });
+    }
+
+    order.payments[type].verifiedAt = new Date();
+    order.payments[type].verifiedBy = req.user.userId;
+
+    // Downpayment verification auto-advances accepted → downpayment_paid.
+    if (type === 'downpayment' && order.status === 'accepted') {
+      order.status = 'downpayment_paid';
+      order.paymentStatus = 'partial';
+      order.paidAmount = order.payments.downpayment.amount;
+    }
+    // Balance verification stamps paidAmount = total. Status stays at 'ready'
+    // — admin still needs to flip it to out_for_delivery / for_pickup.
+    if (type === 'balance') {
+      order.paymentStatus = 'paid';
+      order.paidAmount = (order.payments.downpayment.amount || 0) + (order.payments.balance.amount || 0);
+    }
+
+    await order.save();
+
+    await postSystemMessage({
+      orderId: order._id,
+      body: `✅ ${type === 'downpayment' ? 'Downpayment' : 'Balance payment'} of ₱${order.payments[type].amount.toLocaleString()} verified. ${type === 'downpayment' ? 'You may now approve the order to start production.' : 'Order is ready to be released to the customer.'}`,
+      meta: { type: 'payment_verified', stage: type, amount: order.payments[type].amount },
+    });
+
+    res.json({ ok: true, order });
+  } catch (err) {
+    console.error('POST /:id/payments/:type/verify error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * POST /orders/:id/payments/:type/reject
+ *
+ * Admin rejects payment proof and asks customer to re-upload. Records
+ * reason which is shown in chat as a system message so customer sees
+ * what to fix.
+ */
+router.post('/:id/payments/:type/reject', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { type } = req.params;
+    const { reason } = req.body;
+    if (!['downpayment', 'balance'].includes(type)) {
+      return res.status(400).json({ message: 'type must be "downpayment" or "balance"' });
+    }
+    if (!reason || !String(reason).trim()) {
+      return res.status(400).json({ message: 'reason is required' });
+    }
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    order.payments[type].rejectedAt = new Date();
+    order.payments[type].rejectionReason = String(reason).slice(0, 500);
+    order.payments[type].submittedAt = null;  // Clear so customer must re-upload
+    await order.save();
+
+    await postSystemMessage({
+      orderId: order._id,
+      body: `⚠️ ${type === 'downpayment' ? 'Downpayment' : 'Balance'} payment proof rejected. Reason: ${order.payments[type].rejectionReason}. Please re-upload a clear screenshot.`,
+      meta: { type: 'payment_rejected', stage: type, reason: order.payments[type].rejectionReason },
+    });
+
+    res.json({ ok: true, order });
+  } catch (err) {
+    console.error('POST /:id/payments/:type/reject error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });

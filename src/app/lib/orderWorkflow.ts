@@ -11,6 +11,12 @@
  */
 
 export type OrderStatus =
+  // Quotation workflow (new flow)
+  | 'quote_requested'
+  | 'quoted'
+  | 'accepted'
+  | 'downpayment_paid'
+  // Classic + shared
   | 'pending'
   | 'approved'
   | 'in_production'
@@ -34,12 +40,24 @@ export interface OrderForWorkflow {
   assignedTo?: any;
   qcStatus?: string;
   blockerStatus?: string;
+  workflowVersion?: 'classic' | 'quotation' | string;
+  payments?: {
+    downpayment?: { verifiedAt?: any; submittedAt?: any; amount?: number };
+    balance?:     { verifiedAt?: any; submittedAt?: any; amount?: number };
+  };
+  quotation?: { sentAt?: any; total?: number };
 }
 
 /** The single forward step from each status (delivery-method aware). */
 function forwardOf(order: OrderForWorkflow): OrderStatus | null {
   const isPickup = order.deliveryMethod === 'pickup';
   switch (order.status) {
+    // Quotation workflow
+    case 'quote_requested':  return 'quoted';
+    case 'quoted':           return 'accepted';        // customer-driven; admin doesn't push this
+    case 'accepted':         return 'downpayment_paid';
+    case 'downpayment_paid': return 'approved';
+    // Classic + shared
     case 'pending':          return 'approved';
     case 'approved':         return 'in_production';
     case 'in_production':    return 'ready';
@@ -51,6 +69,9 @@ function forwardOf(order: OrderForWorkflow): OrderStatus | null {
 }
 
 const ACTION_LABELS: Partial<Record<OrderStatus, string>> = {
+  quoted:           'Send quotation',
+  accepted:         'Awaiting customer accept',
+  downpayment_paid: 'Verify downpayment',
   approved:         'Approve order',
   in_production:    'Start production',
   ready:            'Mark Ready',
@@ -84,6 +105,33 @@ function preconditionsFor(order: OrderForWorkflow, to: OrderStatus): PreConditio
   const from = order.status;
   const conds: PreCondition[] = [];
 
+  // Quotation gates ─────────────────────────────────────────────────────
+  if (from === 'quote_requested' && to === 'quoted') {
+    const totalOk = !!order.quotation?.total && (order.quotation.total as number) > 0;
+    conds.push({
+      met: totalOk,
+      message: totalOk ? 'Quotation ready to send' : 'Use the Quote Builder above to enter a quotation total.',
+      hint: totalOk ? undefined : 'Quote',
+    });
+  }
+  if (from === 'quoted' && to === 'accepted') {
+    // Customer-driven — admin can't push.
+    conds.push({ met: false, message: 'Waiting for the customer to accept the quotation in chat.', hint: 'Customer' });
+  }
+  if (from === 'accepted' && to === 'downpayment_paid') {
+    const submitted = !!order.payments?.downpayment?.submittedAt;
+    const verified  = !!order.payments?.downpayment?.verifiedAt;
+    conds.push({
+      met: verified,
+      message: verified
+        ? 'Downpayment verified'
+        : submitted
+          ? 'Downpayment proof uploaded — verify it in chat to advance.'
+          : 'Waiting for the customer to upload downpayment proof.',
+      hint: verified ? undefined : 'Payment',
+    });
+  }
+
   // pending → approved : payment must be settled (or COD)
   if (from === 'pending' && to === 'approved') {
     const paid = order.paymentStatus === 'paid' || order.paymentMethod === 'cod';
@@ -116,10 +164,8 @@ function preconditionsFor(order: OrderForWorkflow, to: OrderStatus): PreConditio
     });
   }
 
-  // ready → out_for_delivery / for_pickup : delivery method must match
-  // the customer's choice. No QC re-check here — reaching `ready` already
-  // required QC approval at the previous gate (in_production → ready),
-  // so re-asking would either be redundant or force a double-override.
+  // ready → out_for_delivery / for_pickup : delivery method must match.
+  // Quotation orders also require the balance to be verified.
   if (from === 'ready' && (to === 'out_for_delivery' || to === 'for_pickup')) {
     const wantMethod: DeliveryMethod = to === 'for_pickup' ? 'pickup' : 'delivery';
     const otherLabel = to === 'for_pickup' ? 'Send out for delivery' : 'Mark ready for pickup';
@@ -130,6 +176,19 @@ function preconditionsFor(order: OrderForWorkflow, to: OrderStatus): PreConditio
         ? `${wantMethod[0].toUpperCase() + wantMethod.slice(1)} order`
         : `Wrong delivery method — use "${otherLabel}" instead`,
     });
+    if (order.workflowVersion === 'quotation') {
+      const submitted = !!order.payments?.balance?.submittedAt;
+      const verified  = !!order.payments?.balance?.verifiedAt;
+      conds.push({
+        met: verified,
+        message: verified
+          ? 'Balance payment verified'
+          : submitted
+            ? 'Balance proof uploaded — verify it in chat to unlock release.'
+            : 'Customer must pay the 50% balance & it must be verified before release.',
+        hint: verified ? undefined : 'Balance',
+      });
+    }
   }
 
   // Blocker check — applies to everything except cancel/reject
@@ -176,9 +235,9 @@ export function canCancel(order: OrderForWorkflow): boolean {
   return !TERMINAL.has(order.status);
 }
 
-/** Reject is only available while the order is still pending. */
+/** Reject is only available while the order is still pending OR awaiting a quote. */
 export function canReject(order: OrderForWorkflow): boolean {
-  return order.status === 'pending';
+  return order.status === 'pending' || order.status === 'quote_requested' || order.status === 'quoted';
 }
 
 const TERMINAL = new Set<OrderStatus>(['completed', 'cancelled', 'rejected', 'refunded']);

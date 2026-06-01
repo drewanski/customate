@@ -327,7 +327,10 @@ export function Checkout() {
       });
 
       clearCart();
-      navigate(`/order-tracking/${order.id}`);
+      // Land the customer in the Messages tab of their new order — that's
+      // where the admin's quote will arrive. Avoids the "where do I go now?"
+      // beat right after submit.
+      navigate(`/order-tracking/${order.id}?tab=messages`);
     } catch (err: any) {
       setError(err?.message || 'Failed to place order');
     } finally {
@@ -549,6 +552,10 @@ export function Checkout() {
             </CardContent>
           </Card>
 
+          {/* PAYMENT METHOD CARD HIDDEN — quotation workflow defers payment
+              to AFTER the admin sends a quote. The customer pays the 50%
+              downpayment from the order chat, not here. */}
+          {false && (
           <Card>
             <CardHeader>
               <CardTitle>
@@ -716,6 +723,25 @@ export function Checkout() {
                   </div>
                 </div>
               )}
+            </CardContent>
+          </Card>
+          )}
+
+          {/* Replacement card explaining the new quotation flow — sits in
+              the same slot where Payment Method used to be. */}
+          <Card>
+            <CardContent className="pt-5">
+              <div className="rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-white text-xl flex-shrink-0">💬</div>
+                  <div className="min-w-0">
+                    <p className="font-bold text-amber-900">No payment required yet</p>
+                    <p className="text-sm text-amber-800 mt-1 leading-snug">
+                      Your custom order needs to be reviewed first. After you submit, the store will send a final quote in the order chat. <strong>Once you accept the quote, you'll pay a 50% downpayment to start production. The remaining 50% balance is due before release.</strong>
+                    </p>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -1051,31 +1077,29 @@ export function Checkout() {
               <Button
                 className="w-full !py-3.5 !rounded-xl !text-sm !font-black tracking-wide shadow-lg shadow-blue-200 hover:shadow-xl hover:shadow-blue-300 hover:-translate-y-0.5 transition-all"
                 onClick={() => {
-                  if (paymentMethod === 'gcash' || paymentMethod === 'paymaya') {
-                    handlePlaceOrder(undefined, true);
-                  } else {
-                    handlePlaceOrder();
-                  }
+                  // Quotation workflow: always submit without payment. The
+                  // PayMongo / payment-modal paths are unreachable now —
+                  // payment happens in the order chat AFTER the admin sends
+                  // a final quote and the customer accepts it.
+                  handlePlaceOrder();
                 }}
                 disabled={loading || !!deliveryError || deliveryQuote?.capacity?.available === false}
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    {(paymentMethod === 'gcash' || paymentMethod === 'paymaya') ? 'Redirecting…' : 'Placing order…'}
+                    Submitting order request…
                   </span>
                 ) : (
                   <span className="flex items-center justify-center gap-2">
                     <Lock className="w-3.5 h-3.5" />
-                    {(paymentMethod === 'gcash' || paymentMethod === 'paymaya')
-                      ? 'Pay with ' + (paymentMethod === 'gcash' ? 'GCash' : 'Maya')
-                      : `Place Order · ${formatPeso(finalTotal)}`}
+                    Submit Order Request
                   </span>
                 )}
               </Button>
 
               <p className="text-[10px] text-slate-500 text-center leading-relaxed">
-                By placing this order, you agree to our <span className="font-bold text-slate-700">Terms</span> & <span className="font-bold text-slate-700">Refund Policy</span>.
+                By submitting, you agree to our <span className="font-bold text-slate-700">Terms</span>. <strong>No payment yet</strong> — the store will send a final quote in the chat.
               </p>
 
               <div className="flex items-center justify-center gap-3 pt-1 border-t border-slate-100">

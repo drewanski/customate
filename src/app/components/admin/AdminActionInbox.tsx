@@ -9,6 +9,9 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  FileText,
+  Wallet,
+  Receipt,
 } from 'lucide-react';
 import { formatPeso } from '../../utils/format';
 
@@ -41,6 +44,11 @@ type OrderLite = {
   courier?: { name?: string; trackingNumber?: string } | null;
   rushFeeAmount?: number;
   urgencyTier?: string;
+  workflowVersion?: string;
+  payments?: {
+    downpayment?: { submittedAt?: any; verifiedAt?: any };
+    balance?:     { submittedAt?: any; verifiedAt?: any };
+  };
 };
 
 type Bucket = {
@@ -54,14 +62,42 @@ type Bucket = {
 };
 
 const BUCKETS: Bucket[] = [
+  // Quotation workflow — front-of-queue actions for the new flow.
+  {
+    id: 'quote-needed',
+    label: 'Send a quote',
+    hint: 'Customer submitted a request — review their design and send the final price',
+    icon: FileText,
+    tint: 'from-blue-500 to-indigo-600',
+    pill: 'bg-blue-100 text-blue-700 border-blue-200',
+    match: (o) => o.status === 'quote_requested',
+  },
+  {
+    id: 'verify-downpayment',
+    label: 'Verify downpayment',
+    hint: 'Customer uploaded payment proof — verify so production can start',
+    icon: Wallet,
+    tint: 'from-amber-500 to-orange-500',
+    pill: 'bg-amber-100 text-amber-700 border-amber-200',
+    match: (o) => o.status === 'accepted' && !!o.payments?.downpayment?.submittedAt && !o.payments?.downpayment?.verifiedAt,
+  },
+  {
+    id: 'verify-balance',
+    label: 'Verify balance payment',
+    hint: 'Order is ready — customer paid the balance, verify to release',
+    icon: Receipt,
+    tint: 'from-emerald-500 to-teal-600',
+    pill: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    match: (o) => o.status === 'ready' && !!o.payments?.balance?.submittedAt && !o.payments?.balance?.verifiedAt,
+  },
   {
     id: 'pending-approval',
     label: 'Awaiting your approval',
-    hint: 'Customer placed the order — review and approve or reject',
+    hint: 'Order is ready to approve — downpayment in, queue for production',
     icon: Hourglass,
     tint: 'from-amber-500 to-orange-500',
     pill: 'bg-amber-100 text-amber-700 border-amber-200',
-    match: (o) => o.status === 'pending',
+    match: (o) => o.status === 'pending' || o.status === 'downpayment_paid',
   },
   {
     id: 'needs-staff',

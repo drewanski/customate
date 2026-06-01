@@ -2,8 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Send, Package, Truck, Store, Info, Sparkles, ExternalLink, MessageSquare,
+  CheckCircle2, XCircle, Image as ImageIcon, Loader2, FileText, Upload,
 } from 'lucide-react';
-import { getOrderChat, sendOrderChatMessage, apiRequest } from '../../api';
+import {
+  getOrderChat, sendOrderChatMessage, apiRequest,
+  acceptQuotation, declineQuotation, verifyPayment, rejectPayment, uploadPaymentProof,
+} from '../../api';
 import { formatPeso } from '../../utils/format';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -161,6 +165,17 @@ export function OrderChatPanel({
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+
+  // Payment-proof upload modal — open when the customer needs to send
+  // a downpayment/balance screenshot. Stage is decided by current order
+  // status: 'accepted' → downpayment; 'ready' → balance.
+  const [proofOpen, setProofOpen] = useState(false);
+  const [proofStage, setProofStage] = useState<'downpayment' | 'balance'>('downpayment');
+  const [proofMethod, setProofMethod] = useState<'gcash' | 'paymaya' | 'bank' | 'cash'>('gcash');
+  const [proofReference, setProofReference] = useState('');
+  const [proofImages, setProofImages] = useState<string[]>([]);
+  const [proofBusy, setProofBusy] = useState(false);
+  const [proofErr, setProofErr] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const autoScrollPinned = useRef(true);
 
@@ -339,6 +354,131 @@ export function OrderChatPanel({
                 const consecutive = prev && prev.fromRole === m.fromRole && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60 * 1000);
 
                 if (m.kind === 'system') {
+                  // ── Quotation card — itemized with Accept / Decline ──
+                  if (m?.meta?.type === 'quotation' && m?.meta?.quotation) {
+                    const q = m.meta.quotation;
+                    const acceptedAlready = q.acceptedAt;
+                    const declinedAlready = q.declinedAt;
+                    return (
+                      <div key={m._id} className="flex justify-center my-3">
+                        <div className="w-full max-w-md rounded-2xl bg-white border-2 border-blue-200 shadow-md overflow-hidden">
+                          <div className="px-4 py-2.5 bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center gap-2">
+                            <FileText className="w-4 h-4" />
+                            <p className="text-sm font-black tracking-tight">QUOTATION</p>
+                            <span className="ml-auto text-[10px] opacity-80">{formatTime(new Date(m.createdAt))}</span>
+                          </div>
+                          <div className="p-4 space-y-1.5 text-sm">
+                            {(q.lineItems || []).map((li: any, idx: number) => (
+                              <div key={idx} className="flex justify-between text-slate-700">
+                                <span className="truncate pr-2">{li.label}</span>
+                                <span className="font-semibold text-slate-900 flex-shrink-0">₱{Number(li.amount).toLocaleString()}</span>
+                              </div>
+                            ))}
+                            <div className="border-t border-slate-200 pt-2 mt-2 flex justify-between items-baseline">
+                              <span className="font-bold text-slate-900">Total</span>
+                              <span className="text-2xl font-black text-blue-700">₱{Number(q.total).toLocaleString()}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 pt-2 text-[11px]">
+                              <div className="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2">
+                                <p className="text-amber-700 font-bold uppercase tracking-wider text-[9px]">Downpayment</p>
+                                <p className="font-black text-amber-900 text-base mt-0.5">₱{Number(q.downpaymentAmount).toLocaleString()}</p>
+                                <p className="text-[10px] text-amber-700">Pay to start</p>
+                              </div>
+                              <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-2">
+                                <p className="text-emerald-700 font-bold uppercase tracking-wider text-[9px]">Balance</p>
+                                <p className="font-black text-emerald-900 text-base mt-0.5">₱{Number(q.balanceAmount).toLocaleString()}</p>
+                                <p className="text-[10px] text-emerald-700">Pay on release</p>
+                              </div>
+                            </div>
+                          </div>
+                          {myRole === 'customer' && !acceptedAlready && !declinedAlready && order?.status === 'quoted' && (
+                            <div className="px-4 pb-4 flex gap-2">
+                              <button
+                                onClick={async () => {
+                                  try { await acceptQuotation(orderId); window.location.reload(); } catch (e: any) { alert(e?.message || 'Failed'); }
+                                }}
+                                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-md hover:shadow-lg"
+                              >
+                                <CheckCircle2 className="w-4 h-4" /> Accept quote
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const r = prompt('Tell the store why (price, design, timing, etc.):');
+                                  if (!r) return;
+                                  try { await declineQuotation(orderId, r); window.location.reload(); } catch (e: any) { alert(e?.message || 'Failed'); }
+                                }}
+                                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white text-rose-700 border-2 border-rose-200 hover:bg-rose-50 font-bold text-sm"
+                              >
+                                Discuss
+                              </button>
+                            </div>
+                          )}
+                          {acceptedAlready && (
+                            <div className="px-4 pb-3 pt-1 text-xs font-bold text-emerald-700 flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4" /> Accepted on {new Date(acceptedAlready).toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // ── Payment-proof card — admin sees Verify / Reject ──
+                  if (m?.meta?.type === 'payment_proof') {
+                    const stage = m.meta.stage as 'downpayment' | 'balance';
+                    const proofUrls: string[] = m.meta.proofUrls || [];
+                    const amount = m.meta.amount;
+                    return (
+                      <div key={m._id} className="flex justify-center my-3">
+                        <div className="w-full max-w-md rounded-2xl bg-white border-2 border-amber-200 shadow-md overflow-hidden">
+                          <div className="px-4 py-2.5 bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center gap-2">
+                            <ImageIcon className="w-4 h-4" />
+                            <p className="text-sm font-black tracking-tight uppercase">{stage} payment proof</p>
+                            <span className="ml-auto text-[10px] opacity-80">{formatTime(new Date(m.createdAt))}</span>
+                          </div>
+                          <div className="p-4 space-y-2">
+                            <p className="text-xs text-slate-600">
+                              <span className="font-bold text-slate-900">₱{Number(amount).toLocaleString()}</span>
+                              {' via '}<span className="font-semibold capitalize">{m.meta.method}</span>
+                              {m.meta.reference && <> · Ref: <code className="font-mono text-xs bg-slate-100 px-1 rounded">{m.meta.reference}</code></>}
+                            </p>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {proofUrls.map((u, i) => (
+                                <a key={i} href={u} target="_blank" rel="noreferrer" className="block aspect-square rounded-lg overflow-hidden border border-slate-200 hover:border-blue-400 bg-slate-50">
+                                  <img src={u} alt={`Proof ${i + 1}`} className="w-full h-full object-cover" />
+                                </a>
+                              ))}
+                            </div>
+                            {myRole === 'admin' && (
+                              <div className="flex gap-2 pt-1">
+                                <button
+                                  onClick={async () => {
+                                    if (!confirm(`Verify the ${stage} payment of ₱${Number(amount).toLocaleString()}?`)) return;
+                                    try { await verifyPayment(orderId, stage); window.location.reload(); } catch (e: any) { alert(e?.message || 'Failed'); }
+                                  }}
+                                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-sm hover:shadow-md"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Verify
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    const r = prompt('Reason for rejection (shown to customer):');
+                                    if (!r) return;
+                                    try { await rejectPayment(orderId, stage, r); window.location.reload(); } catch (e: any) { alert(e?.message || 'Failed'); }
+                                  }}
+                                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white text-rose-700 border border-rose-200 hover:bg-rose-50 font-bold text-xs"
+                                >
+                                  <XCircle className="w-3.5 h-3.5" /> Reject
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Default system message — plain pill.
                   return (
                     <div key={m._id} className="flex justify-center my-2">
                       <div className="max-w-[85%] px-3.5 py-2 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2 shadow-sm">
@@ -346,7 +486,7 @@ export function OrderChatPanel({
                           <Info className="w-3 h-3 text-white" />
                         </div>
                         <div className="min-w-0">
-                          <p className="font-bold leading-snug">{m.body}</p>
+                          <p className="font-bold leading-snug whitespace-pre-line">{m.body}</p>
                           <p className="text-[10px] opacity-70 mt-0.5">{timeAgo(new Date(m.createdAt))}</p>
                         </div>
                       </div>
@@ -427,6 +567,26 @@ export function OrderChatPanel({
           </div>
         )}
 
+        {/* Payment-proof CTA — only shown when customer needs to pay
+            something. Big, obvious, can't-miss-it. Tapping opens the
+            upload modal. */}
+        {myRole === 'customer' && order?.status === 'accepted' && !order?.payments?.downpayment?.submittedAt && (
+          <button
+            onClick={() => { setProofStage('downpayment'); setProofOpen(true); }}
+            className="mb-2.5 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white font-bold text-sm shadow-md hover:shadow-lg"
+          >
+            <Upload className="w-4 h-4" /> Send downpayment proof (₱{Number(order?.payments?.downpayment?.amount || 0).toLocaleString()})
+          </button>
+        )}
+        {myRole === 'customer' && order?.status === 'ready' && order?.workflowVersion === 'quotation' && !order?.payments?.balance?.submittedAt && (
+          <button
+            onClick={() => { setProofStage('balance'); setProofOpen(true); }}
+            className="mb-2.5 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-md hover:shadow-lg"
+          >
+            <Upload className="w-4 h-4" /> Send balance payment proof (₱{Number(order?.payments?.balance?.amount || 0).toLocaleString()})
+          </button>
+        )}
+
         <div className="flex gap-2 items-end">
           <div className="flex-1 relative">
             <input
@@ -452,6 +612,90 @@ export function OrderChatPanel({
           Messages are tied to this order. Status updates appear here automatically.
         </p>
       </div>
+
+      {/* Payment Proof Upload Modal — customer-side. Lets the customer
+          attach payment method, ref number, and screenshots. On submit
+          everything goes into payments[stage] and an admin-visible
+          "Payment Proof" card appears in this chat. */}
+      {proofOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setProofOpen(false)}>
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className={`px-5 py-4 text-white ${proofStage === 'downpayment' ? 'bg-gradient-to-br from-amber-500 to-orange-600' : 'bg-gradient-to-br from-emerald-500 to-teal-600'}`}>
+              <h3 className="text-lg font-black tracking-tight capitalize">{proofStage} payment</h3>
+              <p className="text-sm opacity-90 mt-0.5">
+                Amount due: ₱{Number(order?.payments?.[proofStage]?.amount || 0).toLocaleString()}
+              </p>
+            </div>
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Payment method</label>
+                <select value={proofMethod} onChange={(e) => setProofMethod(e.target.value as any)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                  <option value="gcash">GCash</option>
+                  <option value="paymaya">Maya / PayMaya</option>
+                  <option value="bank">Bank transfer</option>
+                  <option value="cash">Cash (in store)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Reference number (optional)</label>
+                <input value={proofReference} onChange={(e) => setProofReference(e.target.value)} placeholder="GCash ref #, bank txn ID…" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Screenshot of payment ({proofImages.length}/5)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []).slice(0, 5 - proofImages.length);
+                    Promise.all(files.map((f) => new Promise<string>((resolve) => {
+                      const r = new FileReader();
+                      r.onload = () => resolve(String(r.result));
+                      r.readAsDataURL(f);
+                    }))).then((urls) => setProofImages((p) => [...p, ...urls].slice(0, 5)));
+                  }}
+                  className="text-xs w-full"
+                />
+                {proofImages.length > 0 && (
+                  <div className="grid grid-cols-5 gap-1.5 mt-2">
+                    {proofImages.map((u, i) => (
+                      <div key={i} className="aspect-square rounded-lg overflow-hidden border border-slate-200 relative group">
+                        <img src={u} className="w-full h-full object-cover" alt={`Proof ${i + 1}`} />
+                        <button onClick={() => setProofImages((p) => p.filter((_, idx) => idx !== i))} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-rose-600 text-white text-xs opacity-0 group-hover:opacity-100">×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {proofErr && <p className="text-xs text-rose-700 font-semibold">{proofErr}</p>}
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setProofOpen(false)} className="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-sm">Cancel</button>
+                <button
+                  onClick={async () => {
+                    if (proofImages.length === 0) { setProofErr('Please attach at least one screenshot.'); return; }
+                    setProofBusy(true); setProofErr('');
+                    try {
+                      await uploadPaymentProof(orderId, proofStage, { method: proofMethod, reference: proofReference, proofUrls: proofImages });
+                      setProofOpen(false);
+                      setProofImages([]); setProofReference('');
+                      window.location.reload();
+                    } catch (e: any) {
+                      setProofErr(e?.message || 'Upload failed');
+                    } finally {
+                      setProofBusy(false);
+                    }
+                  }}
+                  disabled={proofBusy || proofImages.length === 0}
+                  className={`flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-white font-bold text-sm shadow-md disabled:opacity-50 ${proofStage === 'downpayment' ? 'bg-gradient-to-br from-amber-500 to-orange-600' : 'bg-gradient-to-br from-emerald-500 to-teal-600'}`}
+                >
+                  {proofBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  {proofBusy ? 'Sending…' : 'Send proof'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

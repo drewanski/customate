@@ -708,3 +708,44 @@ export async function getOrderTimeline(orderId) {
 export async function getChatThreads() {
   return apiRequest('/chat/threads');
 }
+
+// ─── Quotation workflow ───────────────────────────────────────────────────
+// New flow for custom-merch orders. See backend/routes/orders.js quotation
+// routes for the full lifecycle. Each helper returns the refreshed order
+// so the caller can drop it straight into state.
+
+export async function sendQuotation(orderId, lineItems, total, downpaymentPct = 50) {
+  return apiRequest(`/orders/${orderId}/quotation`, {
+    method: 'POST',
+    body: JSON.stringify({ lineItems, total, downpaymentPct }),
+  });
+}
+
+export async function acceptQuotation(orderId) {
+  return apiRequest(`/orders/${orderId}/quotation/accept`, { method: 'POST' });
+}
+
+export async function declineQuotation(orderId, reason) {
+  return apiRequest(`/orders/${orderId}/quotation/decline`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function uploadPaymentProof(orderId, type, { method, reference, proofUrls }) {
+  return apiRequest(`/orders/${orderId}/payment-proof`, {
+    method: 'POST',
+    body: JSON.stringify({ type, method, reference, proofUrls }),
+  });
+}
+
+export async function verifyPayment(orderId, type) {
+  return apiRequest(`/orders/${orderId}/payments/${type}/verify`, { method: 'POST' });
+}
+
+export async function rejectPayment(orderId, type, reason) {
+  return apiRequest(`/orders/${orderId}/payments/${type}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
