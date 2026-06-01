@@ -220,6 +220,15 @@ function toOrderDto(order) {
     leadTimeDays: o.leadTimeDays || 0,
     productionPriority: o.productionPriority,
     productionStage: o.productionStage,
+    // Quotation workflow surface — UI uses these to render the Quote Card,
+    // payment-proof gates, etc. Default empty values keep classic orders happy.
+    workflowVersion: o.workflowVersion || 'classic',
+    quotation: o.quotation || null,
+    payments: o.payments || null,
+    qcStatus: o.qcStatus || 'none',
+    qcPhoto: o.qcPhoto || '',
+    assignedTo: o.assignedTo,
+    blockerStatus: o.blockerStatus || 'none',
     createdAt: o.createdAt,
     updatedAt: o.updatedAt
   };

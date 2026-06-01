@@ -190,7 +190,10 @@ const orderSchema = new mongoose.Schema({
   // Free-form internal admin notes (the audit log holds the timeline; this
   // field holds the "current state" note pinned to the order header).
   adminNote: { type: String, default: '' },
-  paymentMethod: { type: String, enum: ['cod', 'gcash', 'paymaya', 'bank'], default: 'cod' },
+  // Quotation orders have no payment method at submit time — the customer
+  // pays via the chat-uploaded proof flow after the quote is accepted.
+  // Allow empty string + add later proof-flow methods to the enum.
+  paymentMethod: { type: String, enum: ['', 'cod', 'gcash', 'paymaya', 'bank', 'cash'], default: 'cod' },
   paymentStatus: { type: String, enum: ['pending', 'awaiting_payment', 'partial', 'paid', 'failed'], default: 'pending' },
   paidAmount: { type: Number, default: 0, min: 0 },
   requiredPayment: { type: Number, default: 0, min: 0 },
