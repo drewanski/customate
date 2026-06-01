@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Modal } from '../Modal';
 import { Button } from '../Button';
 import { Textarea } from '../Textarea';
@@ -145,11 +145,42 @@ function NextStepCard({
   onPromote: (to: string) => void;
   onClose: () => void;
 }) {
+  const navigate = useNavigate();
   const next = getNextStep(order);
   if (!next) return null;
 
   const unmet = next.conditions.filter((c) => !c.met);
   const met = next.conditions.filter((c) => c.met);
+
+  // When the next step is blocked by a single fixable condition (e.g.
+  // "Assign staff" → /admin/production), the primary button becomes a
+  // navigate-to-fix shortcut instead of a disabled action. The admin
+  // clicks one button, lands on the right tab with the order
+  // pre-selected and the schedule modal already open. After the gap is
+  // resolved on that page, returning here shows everything green.
+  const firstFixable = unmet.find((c) => c.fixHref);
+  const useFixShortcut = !next.ready && !!firstFixable;
+  const fixIsScheduleStaff =
+    !!firstFixable && /production/.test(firstFixable.fixHref || '') && next.to === 'in_production';
+
+  const buttonLabel = useFixShortcut
+    ? (fixIsScheduleStaff ? 'Schedule production' : 'Resolve in next tab')
+    : next.label;
+
+  const handleClick = () => {
+    if (useFixShortcut && firstFixable && firstFixable.fixHref) {
+      // Tack on the order id + auto-action so the destination page
+      // can open the right modal immediately.
+      const orderId = order.id || order._id;
+      const url = fixIsScheduleStaff
+        ? `${firstFixable.fixHref}?id=${orderId}&action=schedule`
+        : `${firstFixable.fixHref}?id=${orderId}`;
+      onClose();
+      navigate(url);
+      return;
+    }
+    onPromote(next.to);
+  };
 
   return (
     <div className="mt-3 rounded-2xl border-2 border-blue-100 bg-gradient-to-br from-blue-50/60 via-indigo-50/40 to-white p-4">
@@ -160,12 +191,16 @@ function NextStepCard({
         </div>
         <Button
           size="sm"
-          disabled={updating || !next.ready}
-          onClick={() => onPromote(next.to)}
-          className={`${next.ready ? 'bg-gradient-to-br from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700' : ''}`}
-          title={next.ready ? undefined : 'Resolve the requirements below first'}
+          disabled={updating}
+          onClick={handleClick}
+          className="bg-gradient-to-br from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+          title={
+            useFixShortcut
+              ? 'Opens the next tab so you can resolve the blocker'
+              : 'Promote this order to the next stage'
+          }
         >
-          {updating ? 'Updating…' : next.label}
+          {updating ? 'Updating…' : buttonLabel}
           <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
         </Button>
       </div>
@@ -186,7 +221,7 @@ function NextStepCard({
                   <>
                     {' · '}
                     <Link
-                      to={c.fixHref}
+                      to={`${c.fixHref}?id=${order.id || order._id}${fixIsScheduleStaff ? '&action=schedule' : ''}`}
                       onClick={onClose}
                       className="font-bold underline hover:text-rose-900"
                     >

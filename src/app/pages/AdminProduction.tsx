@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -120,6 +121,42 @@ export function AdminProduction() {
   useEffect(() => {
     fetchAll();
   }, [week.from, week.to]);
+
+  // Deep-link from /admin/orders' Next-Step button — when an admin clicks
+  // "Start production" on an approved order with no assignee yet, we
+  // navigate them here with ?id=<orderId>&action=schedule. We wait until
+  // the queue has loaded so the order object is available, then pre-open
+  // the ScheduleOrderModal so the admin can assign staff + pick a slot
+  // in one place instead of hunting through the queue.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const id = searchParams.get('id');
+    const action = searchParams.get('action');
+    if (!id || queue.length === 0) return;
+    const target = queue.find((o) => String(o._id) === id || String(o.id) === id);
+    if (!target) {
+      // Order isn't in queue (maybe already in production / ready / completed)
+      // — silently drop the param so refresh doesn't keep retrying.
+      const next = new URLSearchParams(searchParams);
+      next.delete('id');
+      next.delete('action');
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    setActiveOrder(target);
+    if (action === 'schedule') {
+      setScheduleModalOpen(true);
+    } else {
+      setDetailOpen(true);
+    }
+    // Clean the URL — once consumed, refreshing the page shouldn't keep
+    // re-opening the modal.
+    const next = new URLSearchParams(searchParams);
+    next.delete('id');
+    next.delete('action');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue.length]);
 
   // Filtered queue
   const filteredQueue = useMemo(() => {
