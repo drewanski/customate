@@ -116,10 +116,10 @@ function preconditionsFor(order: OrderForWorkflow, to: OrderStatus): PreConditio
     });
   }
 
-  // ready → out_for_delivery / for_pickup : delivery method must match AND
-  // QC must have passed. The backend (Order.js checkTransitionPrecondition)
-  // enforces both — keep the mirror in sync so the button doesn't go
-  // green and then 400.
+  // ready → out_for_delivery / for_pickup : delivery method must match
+  // the customer's choice. No QC re-check here — reaching `ready` already
+  // required QC approval at the previous gate (in_production → ready),
+  // so re-asking would either be redundant or force a double-override.
   if (from === 'ready' && (to === 'out_for_delivery' || to === 'for_pickup')) {
     const wantMethod: DeliveryMethod = to === 'for_pickup' ? 'pickup' : 'delivery';
     const otherLabel = to === 'for_pickup' ? 'Send out for delivery' : 'Mark ready for pickup';
@@ -129,13 +129,6 @@ function preconditionsFor(order: OrderForWorkflow, to: OrderStatus): PreConditio
       message: methodOk
         ? `${wantMethod[0].toUpperCase() + wantMethod.slice(1)} order`
         : `Wrong delivery method — use "${otherLabel}" instead`,
-    });
-    const qcOk = order.qcStatus === 'approved';
-    conds.push({
-      met: qcOk,
-      message: qcOk ? 'QC approved' : 'Quality check must be approved before shipping',
-      fixHref: qcOk ? undefined : '/admin/production',
-      hint: qcOk ? undefined : 'QC',
     });
   }
 

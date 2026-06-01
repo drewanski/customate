@@ -349,23 +349,21 @@ export function checkTransitionPrecondition(order, to, { reason, override } = {}
     }
   }
 
-  // ready → out_for_delivery : delivery-method + QC must match
+  // ready → out_for_delivery : delivery-method must match the customer's
+  // choice. No QC re-check here — reaching `ready` already required QC
+  // approval (the in_production → ready gate), so re-asking would either
+  // be a no-op (the order has qcStatus=approved already) or force a
+  // double-override for legitimate emergency-release scenarios.
   if (from === 'ready' && to === 'out_for_delivery') {
     if (order.deliveryMethod === 'pickup') {
       return { ok: false, code: 'DELIVERY_METHOD_MISMATCH', message: 'This is a pickup order — use "Ready for pickup" instead of "Out for delivery".' };
     }
-    if (order.qcStatus !== 'approved' && !override) {
-      return { ok: false, code: 'QC_NOT_APPROVED', message: 'QC must be approved before the order ships.' };
-    }
   }
 
-  // ready → for_pickup : delivery-method + QC must match
+  // ready → for_pickup : same — delivery-method match only.
   if (from === 'ready' && to === 'for_pickup') {
     if (order.deliveryMethod === 'delivery') {
       return { ok: false, code: 'DELIVERY_METHOD_MISMATCH', message: 'This is a delivery order — use "Out for delivery" instead of "Ready for pickup".' };
-    }
-    if (order.qcStatus !== 'approved' && !override) {
-      return { ok: false, code: 'QC_NOT_APPROVED', message: 'QC must be approved before marking ready for pickup.' };
     }
   }
 
