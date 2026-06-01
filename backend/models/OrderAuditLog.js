@@ -28,6 +28,7 @@ const orderAuditLogSchema = new mongoose.Schema({
       'bulk_action',      // Part of a multi-order batch
       'shipped',          // Shipping label / tracking
       'delivered',        // Delivery confirmation
+      'courier_assigned', // 3rd-party courier handoff (Lalamove / LBC / etc)
     ],
     index: true,
   },
