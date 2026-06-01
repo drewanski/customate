@@ -176,19 +176,24 @@ app.use((req, _res, next) => {
 });
 
 // ─── Rate limiting ────────────────────────────────────────────────────────
-// Global: 200 requests / 15min / IP — protects against scraping and abuse.
+// Global: 200 requests / 15min / IP in prod — protects against scraping/abuse.
+// Dev (NODE_ENV !== 'production') uses a much higher ceiling because each
+// page load fires a burst of polls (/session, /notifications,
+// /chat/unread/count, /orders, etc.) and the original 200 limit would
+// throttle a single developer doing one walkthrough.
+const IS_PROD = process.env.NODE_ENV === 'production';
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: IS_PROD ? 200 : 5000,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { error: 'Too many requests. Please try again later.' },
 });
 
-// Auth-only: 10 attempts / 15min / IP — stops brute-force login/signup.
+// Auth-only: tight in prod to stop brute-force; relaxed in dev for testing.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: IS_PROD ? 10 : 100,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skipSuccessfulRequests: true, // only count failed auth attempts
