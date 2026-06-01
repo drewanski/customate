@@ -373,10 +373,15 @@ const BODY_SIZES: Record<BodySize, {
 const PRODUCT_MODELS: Record<ProductType, ProductModelConfig> = {
   shirt: {
     path: '/oversized-t-shirt/oversized_t-shirt.glb',
-    scale: 1.2,
-    position: [0, -1, 0],
+    scale: 1.15,
+    // Position [0,0,0] paired with the auto-centering in ProductMesh puts
+    // the shirt's geometric center exactly at world origin — the camera
+    // (also looking at origin) then frames it dead-center on first open.
+    // The `tryOnOffsetY` still applies on top of this for the mannequin
+    // mode so try-on positioning isn't disturbed.
+    position: [0, 0, 0],
     rotation: [0, 0, 0],
-    camera: [0, 0.2, 3.2],
+    camera: [0, 0, 3.6],
     defaultDecalSize: 0.6,
     maxDecalFraction: 0.38,
     wearable: true,
@@ -384,10 +389,10 @@ const PRODUCT_MODELS: Record<ProductType, ProductModelConfig> = {
   },
   jersey: {
     path: '/models/sports_jersey.glb',
-    scale: 1.05,
-    position: [0, -1.0, 0],
+    scale: 1.0,
+    position: [0, 0, 0],
     rotation: [0, 0, 0],
-    camera: [0, 0.2, 4.5],
+    camera: [0, 0, 4.6],
     defaultDecalSize: 0.6,
     maxDecalFraction: 0.35,
     wearable: true,
