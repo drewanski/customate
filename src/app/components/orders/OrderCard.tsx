@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Package, Truck, Store, Sparkles, Star, RotateCcw, AlertTriangle,
   CheckCircle2, Clock, Factory, ShieldCheck, XCircle, ArrowRight,
+  MessageCircle,
 } from 'lucide-react';
 import { formatPeso } from '../../utils/format';
 
@@ -12,6 +13,8 @@ interface Props {
   onCancel?: (orderId: string) => void;
   onFileReturn?: (orderId: string) => void;
   onRate?: (orderId: string) => void;
+  /** Unread chat messages on this order — drives the badge on the Message button. */
+  unreadCount?: number;
 }
 
 const STATUS_META: Record<string, { label: string; tint: string; Icon: any; gradient: string }> = {
@@ -31,7 +34,7 @@ const STATUS_META: Record<string, { label: string; tint: string; Icon: any; grad
 
 const CANCEL_LOCKED = new Set(['in_production', 'ready', 'out_for_delivery', 'for_pickup', 'completed', 'shipped', 'delivered', 'cancelled', 'rejected', 'refunded']);
 
-export function OrderCard({ order, onReorder, onCancel, onFileReturn, onRate }: Props) {
+export function OrderCard({ order, onReorder, onCancel, onFileReturn, onRate, unreadCount = 0 }: Props) {
   const items = Array.isArray(order.items) ? order.items : [];
   const status = STATUS_META[order.status] || STATUS_META.pending;
   const StatusIcon = status.Icon;
@@ -146,6 +149,19 @@ export function OrderCard({ order, onReorder, onCancel, onFileReturn, onRate }: 
 
       {/* Action bar — varies by status, like Shopee/Lazada */}
       <div className="px-4 py-3 border-t border-slate-100 bg-white flex items-center justify-end gap-2 flex-wrap">
+        {/* TikTok-style Message button — always visible, badge on unread.
+            Deep-links straight into the Messages tab on the order page. */}
+        <Link
+          to={`/order-tracking/${order.id || order._id}?tab=messages`}
+          className="relative inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white text-blue-700 border border-blue-200 hover:bg-blue-50 font-bold text-xs"
+        >
+          <MessageCircle className="w-3.5 h-3.5" /> Message
+          {unreadCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-black ring-2 ring-white">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
+        </Link>
         {canReview && onRate && (
           <button
             onClick={() => onRate(order.id || order._id)}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams, Link, useLocation } from 'react-router-dom';
+import { useParams, Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/Card';
 import { Stepper } from '../components/Stepper';
 import { Badge } from '../components/Badge';
@@ -11,6 +11,7 @@ import {
 import {
   apiRequest, customerCancelOrder, fileReturn,
   getOrderChat, sendOrderChatMessage, getOrderTimeline,
+  getChatUnreadCount,
 } from '../api';
 import { formatPeso, shortOrderCode } from '../utils/format';
 import { useAuth } from '../hooks/useAuth';
@@ -242,6 +243,20 @@ export function OrderTracking() {
   const location = useLocation();
   const isAdminView = user?.role === 'admin' && location.pathname.startsWith('/admin');
 
+  // Tab routing — Tracking / Messages / Details, persisted in the URL so
+  // OrderCard "Message" deep-links and browser back/forward work naturally.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get('tab') as 'tracking' | 'messages' | 'details') || 'tracking';
+  const setTab = (tab: 'tracking' | 'messages' | 'details') => {
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'tracking') next.delete('tab');
+    else next.set('tab', tab);
+    setSearchParams(next, { replace: true });
+  };
+
+  // Unread messages on this order (drives the dot on the Messages tab pill).
+  const [unreadCount, setUnreadCount] = useState(0);
+
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -291,6 +306,25 @@ export function OrderTracking() {
     };
     load();
   }, [orderId]);
+
+  // Unread chat count for this order — refreshed on mount, when the
+  // Messages tab opens (clears the badge), and on a slow background poll.
+  useEffect(() => {
+    if (!order?.id) return;
+    let cancelled = false;
+    const fetchUnread = async () => {
+      try {
+        const data = await getChatUnreadCount();
+        if (cancelled) return;
+        const n = data?.perOrder?.[order.id] || 0;
+        // Messages tab visit "reads" the thread — zero out locally.
+        setUnreadCount(activeTab === 'messages' ? 0 : n);
+      } catch { /* non-fatal */ }
+    };
+    fetchUnread();
+    const t = setInterval(fetchUnread, 15000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [order?.id, activeTab]);
 
   // Load curated timeline whenever order changes.
   useEffect(() => {
@@ -480,12 +514,6 @@ export function OrderTracking() {
               Cancellation locked at this stage
             </div>
           )}
-          <button
-            onClick={() => setChatOpen((v) => !v)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white hover:shadow-lg font-bold text-sm shadow-md shadow-blue-200"
-          >
-            <MessageCircle className="w-4 h-4" /> {chatOpen ? 'Hide chat' : 'Message the store'}
-          </button>
           {canFileReturn && (
             <button
               onClick={() => setReturnOpen(true)}
@@ -497,6 +525,43 @@ export function OrderTracking() {
         </div>
       )}
 
+      {/* TikTok-style tabs — Tracking / Messages / Details. Messages is a
+          first-class destination so customers don't have to hunt for the
+          chat. Unread dot makes pending replies impossible to miss. */}
+      <div className="mt-4 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="flex">
+          {[
+            { key: 'tracking', label: 'Tracking', Icon: Truck },
+            { key: 'messages', label: 'Messages', Icon: MessageCircle },
+            { key: 'details',  label: 'Details',  Icon: Receipt },
+          ].map(({ key, label, Icon }) => {
+            const active = activeTab === key;
+            const showDot = key === 'messages' && unreadCount > 0 && !active;
+            return (
+              <button
+                key={key}
+                onClick={() => setTab(key as any)}
+                className={`relative flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-3 text-sm font-bold transition-colors ${
+                  active
+                    ? 'text-blue-700 bg-gradient-to-b from-white to-blue-50/40'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{label}</span>
+                {showDot && (
+                  <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-black">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+                {active && <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {activeTab === 'tracking' && (
       <Card className="mb-6 mt-4">
         <CardContent className="pt-5">
           <Stepper steps={steps} currentStep={currentStep} />
@@ -519,8 +584,10 @@ export function OrderTracking() {
 
         </CardContent>
       </Card>
+      )}
 
-      <Card className="mb-6">
+      {activeTab === 'details' && (
+      <Card className="mb-6 mt-4">
         <CardHeader><CardTitle>Order Details</CardTitle></CardHeader>
         <CardContent>
           <div className="grid md:grid-cols-2 gap-6">
@@ -690,8 +757,10 @@ export function OrderTracking() {
         </CardContent>
       </Card>
 
-      {chatOpen && (
-        <div className="mb-6">
+      )}
+
+      {activeTab === 'messages' && (
+        <div className="mb-6 mt-4">
           <OrderChatPanel
             orderId={order.id}
             initialOrder={order}
@@ -700,7 +769,9 @@ export function OrderTracking() {
         </div>
       )}
 
-      <Card>
+      {activeTab === 'tracking' && (
+      <>
+      <Card className="mt-4">
         <CardHeader>
           <CardTitle>Activity Timeline</CardTitle>
         </CardHeader>
@@ -770,6 +841,8 @@ export function OrderTracking() {
           </ol>
         </CardContent>
       </Card>
+      </>
+      )}
 
       {/* Cancel modal */}
       {cancelOpen && (

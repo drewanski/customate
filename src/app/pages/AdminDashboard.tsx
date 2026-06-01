@@ -108,6 +108,10 @@ export default function AdminDashboard() {
   const [salesView, setSalesView] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
   const [dayStart, setDayStart] = useState(1);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
+  // Analytics (Sales / Revenue / Popular / Low Stock) are collapsed by
+  // default — Action Inbox is the centerpiece of the Overview tab. Admins
+  // who want the breakdown click once to expand.
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   const salesData = React.useMemo(() => {
     // DAILY
@@ -435,67 +439,56 @@ export default function AdminDashboard() {
       <div className="max-w-7xl mx-auto px-6 lg:px-8 -mt-12 relative z-10 pb-16">
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* ACTION INBOX — what needs your attention right now.
-                One-click from a row → drawer opens for that order, no
-                Orders-tab navigation, no scrolling through the full
-                table looking for the right row. */}
-            <AdminActionInbox orders={orders as any} />
-
-            {/* KPI CARDS */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {[
-                {
-                  label: 'Inventory Items',
-                  value: inventory.length,
-                  hint: 'Unique SKUs',
-                  icon: Package,
-                  tint: 'from-blue-500 to-indigo-500',
-                  blob: 'bg-blue-100',
-                },
-                {
-                  label: 'Total Orders',
-                  value: orders.length,
-                  hint: 'All time',
-                  icon: ShoppingCart,
-                  tint: 'from-emerald-500 to-teal-500',
-                  blob: 'bg-emerald-100',
-                },
-                {
-                  label: 'Low Stock',
-                  value: lowStockItems.length,
-                  hint: 'Need restocking',
-                  icon: AlertTriangle,
-                  tint: 'from-amber-500 to-orange-500',
-                  blob: 'bg-amber-100',
-                },
-                {
-                  label: 'Bulk Orders',
-                  value: orders.filter((o) => o.isBulk).length,
-                  hint: '20+ items',
-                  icon: Users,
-                  tint: 'from-purple-500 to-pink-500',
-                  blob: 'bg-purple-100',
-                },
-              ].map((kpi) => {
-                const Icon = kpi.icon;
-                return (
-                  <div
-                    key={kpi.label}
-                    className="relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-5 shadow-sm hover:shadow-md transition"
-                  >
-                    <div className={`absolute -top-12 -right-12 w-32 h-32 rounded-full ${kpi.blob} opacity-50`} />
-                    <div className="relative">
-                      <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${kpi.tint} flex items-center justify-center shadow-lg mb-3`}>
-                        <Icon className="w-5 h-5 text-white" />
-                      </div>
-                      <p className="text-3xl font-black text-slate-900 tracking-tight">{kpi.value}</p>
-                      <p className="text-sm font-semibold text-slate-700 mt-0.5">{kpi.label}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">{kpi.hint}</p>
+            {/* Compact stat strip — was four giant cards, demoted to a thin
+                summary so the Action Inbox below is the obvious focal point.
+                All four numbers still here, just no longer screaming for
+                attention. */}
+            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+              <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-slate-100">
+                {[
+                  { label: 'Inventory', value: inventory.length, icon: Package, tint: 'text-blue-600 bg-blue-50' },
+                  { label: 'Total orders', value: orders.length, icon: ShoppingCart, tint: 'text-emerald-600 bg-emerald-50' },
+                  { label: 'Low stock', value: lowStockItems.length, icon: AlertTriangle, tint: 'text-amber-600 bg-amber-50' },
+                  { label: 'Bulk orders', value: orders.filter((o) => o.isBulk).length, icon: Users, tint: 'text-purple-600 bg-purple-50' },
+                ].map(({ label, value, icon: Icon, tint }) => (
+                  <div key={label} className="px-4 py-3 flex items-center gap-3 min-w-0">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${tint}`}>
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xl font-black text-slate-900 leading-none">{value}</p>
+                      <p className="text-[11px] font-semibold text-slate-500 mt-0.5 truncate">{label}</p>
                     </div>
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
+
+            {/* ACTION INBOX — what needs your attention right now. Now the
+                visual centerpiece of Overview. One-click row → drawer opens
+                for that order, no Orders-tab navigation. */}
+            <AdminActionInbox orders={orders as any} />
+
+            {/* Analytics — collapsed by default. Click to expand if the
+                admin wants the charts, but day-to-day work doesn't need
+                them in their face. */}
+            <button
+              onClick={() => setShowAnalytics((v) => !v)}
+              className="w-full flex items-center justify-between px-5 py-3 rounded-2xl bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
+                  <BarChart3 className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">{showAnalytics ? 'Hide' : 'Show'} analytics</p>
+                  <p className="text-[11px] text-slate-500">Sales trend, revenue, popular items, low stock</p>
+                </div>
+              </div>
+              <span className={`text-slate-400 transition-transform ${showAnalytics ? 'rotate-180' : ''}`}>▾</span>
+            </button>
+
+            {showAnalytics && (<>
 
             {/* SALES + REVENUE */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -798,6 +791,8 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </div>
+
+            </>)}
           </div>
         )}
 

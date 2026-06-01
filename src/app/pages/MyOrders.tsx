@@ -4,7 +4,7 @@ import {
   Search, X, Inbox, Sparkles, Package, Clock, CheckCircle2, Factory,
   ShieldCheck, Truck, Store, Star, XCircle, RotateCcw,
 } from 'lucide-react';
-import { apiRequest, getMyOrders, customerCancelOrder, fileReturn as fileReturnApi } from '../api';
+import { apiRequest, getMyOrders, customerCancelOrder, fileReturn as fileReturnApi, getChatUnreadCount } from '../api';
 import { OrderCard } from '../components/orders/OrderCard';
 import { ReviewModal } from '../components/ReviewModal';
 import { Pagination, usePagination } from '../components/Pagination';
@@ -31,6 +31,9 @@ export function MyOrders() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
+  // Unread chat per order, keyed by orderId. Drives the badge on each card's
+  // Message button so customers can spot waiting replies without opening each one.
+  const [unreadByOrder, setUnreadByOrder] = useState<Record<string, number>>({});
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'all';
   const [search, setSearch] = useState('');
@@ -61,6 +64,21 @@ export function MyOrders() {
     }
   };
   useEffect(() => { reload(); }, []);
+
+  // Poll unread chat counts on a slow interval so badges feel live without
+  // being a CPU/network hog.
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const data = await getChatUnreadCount();
+        if (!cancelled) setUnreadByOrder(data?.perOrder || {});
+      } catch { /* non-fatal */ }
+    };
+    tick();
+    const t = setInterval(tick, 20000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
 
   const tabCounts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -275,6 +293,7 @@ export function MyOrders() {
                   onReorder={onReorder}
                   onRate={onRate}
                   onFileReturn={onFileReturn}
+                  unreadCount={unreadByOrder[String(o.id || o._id)] || 0}
                 />
               ))}
               <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-4 mt-4">
