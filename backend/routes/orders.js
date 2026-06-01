@@ -200,6 +200,16 @@ function toOrderDto(order) {
     cancelledAt: o.cancelledAt,
     completedAt: o.completedAt,
     deliveryMethod: o.deliveryMethod || 'delivery',
+    // Courier (3rd-party delivery) — undefined until admin fills it in
+    // before flipping status to out_for_delivery.
+    courier: o.courier && (o.courier.name || o.courier.trackingNumber) ? {
+      name: o.courier.name || '',
+      trackingNumber: o.courier.trackingNumber || '',
+      trackingUrl: o.courier.trackingUrl || '',
+      contactPhone: o.courier.contactPhone || '',
+      notes: o.courier.notes || '',
+      handedOffAt: o.courier.handedOffAt,
+    } : null,
     // Delivery / urgency snapshot
     requestedDeliveryDate: o.requestedDeliveryDate,
     urgencyTier: o.urgencyTier || 'standard',
@@ -1300,6 +1310,104 @@ router.post('/:id/note', authMiddleware, adminMiddleware, async (req, res) => {
     res.status(201).json(log);
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * POST /api/orders/:id/courier  (admin)
+ *
+ * Records courier handoff info — 3rd-party delivery name (Lalamove, LBC,
+ * Grab, J&T, etc.), tracking number, optional rider contact, and free-
+ * form notes. Saving fires three side effects:
+ *   1. OrderAuditLog entry (`courier_assigned` type) for the timeline.
+ *   2. System chat message so the customer can see the courier + tracking
+ *      number in their order chat and copy it to track on the courier's
+ *      own app.
+ *   3. Notification bell ring on the customer.
+ *
+ * Allowed from statuses: 'ready' (pre-handoff staging) and
+ * 'out_for_delivery' (admin updating tracking after dispatch).
+ */
+router.post('/:id/courier', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { name, trackingNumber, trackingUrl, contactPhone, notes } = req.body || {};
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ message: 'courier name is required' });
+    }
+    if (!trackingNumber || !String(trackingNumber).trim()) {
+      return res.status(400).json({ message: 'tracking number is required' });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (order.deliveryMethod === 'pickup') {
+      return res.status(400).json({ message: 'Pickup orders have no courier handoff. Use the for_pickup status instead.' });
+    }
+    if (!['ready', 'out_for_delivery'].includes(order.status)) {
+      return res.status(400).json({
+        message: `Courier info can only be set on orders that are ready or out for delivery (current: ${order.status}).`,
+      });
+    }
+
+    order.courier = {
+      name: String(name).trim(),
+      trackingNumber: String(trackingNumber).trim(),
+      trackingUrl: String(trackingUrl || '').trim(),
+      contactPhone: String(contactPhone || '').trim(),
+      notes: String(notes || '').trim(),
+      handedOffAt: new Date(),
+      handedOffBy: req.user.userId,
+    };
+    await order.save();
+
+    const actor = await actorSnapshot(req);
+    await OrderAuditLog.create({
+      order: order._id,
+      orderRef: String(order._id).slice(-6),
+      type: 'courier_assigned',
+      note: `${order.courier.name} — ${order.courier.trackingNumber}`,
+      ...actor,
+    });
+
+    // Auto-post a customer-visible system chat message so the customer
+    // can see + copy the tracking number from their order chat. The
+    // body is intentionally information-dense — once the customer hits
+    // their order chat they have everything they need.
+    try {
+      const { postSystemMessage } = await import('./chat.js');
+      const bodyParts = [
+        `Courier confirmed: **${order.courier.name}**`,
+        `Tracking: \`${order.courier.trackingNumber}\``,
+      ];
+      if (order.courier.trackingUrl) bodyParts.push(`Track here: ${order.courier.trackingUrl}`);
+      if (order.courier.contactPhone) bodyParts.push(`Rider: ${order.courier.contactPhone}`);
+      if (order.courier.notes) bodyParts.push(`Note: ${order.courier.notes}`);
+      await postSystemMessage({
+        orderId: order._id,
+        body: bodyParts.join(' · '),
+        meta: { kind: 'courier', name: order.courier.name, trackingNumber: order.courier.trackingNumber },
+      });
+    } catch { /* non-fatal */ }
+
+    // Bell notification — separate from the chat so the customer's
+    // unread badge increments even if they haven't opened the order.
+    try {
+      const { default: Notification } = await import('../models/Notification.js');
+      await Notification.create({
+        type: 'order_status_update',
+        title: 'Courier assigned',
+        message: `${order.courier.name} — ${order.courier.trackingNumber}`,
+        target: 'customer',
+        user: order.customer,
+        relatedData: { orderId: String(order._id), status: order.status },
+        priority: 'normal',
+      });
+    } catch { /* non-fatal */ }
+
+    res.json({ ok: true, courier: order.courier });
+  } catch (err) {
+    console.error('POST /orders/:id/courier error:', err);
+    res.status(500).json({ message: err.message || 'Server error' });
   }
 });
 

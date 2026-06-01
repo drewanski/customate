@@ -24,11 +24,14 @@ import {
   Download,
   ArrowRight,
   ShieldAlert,
+  Truck as TruckIcon,
+  ExternalLink,
 } from 'lucide-react';
 import {
   updateOrderStatus,
   addOrderNote,
   getOrderHistory,
+  setOrderCourier,
 } from '../../api';
 import { formatPeso } from '../../utils/format';
 import { RefundModal } from './RefundModal';
@@ -242,6 +245,167 @@ function NextStepCard({
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Courier handoff panel — admin records who's delivering the parcel
+ * (Lalamove, LBC, Grab, J&T, Other) + the tracking number. Saving
+ * fires the backend's POST /orders/:id/courier which:
+ *   1. Stores the courier subdoc on the order.
+ *   2. Posts a customer-visible system chat message with the tracking
+ *      info so the customer can copy it from the chat thread.
+ *   3. Rings the customer's bell.
+ *
+ * Re-rendering the panel after save shows the existing courier info
+ * with an "Update" affordance so admin can fix typos or change couriers
+ * mid-delivery.
+ */
+const COURIER_PRESETS = ['Lalamove', 'LBC', 'Grab Express', 'J&T Express', 'Ninjavan', 'Other'];
+function CourierHandoffPanel({ order, onSaved }: { order: any; onSaved: () => Promise<void> }) {
+  const existing = order.courier;
+  const [editing, setEditing] = useState(!existing);
+  const [name, setName] = useState(existing?.name || '');
+  const [trackingNumber, setTrackingNumber] = useState(existing?.trackingNumber || '');
+  const [trackingUrl, setTrackingUrl] = useState(existing?.trackingUrl || '');
+  const [contactPhone, setContactPhone] = useState(existing?.contactPhone || '');
+  const [notes, setNotes] = useState(existing?.notes || '');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    setErr(null);
+    if (!name.trim()) return setErr('Pick a courier');
+    if (!trackingNumber.trim()) return setErr('Tracking number is required — customer will see this in their chat');
+    setSaving(true);
+    try {
+      await setOrderCourier(order.id || order._id, {
+        name: name.trim(),
+        trackingNumber: trackingNumber.trim(),
+        trackingUrl: trackingUrl.trim(),
+        contactPhone: contactPhone.trim(),
+        notes: notes.trim(),
+      });
+      setEditing(false);
+      await onSaved();
+    } catch (e: any) {
+      setErr(e.message || 'Failed to save courier info');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border-2 border-sky-100 bg-sky-50/40 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-bold text-sky-800 uppercase tracking-wider flex items-center gap-1.5">
+          <TruckIcon className="w-3.5 h-3.5" /> Courier handoff
+        </p>
+        {existing && !editing && (
+          <Button size="sm" variant="outline" onClick={() => setEditing(true)} className="border-sky-300 text-sky-800">
+            Update
+          </Button>
+        )}
+      </div>
+
+      {/* Read-only summary when already filled in and not editing */}
+      {existing && !editing && (
+        <div className="space-y-1.5 text-xs text-slate-700">
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500">Courier:</span>
+            <span className="font-bold">{existing.name}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500">Tracking #:</span>
+            <code className="font-mono bg-white border border-slate-200 px-1.5 py-0.5 rounded">{existing.trackingNumber}</code>
+            {existing.trackingUrl && (
+              <a
+                href={existing.trackingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 text-sky-700 hover:underline"
+              >
+                <ExternalLink className="w-3 h-3" /> Track
+              </a>
+            )}
+          </div>
+          {existing.contactPhone && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500">Rider:</span>
+              <span>{existing.contactPhone}</span>
+            </div>
+          )}
+          {existing.notes && (
+            <div className="text-slate-600 italic mt-1">"{existing.notes}"</div>
+          )}
+          {existing.handedOffAt && (
+            <div className="text-[10px] text-slate-400 mt-1">
+              Handed off {new Date(existing.handedOffAt).toLocaleString()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Edit / first-time-fill form */}
+      {editing && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="h-10 px-2 border border-slate-200 rounded-lg text-sm bg-white"
+            >
+              <option value="">Pick courier…</option>
+              {COURIER_PRESETS.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <input
+              type="text"
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value)}
+              placeholder="Tracking number"
+              className="h-10 px-2 border border-slate-200 rounded-lg text-sm"
+            />
+          </div>
+          <input
+            type="url"
+            value={trackingUrl}
+            onChange={(e) => setTrackingUrl(e.target.value)}
+            placeholder="Tracking URL (optional, e.g. https://lalamove.com/…)"
+            className="w-full h-10 px-2 border border-slate-200 rounded-lg text-sm"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="tel"
+              value={contactPhone}
+              onChange={(e) => setContactPhone(e.target.value)}
+              placeholder="Rider phone (optional)"
+              className="h-10 px-2 border border-slate-200 rounded-lg text-sm"
+            />
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Notes (e.g. arriving 3-5pm)"
+              className="h-10 px-2 border border-slate-200 rounded-lg text-sm"
+            />
+          </div>
+          {err && <p className="text-xs text-rose-700">{err}</p>}
+          <div className="flex gap-2">
+            <Button size="sm" onClick={save} disabled={saving} className="bg-sky-600 hover:bg-sky-700 text-white">
+              {saving ? 'Saving…' : 'Save & notify customer'}
+            </Button>
+            {existing && (
+              <Button size="sm" variant="outline" onClick={() => { setEditing(false); setErr(null); }}>
+                Cancel
+              </Button>
+            )}
+          </div>
+          <p className="text-[10px] text-sky-700/80">
+            The customer will see "{name || 'Courier'} — {trackingNumber || 'tracking #'}" in their chat and bell.
+          </p>
+        </div>
       )}
     </div>
   );
@@ -517,6 +681,20 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
               {terminalReason(order.status as any) || 'This order is in a terminal state.'}
             </p>
           </div>
+        )}
+
+        {/* Courier handoff — only relevant for delivery orders at the
+            ready / out_for_delivery stage. Saving here auto-posts a
+            customer-visible system chat message with the tracking
+            number + courier name, and rings the customer's bell. */}
+        {order.deliveryMethod === 'delivery'
+          && (order.status === 'ready' || order.status === 'out_for_delivery') && (
+          <CourierHandoffPanel
+            order={order}
+            onSaved={async () => {
+              await onChanged();
+            }}
+          />
         )}
 
         {/* Order chat — admin can reply to the customer here without leaving

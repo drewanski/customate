@@ -364,6 +364,21 @@ export async function addOrderNote(orderId, note) {
 export async function getOrderHistory(orderId) {
   return apiRequest(`/orders/${orderId}/history`);
 }
+
+/**
+ * Save courier handoff info on an order (admin only). Triggers an audit
+ * log entry, a system chat message visible to the customer, and a bell
+ * notification.
+ *
+ * Body:
+ *   { name, trackingNumber, trackingUrl?, contactPhone?, notes? }
+ */
+export async function setOrderCourier(orderId, payload) {
+  return apiRequest(`/orders/${orderId}/courier`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
 export function getOrderExportUrl({ status, from, to } = {}) {
   const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
   const params = new URLSearchParams();

@@ -120,6 +120,22 @@ const orderSchema = new mongoose.Schema({
   paymongoSourceId: { type: String },
   paymongoPaymentId: { type: String },
   paymongoLinkId: { type: String },
+
+  // ─── Courier handoff (3rd-party delivery) ─────────────────────────────
+  // CustoMate doesn't run its own fleet — orders ship via Lalamove, LBC,
+  // Grab, J&T, etc. Admin fills this in right before flipping the order
+  // to out_for_delivery; the saved values appear on the customer's
+  // tracking page AND get auto-posted into the chat thread as a system
+  // message so the customer can copy the tracking number from chat.
+  courier: {
+    name: { type: String, default: '' },                // 'Lalamove', 'LBC', 'Grab', 'J&T', 'Other'
+    trackingNumber: { type: String, default: '' },
+    trackingUrl: { type: String, default: '' },         // Optional deep-link
+    contactPhone: { type: String, default: '' },        // Rider/driver phone if provided
+    notes: { type: String, default: '' },               // Free-form (e.g. "rider arriving 3-5pm")
+    handedOffAt: { type: Date },
+    handedOffBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  },
   // ─── Production scheduling ──────────────────────────────────────────────
   // productionDate = when work STARTS. productionDueDate = target finish.
   // productionStage tracks where in the pipeline the order currently sits;

@@ -619,6 +619,49 @@ export function OrderTracking() {
                 <p className="text-gray-600 text-sm whitespace-pre-line">
                   {deliveryMethod === 'pickup' ? 'In-store pickup at Bryle Closet Printing Services' : order.shippingAddress}
                 </p>
+
+                {/* Courier handoff — surfaces once admin has assigned a
+                    3rd-party courier. The customer can copy the tracking
+                    number, tap the URL to open the courier's site, or
+                    call the rider directly. */}
+                {order.courier && order.courier.name && deliveryMethod !== 'pickup' && (
+                  <div className="mt-3 p-3 rounded-xl border border-sky-200 bg-sky-50">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-sky-700 mb-1.5 flex items-center gap-1">
+                      <Truck className="w-3 h-3" /> Courier
+                    </p>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-gray-500">Service:</span>
+                        <span className="font-bold text-gray-900">{order.courier.name}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-gray-500">Tracking #:</span>
+                        <code className="font-mono bg-white border border-sky-200 px-1.5 py-0.5 rounded text-xs">{order.courier.trackingNumber}</code>
+                        {order.courier.trackingUrl && (
+                          <a
+                            href={order.courier.trackingUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-0.5 text-sky-700 hover:underline text-xs font-bold"
+                          >
+                            Track on {order.courier.name} →
+                          </a>
+                        )}
+                      </div>
+                      {order.courier.contactPhone && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-gray-500">Rider:</span>
+                          <a href={`tel:${order.courier.contactPhone}`} className="text-sky-700 hover:underline">
+                            {order.courier.contactPhone}
+                          </a>
+                        </div>
+                      )}
+                      {order.courier.notes && (
+                        <p className="text-xs text-gray-600 italic mt-1">"{order.courier.notes}"</p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>

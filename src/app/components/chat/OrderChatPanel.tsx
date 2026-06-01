@@ -68,6 +68,48 @@ function formatTime(d: Date) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+/**
+ * Quick-reply chips for 3rd-party delivery coordination. The store doesn't
+ * run its own fleet — orders ship via Lalamove, LBC, Grab, J&T, etc — so
+ * most chat exchanges in the ready/out-for-delivery window are about
+ * picking + sharing a courier. These templates skip the retyping.
+ *
+ * Customer-side chips ask which courier they'd prefer; admin-side chips
+ * confirm dispatch + hand over tracking. Picked replies drop the text
+ * into the composer; the user can edit before sending.
+ */
+function deliveryQuickReplies(
+  role: 'customer' | 'admin' | 'staff' | 'system',
+  order: any,
+): { label: string; text: string }[] {
+  if (!order) return [];
+  const status = order.status;
+  // Only show these chips in the ready / out-for-delivery window for
+  // delivery orders. Pickup orders + earlier/later stages don't need them.
+  if (order.deliveryMethod === 'pickup') return [];
+  if (!['ready', 'out_for_delivery', 'approved', 'in_production'].includes(status)) return [];
+
+  if (role === 'customer') {
+    return [
+      { label: 'Lalamove please', text: 'Could you please ship via Lalamove? Thanks!' },
+      { label: 'LBC please',      text: 'Please ship via LBC. Thanks!' },
+      { label: 'Grab Express',    text: 'Please send via Grab Express if possible.' },
+      { label: 'J&T Express',     text: 'Please ship via J&T Express.' },
+      { label: 'No preference',   text: 'Any courier is fine, whichever is fastest.' },
+      { label: 'Ask delivery ETA', text: "What's the estimated delivery date?" },
+    ];
+  }
+  if (role === 'admin' || role === 'staff') {
+    return [
+      { label: 'Ask courier pref', text: 'Hi! Which courier would you prefer for delivery — Lalamove, LBC, Grab Express, or J&T Express?' },
+      { label: 'Confirm dispatch', text: "Your order has been dispatched via {courier} — tracking number {ref}. ETA {date}." },
+      { label: 'Re-attempt note',  text: 'Heads up — the rider tried to deliver but no one was at the address. We\'ll re-attempt tomorrow.' },
+      { label: 'Address check',    text: 'Can you confirm your shipping address + a contact number the rider can reach?' },
+    ];
+  }
+  return [];
+}
+
 function formatDayLabel(d: Date) {
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
@@ -364,6 +406,27 @@ export function OrderChatPanel({
       </div>
 
       <div className="border-t border-slate-100 p-3 bg-white">
+        {/* Quick-reply chips — courier coordination shortcuts. The store
+            uses Lalamove / LBC / Grab / J&T as 3rd-party delivery, so
+            most chat exchanges involve "which courier do you prefer"
+            and "here's your tracking number". One tap drops a pre-
+            written line into the composer instead of retyping. */}
+        {orderId && deliveryQuickReplies(myRole, order).length > 0 && (
+          <div className="mb-2.5 flex flex-wrap gap-1.5">
+            {deliveryQuickReplies(myRole, order).map((qr) => (
+              <button
+                key={qr.label}
+                type="button"
+                onClick={() => setBody((prev) => (prev ? `${prev} ${qr.text}` : qr.text))}
+                className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 hover:bg-blue-100 hover:text-blue-800 transition-colors"
+                title="Click to drop this into the message — edit before sending"
+              >
+                {qr.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex gap-2 items-end">
           <div className="flex-1 relative">
             <input
