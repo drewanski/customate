@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Modal } from '../Modal';
 import { Button } from '../Button';
 import { Textarea } from '../Textarea';
@@ -21,6 +22,8 @@ import {
   Send,
   Receipt,
   Download,
+  ArrowRight,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   updateOrderStatus,
@@ -32,6 +35,7 @@ import { RefundModal } from './RefundModal';
 import { useAuth } from '../../hooks/useAuth';
 import { AIOrderSummaryPanel } from './AIOrderSummaryPanel';
 import { OrderChatPanel } from '../chat/OrderChatPanel';
+import { getNextStep, canCancel, canReject, isTerminal as _isTerminal, terminalReason } from '../../lib/orderWorkflow';
 
 interface Props {
   isOpen: boolean;
@@ -119,6 +123,93 @@ function describeLog(log: any) {
   }
   if (log.type === 'payment_confirmed') return `${formatPeso(log.amount || 0)}`;
   return log.note || '';
+}
+
+/**
+ * Next-step action card. Shows ONE primary forward-action button labeled
+ * with the next step, plus any pre-conditions that need clearing before
+ * it can fire. Mirrors backend pre-condition rules via getNextStep().
+ *
+ * Pre-conditions render as red strip when unmet (with optional fix link)
+ * or as quiet emerald checks when met. Once everything's green, the
+ * primary button enables.
+ */
+function NextStepCard({
+  order,
+  updating,
+  onPromote,
+  onClose,
+}: {
+  order: any;
+  updating: boolean;
+  onPromote: (to: string) => void;
+  onClose: () => void;
+}) {
+  const next = getNextStep(order);
+  if (!next) return null;
+
+  const unmet = next.conditions.filter((c) => !c.met);
+  const met = next.conditions.filter((c) => c.met);
+
+  return (
+    <div className="mt-3 rounded-2xl border-2 border-blue-100 bg-gradient-to-br from-blue-50/60 via-indigo-50/40 to-white p-4">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-wider font-bold text-blue-700 mb-0.5">Next step</p>
+          <p className="text-sm font-bold text-slate-900">{next.label}</p>
+        </div>
+        <Button
+          size="sm"
+          disabled={updating || !next.ready}
+          onClick={() => onPromote(next.to)}
+          className={`${next.ready ? 'bg-gradient-to-br from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700' : ''}`}
+          title={next.ready ? undefined : 'Resolve the requirements below first'}
+        >
+          {updating ? 'Updating…' : next.label}
+          <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+        </Button>
+      </div>
+
+      {/* Pre-condition checklist — unmet first so the eye lands on what
+          needs fixing. Each unmet line can carry an in-app fix link. */}
+      {(unmet.length > 0 || met.length > 0) && (
+        <ul className="space-y-1.5">
+          {unmet.map((c, i) => (
+            <li
+              key={`u-${i}`}
+              className="flex items-start gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5"
+            >
+              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+              <span className="flex-1">
+                {c.message}
+                {c.fixHref && (
+                  <>
+                    {' · '}
+                    <Link
+                      to={c.fixHref}
+                      onClick={onClose}
+                      className="font-bold underline hover:text-rose-900"
+                    >
+                      Fix it
+                    </Link>
+                  </>
+                )}
+              </span>
+            </li>
+          ))}
+          {met.map((c, i) => (
+            <li
+              key={`m-${i}`}
+              className="flex items-start gap-2 text-xs text-emerald-700"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+              <span>{c.message}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) {
@@ -287,7 +378,11 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
           </div>
         </div>
 
-        {/* Pipeline progress (hidden for terminal orders) */}
+        {/* ─── Pipeline progress (READ-ONLY visual) ─────────────────────
+            The clickable pipeline was rewritten to a read-only progress
+            strip + a single Next-step button below. This stops admins from
+            attempting "skip-ahead" transitions the backend would reject
+            anyway, and surfaces the actual blockers before the click. */}
         {!isTerminal && (
           <div>
             <p className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Order pipeline</p>
@@ -297,13 +392,9 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
                 const current = idx === currentStageIdx;
                 return (
                   <React.Fragment key={stage.id}>
-                    <button
-                      onClick={() => handleStatusChange(stage.id)}
-                      disabled={updatingStatus || current}
-                      className={`flex flex-col items-center min-w-[70px] transition disabled:cursor-default ${
-                        !current && !updatingStatus ? 'hover:opacity-80' : ''
-                      }`}
-                      title={`Move to ${stage.label}`}
+                    <div
+                      className="flex flex-col items-center min-w-[70px]"
+                      title={current ? `Current stage: ${stage.label}` : done ? `${stage.label} — done` : `Upcoming: ${stage.label}`}
                     >
                       <div
                         className={`w-8 h-8 rounded-xl flex items-center justify-center text-[10px] font-bold ${
@@ -321,7 +412,7 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
                       }`}>
                         {stage.label}
                       </p>
-                    </button>
+                    </div>
                     {idx < PIPELINE.length - 1 && (
                       <div className={`flex-1 h-0.5 ${idx < currentStageIdx ? 'bg-emerald-300' : 'bg-slate-200'}`} />
                     )}
@@ -329,16 +420,67 @@ export function OrderDetailDrawer({ isOpen, onClose, order, onChanged }: Props) 
                 );
               })}
             </div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <Button size="sm" variant="outline" disabled={updatingStatus} onClick={() => handleStatusChange('cancelled')}>
-                <XCircle className="w-3.5 h-3.5 mr-1" /> Cancel
-              </Button>
-              {order.status === 'pending' && (
-                <Button size="sm" variant="outline" disabled={updatingStatus} onClick={() => handleStatusChange('rejected')}>
-                  <XCircle className="w-3.5 h-3.5 mr-1" /> Reject
-                </Button>
-              )}
-            </div>
+
+            {/* ─── Next-step action card ─────────────────────────────────
+                Drives the entire forward progression. The label + button
+                state come from `getNextStep(order)`, which mirrors the
+                backend state machine — so what you see here is exactly
+                what the API will accept. Pre-conditions (assign staff,
+                approve QC, settle payment) are listed inline with a fix
+                link when applicable. */}
+            <NextStepCard
+              order={order}
+              updating={updatingStatus}
+              onPromote={handleStatusChange}
+              onClose={onClose}
+            />
+
+            {/* ─── Danger zone — clearly separated destructive actions ─── */}
+            {(canCancel(order) || canReject(order)) && (
+              <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50/40 p-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                  <p className="text-[10px] font-bold text-rose-700 uppercase tracking-wider">Danger zone</p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {canCancel(order) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      onClick={() => handleStatusChange('cancelled')}
+                      className="border-rose-300 text-rose-700 hover:bg-rose-100"
+                    >
+                      <XCircle className="w-3.5 h-3.5 mr-1" /> Cancel order
+                    </Button>
+                  )}
+                  {canReject(order) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      onClick={() => handleStatusChange('rejected')}
+                      className="border-rose-300 text-rose-700 hover:bg-rose-100"
+                    >
+                      <XCircle className="w-3.5 h-3.5 mr-1" /> Reject order
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[10px] text-rose-700/80 mt-2">
+                  Both actions require a customer-facing reason and notify them in the order chat + bell.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Terminal-state explainer — shown instead of the pipeline when
+            the order is in completed/cancelled/rejected/refunded. */}
+        {isTerminal && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs text-slate-700">
+              {terminalReason(order.status as any) || 'This order is in a terminal state.'}
+            </p>
           </div>
         )}
 

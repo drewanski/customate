@@ -667,7 +667,7 @@ export function AdminCalendar() {
                               {isScheduled ? 'Reschedule' : 'Schedule'}
                             </button>
                             <Link
-                              to={`/admin/orders/${o.id || o._id}`}
+                              to={`/admin/orders?id=${o.id || o._id}`}
                               className="inline-flex items-center justify-center px-2 py-1 rounded-md text-[10px] font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100"
                             >
                               Open

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card } from '../components/Card';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
@@ -120,6 +121,30 @@ export function AdminOrders() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm]);
+
+  // Auto-open the detail drawer when arriving via /admin/orders?id=<orderId>
+  // (links from Calendar, Production page deep-links, notification email, etc).
+  // Fetches the order directly so the drawer opens even if the search/filter
+  // wouldn't include it in the current list.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const id = searchParams.get('id');
+    if (!id) return;
+    apiRequest(`/orders/${id}`)
+      .then((fresh) => {
+        const norm: any = { ...fresh, id: (fresh as any).id || (fresh as any)._id };
+        setActiveOrder(norm);
+        setDrawerOpen(true);
+      })
+      .catch(() => { /* silently swallow — admin can still browse the list */ })
+      .finally(() => {
+        // Strip the ?id once consumed so refresh doesn't keep re-opening it.
+        const next = new URLSearchParams(searchParams);
+        next.delete('id');
+        setSearchParams(next, { replace: true });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     setCurrentPage(1);
     setSelectedIds(new Set());
