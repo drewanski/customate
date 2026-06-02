@@ -9,6 +9,7 @@ import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
 import { apiRequest, getProfile, validateCouponCode, quoteDelivery as quoteDeliveryApi } from '../api';
 import { formatPeso } from '../utils/format';
+import { estimateOrderTotal } from '../utils/pricing';
 import { MapPin, Phone, User as UserIcon, ChevronDown, Check, Wallet, Smartphone, Landmark, Loader2, ShoppingCart, Truck, CreditCard, Package, ShieldCheck, Lock, Clock, Tag, ChevronLeft, BadgeCheck } from 'lucide-react';
 
 import { PaymentModal } from '../components/PaymentModal';
@@ -145,12 +146,29 @@ export function Checkout() {
     };
   }, [deliveryDate, totalAmount]);
 
-  const rushFee = deliveryQuote?.rushFee || 0;
-  // Shipping mirror of the backend logic (backend is authoritative; this
-  // matches it so the customer sees the right total before placing).
-  // Pickup = free, otherwise free over ₱500, else ₱100.
-  const shippingFee = deliveryMethod === 'pickup' ? 0 : totalAmount >= 500 ? 0 : 100;
-  const finalTotal = Math.max(0, totalAmount + rushFee + shippingFee - discountAmount);
+  // ── Single source of truth: same estimate engine the Cart uses ──
+  // Rush flag is persisted in sessionStorage by the Cart so the customer
+  // sees IDENTICAL numbers on both pages. Estimate is what the customer
+  // pays for production; shipping is set later by admin in the courier
+  // handoff (not part of the customer-facing estimate for quotation orders).
+  const rush = React.useMemo(() => {
+    try { return sessionStorage.getItem('cm_rush') === '1'; } catch { return false; }
+  }, []);
+  const estimate = React.useMemo(
+    () => estimateOrderTotal(items.map((it) => ({
+      sku: it.product?.sku,
+      name: it.product?.name,
+      quantity: it.quantity,
+      customization: it.customization,
+    })) as any, { rush }),
+    [items, rush],
+  );
+  const rushFee = estimate.rushFee;
+  // Shipping kept here only for the in-store-pickup vs delivery toggle UI
+  // — it is NOT added to the customer-facing total since quotation orders
+  // bake shipping into the admin's final quote later.
+  const shippingFee = 0;
+  const finalTotal = Math.max(0, estimate.total - discountAmount);
 
   // Date picker bounds: tomorrow → +90 days, no Sundays
   const minDeliveryDate = useMemo(() => {
@@ -800,26 +818,33 @@ export function Checkout() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3.5">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">Subtotal ({totalQty} {totalQty === 1 ? 'item' : 'items'})</span>
-                <span className="font-bold text-slate-900">{formatPeso(totalAmount)}</span>
+              {/* Order Summary — driven by the SAME estimate engine the Cart
+                  uses, so the numbers here match Cart and the eventual
+                  quotation pre-fill exactly. Shipping is intentionally NOT
+                  in this total — courier fees are set later by admin in
+                  the quotation. */}
+              {estimate.lines.map((l, i) => (
+                <div key={i} className="text-sm">
+                  <div className="flex justify-between items-baseline">
+                    <span className="font-bold text-slate-900 truncate pr-2">{l.name}</span>
+                    <span className="font-bold text-slate-900 whitespace-nowrap">{formatPeso(l.net)}</span>
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-slate-500 leading-tight">
+                    {l.unit.baseLabel} · {l.unit.printSizeLabel} print · {l.unit.printingMethodLabel} · ×{l.quantity}
+                    {l.bulkDiscount > 0 && (
+                      <span className="block text-emerald-700 font-semibold">−{formatPeso(l.bulkDiscount)} bulk discount</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="flex justify-between text-sm pt-2 border-t border-slate-100">
+                <span className="text-slate-600">Items ({estimate.totalItems} {estimate.totalItems === 1 ? 'pc' : 'pcs'})</span>
+                <span className="font-bold text-slate-900">{formatPeso(estimate.itemsGross)}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600 inline-flex items-center gap-1.5">
-                  <Truck className="w-3.5 h-3.5" /> Shipping
-                  {deliveryMethod === 'pickup' && (
-                    <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">pickup</span>
-                  )}
-                </span>
-                {shippingFee === 0 ? (
-                  <span className="font-bold text-emerald-600">FREE</span>
-                ) : (
-                  <span className="font-bold text-slate-900">{formatPeso(shippingFee)}</span>
-                )}
-              </div>
-              {deliveryMethod === 'delivery' && shippingFee > 0 && (
-                <div className="text-[11px] text-slate-500 -mt-2.5 pl-5">
-                  Add {formatPeso(500 - totalAmount)} more for free shipping
+              {estimate.bulkDiscountTotal > 0 && (
+                <div className="flex justify-between text-sm text-emerald-700">
+                  <span>Bulk discount</span>
+                  <span className="font-semibold">−{formatPeso(estimate.bulkDiscountTotal)}</span>
                 </div>
               )}
 

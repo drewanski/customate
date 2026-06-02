@@ -139,7 +139,10 @@ export function Cart() {
                         )}
                       </div>
 
-                      {/* Bottom row: quantity + price */}
+                      {/* Bottom row: quantity + price (uses the same
+                          estimateOrderTotal engine as the summary so the
+                          per-line number here matches Line total below
+                          AND the Estimated total on Checkout). */}
                       <div className="flex items-center justify-between gap-3">
                         <div className="inline-flex items-center bg-slate-50 border border-slate-200 rounded-full p-1">
                           <button
@@ -159,16 +162,21 @@ export function Cart() {
                             <Plus className="w-3 h-3" />
                           </button>
                         </div>
-                        <div className="text-right">
-                          <p className="text-base md:text-lg font-black text-slate-900">
-                            {formatPeso(item.product.price * item.quantity)}
-                          </p>
-                          {item.quantity > 1 && (
-                            <p className="text-[10px] text-slate-400 font-semibold">
-                              {formatPeso(item.product.price)} each
-                            </p>
-                          )}
-                        </div>
+                        {(() => {
+                          // Find the matching estimate line by index in the
+                          // original items array (1-to-1 mapping with cart items).
+                          const idx = items.indexOf(item);
+                          const line = estimate.lines[idx];
+                          if (!line) return null;
+                          return (
+                            <div className="text-right">
+                              <p className="text-base md:text-lg font-black text-slate-900">{fmtPeso(line.net)}</p>
+                              {item.quantity > 1 && (
+                                <p className="text-[10px] text-slate-400 font-semibold">{fmtPeso(line.unit.unit)} each</p>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>
