@@ -171,8 +171,41 @@ export function OrderChatPanel({
   // When the customer comes back from PayMongo (?paid=downpayment or
   // ?paid=balance), automatically ping the backend to confirm the
   // payment status. Removes the manual "did it go through?" step.
+  //
+  // Additionally, while there's an UNVERIFIED PayMongo Link on the order,
+  // poll quietly every 10 seconds in the background. That way a customer
+  // who closes the PayMongo tab without using the success redirect still
+  // gets auto-verified — they just have to come back to the order page.
   const [checking, setChecking] = useState<'downpayment' | 'balance' | null>(null);
   const [checkMsg, setCheckMsg] = useState<string>('');
+
+  useEffect(() => {
+    if (myRole !== 'customer' || !orderId) return;
+    const dpUnpaid = !!order?.payments?.downpayment?.paymongoLinkId && !order?.payments?.downpayment?.verifiedAt;
+    const balUnpaid = !!order?.payments?.balance?.paymongoLinkId && !order?.payments?.balance?.verifiedAt;
+    if (!dpUnpaid && !balUnpaid) return;
+    let cancelled = false;
+    const tick = async () => {
+      for (const t of (['downpayment', 'balance'] as const)) {
+        if (cancelled) return;
+        const linkId = order?.payments?.[t]?.paymongoLinkId;
+        const verified = order?.payments?.[t]?.verifiedAt;
+        if (!linkId || verified) continue;
+        try {
+          const r = await checkPaymongoPayment(orderId, t);
+          if (!cancelled && (r?.status === 'verified' || r?.status === 'already_verified')) {
+            setCheckMsg(`✅ ${t === 'downpayment' ? 'Downpayment' : 'Balance'} verified — refreshing…`);
+            setTimeout(() => window.location.reload(), 800);
+            return;
+          }
+        } catch { /* keep polling */ }
+      }
+    };
+    // Fire once immediately, then on a 10s heartbeat.
+    tick();
+    const id = setInterval(tick, 10000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [orderId, myRole, order?.payments?.downpayment?.paymongoLinkId, order?.payments?.downpayment?.verifiedAt, order?.payments?.balance?.paymongoLinkId, order?.payments?.balance?.verifiedAt]);
   useEffect(() => {
     if (myRole !== 'customer' || !orderId) return;
     const params = new URLSearchParams(window.location.search);
@@ -520,17 +553,43 @@ export function OrderChatPanel({
                               {alreadyPaid && <>Balance has been paid — your order is on its way!</>}
                             </p>
                             {myRole === 'customer' && !alreadyPaid && (
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    const r = await createQuotationPaymentLink(orderId, 'balance');
-                                    if (r?.checkoutUrl) window.open(r.checkoutUrl, '_blank', 'noopener');
-                                  } catch (e: any) { alert(e?.message || 'Failed to start payment'); }
-                                }}
-                                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-black text-sm shadow-md hover:shadow-lg"
-                              >
-                                💳 Pay ₱{bal.toLocaleString()} balance now →
-                              </button>
+                              <div className="space-y-2">
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const r = await createQuotationPaymentLink(orderId, 'balance');
+                                      if (r?.checkoutUrl) window.open(r.checkoutUrl, '_blank', 'noopener');
+                                    } catch (e: any) { alert(e?.message || 'Failed to start payment'); }
+                                  }}
+                                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-black text-sm shadow-md hover:shadow-lg"
+                                >
+                                  💳 Pay ₱{bal.toLocaleString()} balance now →
+                                </button>
+                                {/* Inline check-status — works whether the customer
+                                    returned via the success redirect or navigated
+                                    back manually. */}
+                                {order?.payments?.balance?.paymongoLinkId && (
+                                  <button
+                                    onClick={async () => {
+                                      setChecking('balance'); setCheckMsg('Checking PayMongo…');
+                                      try {
+                                        const r = await checkPaymongoPayment(orderId, 'balance');
+                                        if (r?.status === 'verified' || r?.status === 'already_verified') {
+                                          setCheckMsg('✅ Payment verified — refreshing…');
+                                          setTimeout(() => window.location.reload(), 1000);
+                                        } else {
+                                          setCheckMsg('PayMongo says payment not completed yet. If you just paid, wait a few seconds and try again.');
+                                        }
+                                      } catch (e: any) { setCheckMsg(e?.message || 'Check failed'); }
+                                      finally { setChecking(null); }
+                                    }}
+                                    disabled={checking === 'balance'}
+                                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white text-emerald-700 border-2 border-emerald-300 hover:bg-emerald-50 font-bold text-xs disabled:opacity-60"
+                                  >
+                                    {checking === 'balance' ? '⟳ Checking…' : '↻ I paid — check status'}
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </div>
                         </div>
