@@ -12,6 +12,7 @@ import {
   createPaymentLink,
   verifyWebhookSignature,
   retrieveSource,
+  retrievePaymentLink,
   createPaymentFromSource,
   PAYMONGO_WEBHOOK_SECRET,
   PAYMONGO_PUBLIC_KEY
@@ -211,6 +212,70 @@ router.post('/link/quotation', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Quotation payment link error:', error);
     res.status(500).json({ message: 'Failed to create payment link', error: error.message });
+  }
+});
+
+/**
+ * Quotation-flow ON-DEMAND payment check.
+ * POST /api/paymongo/check/:orderId/:type   (type = 'downpayment' | 'balance')
+ *
+ * Hits PayMongo to see whether the Link previously created for this
+ * stage has been paid. If yes, auto-verifies on our side (same effect
+ * as the webhook would have, but driven by the customer returning to
+ * the page — works on localhost where webhooks can't reach).
+ */
+router.post('/check/:orderId/:type', authMiddleware, async (req, res) => {
+  try {
+    const { orderId, type } = req.params;
+    if (!['downpayment', 'balance'].includes(type)) {
+      return res.status(400).json({ message: 'Invalid type' });
+    }
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (String(order.customer) !== req.user.userId && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    const linkId = order.payments?.[type]?.paymongoLinkId;
+    if (!linkId) {
+      return res.status(400).json({ message: 'No PayMongo Link on this order yet. Click "Pay online" first.' });
+    }
+    if (order.payments[type].verifiedAt) {
+      return res.json({ status: 'already_verified', verifiedAt: order.payments[type].verifiedAt });
+    }
+
+    const link = await retrievePaymentLink(linkId);
+    if (link.status !== 'paid') {
+      return res.json({ status: link.status, verifiedAt: null, message: 'Payment not yet completed on PayMongo' });
+    }
+
+    // Same effect the webhook would have had — flip verifiedAt + cascade status.
+    order.payments[type].verifiedAt = new Date();
+    order.payments[type].method = 'paymongo';
+    order.payments[type].reference = link.payments?.[0]?.id || link.id;
+    if (type === 'downpayment' && order.status === 'accepted') {
+      order.status = 'downpayment_paid';
+      order.paymentStatus = 'partial';
+      order.paidAmount = order.payments.downpayment.amount;
+    }
+    if (type === 'balance') {
+      order.paymentStatus = 'paid';
+      order.paidAmount = (order.payments.downpayment.amount || 0) + (order.payments.balance.amount || 0);
+    }
+    await order.save();
+
+    try {
+      const { postSystemMessage } = await import('./chat.js');
+      await postSystemMessage({
+        orderId: order._id,
+        body: `✅ ${type === 'downpayment' ? 'Downpayment' : 'Balance payment'} of ₱${order.payments[type].amount.toLocaleString()} verified via PayMongo.`,
+        meta: { type: 'payment_verified', stage: type, amount: order.payments[type].amount, source: 'paymongo' },
+      });
+    } catch {}
+
+    res.json({ status: 'verified', verifiedAt: order.payments[type].verifiedAt, amount: order.payments[type].amount });
+  } catch (err) {
+    console.error('POST /paymongo/check error:', err);
+    res.status(500).json({ message: err.message || 'Server error' });
   }
 });
 

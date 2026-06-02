@@ -7,7 +7,7 @@ import {
 import {
   getOrderChat, sendOrderChatMessage, apiRequest,
   acceptQuotation, declineQuotation, verifyPayment, rejectPayment, uploadPaymentProof,
-  createQuotationPaymentLink, customerCancelOrder,
+  createQuotationPaymentLink, customerCancelOrder, checkPaymongoPayment,
 } from '../../api';
 import { formatPeso } from '../../utils/format';
 import { useAuth } from '../../hooks/useAuth';
@@ -166,6 +166,39 @@ export function OrderChatPanel({
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+
+  // ── PayMongo return handling ──────────────────────────────────────
+  // When the customer comes back from PayMongo (?paid=downpayment or
+  // ?paid=balance), automatically ping the backend to confirm the
+  // payment status. Removes the manual "did it go through?" step.
+  const [checking, setChecking] = useState<'downpayment' | 'balance' | null>(null);
+  const [checkMsg, setCheckMsg] = useState<string>('');
+  useEffect(() => {
+    if (myRole !== 'customer' || !orderId) return;
+    const params = new URLSearchParams(window.location.search);
+    const paid = params.get('paid');
+    if (paid !== 'downpayment' && paid !== 'balance') return;
+    // Drop the ?paid= so we don't re-check on every reload.
+    const cleanUrl = window.location.pathname + (params.get('tab') ? `?tab=${params.get('tab')}` : '');
+    window.history.replaceState({}, '', cleanUrl);
+    (async () => {
+      setChecking(paid);
+      setCheckMsg('Confirming your payment with PayMongo…');
+      try {
+        const r = await checkPaymongoPayment(orderId, paid);
+        if (r?.status === 'verified' || r?.status === 'already_verified') {
+          setCheckMsg('✅ Payment verified! Refreshing…');
+          setTimeout(() => window.location.reload(), 1200);
+        } else {
+          setCheckMsg('PayMongo says the payment is not yet completed. If you finished payment, wait a moment and click "Check status" below.');
+        }
+      } catch (e: any) {
+        setCheckMsg(`Couldn't auto-verify: ${e?.message || 'unknown error'}. Use "Check status" or upload proof manually.`);
+      } finally {
+        setChecking(null);
+      }
+    })();
+  }, [orderId, myRole]);
 
   // Payment-proof upload modal — open when the customer needs to send
   // a downpayment/balance screenshot. Stage is decided by current order
@@ -602,47 +635,108 @@ export function OrderChatPanel({
             the one-click path (PayMongo Link → GCash/Maya/card in a new
             tab; webhook auto-verifies). Upload Proof is the fallback for
             customers who prefer manual transfer. */}
-        {myRole === 'customer' && order?.status === 'accepted' && !order?.payments?.downpayment?.verifiedAt && (
-          <div className="mb-2.5 grid grid-cols-2 gap-2">
-            <button
-              onClick={async () => {
-                try {
-                  const r = await createQuotationPaymentLink(orderId, 'downpayment');
-                  if (r?.checkoutUrl) window.open(r.checkoutUrl, '_blank', 'noopener');
-                } catch (e: any) { alert(e?.message || 'Failed to start payment'); }
-              }}
-              className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-bold text-sm shadow-md hover:shadow-lg"
-            >
-              💳 Pay ₱{Number(order?.payments?.downpayment?.amount || 0).toLocaleString()} online →
-            </button>
-            <button
-              onClick={() => { setProofStage('downpayment'); setProofOpen(true); }}
-              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white text-amber-700 border-2 border-amber-300 hover:bg-amber-50 font-bold text-xs"
-            >
-              <Upload className="w-3.5 h-3.5" /> Upload proof manually
-            </button>
+        {/* Auto-check status banner — shown right after PayMongo redirect. */}
+        {checkMsg && myRole === 'customer' && (
+          <div className={`mb-2.5 px-3 py-2 rounded-xl text-xs font-bold ${checking ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-amber-50 text-amber-800 border border-amber-200'}`}>
+            {checkMsg}
           </div>
         )}
+
+        {myRole === 'customer' && order?.status === 'accepted' && !order?.payments?.downpayment?.verifiedAt && (
+          (() => {
+            const hasLink = !!order?.payments?.downpayment?.paymongoLinkId;
+            const amount = Number(order?.payments?.downpayment?.amount || 0).toLocaleString();
+            const doCheck = async () => {
+              setChecking('downpayment'); setCheckMsg('Checking PayMongo…');
+              try {
+                const r = await checkPaymongoPayment(orderId, 'downpayment');
+                if (r?.status === 'verified' || r?.status === 'already_verified') {
+                  setCheckMsg('✅ Payment verified — refreshing…');
+                  setTimeout(() => window.location.reload(), 1000);
+                } else {
+                  setCheckMsg('PayMongo says payment not completed yet. If you just paid, wait a few seconds and try again.');
+                }
+              } catch (e: any) { setCheckMsg(e?.message || 'Check failed'); }
+              finally { setChecking(null); }
+            };
+            return (
+              <div className="mb-2.5 space-y-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      const r = await createQuotationPaymentLink(orderId, 'downpayment');
+                      if (r?.checkoutUrl) window.open(r.checkoutUrl, '_blank', 'noopener');
+                    } catch (e: any) { alert(e?.message || 'Failed to start payment'); }
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-bold text-sm shadow-md hover:shadow-lg"
+                >
+                  💳 Pay ₱{amount} downpayment online →
+                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  {hasLink && (
+                    <button onClick={doCheck} disabled={checking === 'downpayment'}
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white text-blue-700 border-2 border-blue-300 hover:bg-blue-50 font-bold text-xs disabled:opacity-60">
+                      {checking === 'downpayment' ? '⟳ Checking…' : '↻ I paid — check status'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setProofStage('downpayment'); setProofOpen(true); }}
+                    className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white text-amber-700 border-2 border-amber-300 hover:bg-amber-50 font-bold text-xs ${hasLink ? '' : 'col-span-2'}`}
+                  >
+                    <Upload className="w-3.5 h-3.5" /> Upload proof manually
+                  </button>
+                </div>
+              </div>
+            );
+          })()
+        )}
         {myRole === 'customer' && order?.status === 'ready' && order?.workflowVersion === 'quotation' && !order?.payments?.balance?.verifiedAt && (
-          <div className="mb-2.5 grid grid-cols-2 gap-2">
-            <button
-              onClick={async () => {
-                try {
-                  const r = await createQuotationPaymentLink(orderId, 'balance');
-                  if (r?.checkoutUrl) window.open(r.checkoutUrl, '_blank', 'noopener');
-                } catch (e: any) { alert(e?.message || 'Failed to start payment'); }
-              }}
-              className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-bold text-sm shadow-md hover:shadow-lg"
-            >
-              💳 Pay ₱{Number(order?.payments?.balance?.amount || 0).toLocaleString()} balance online →
-            </button>
-            <button
-              onClick={() => { setProofStage('balance'); setProofOpen(true); }}
-              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white text-emerald-700 border-2 border-emerald-300 hover:bg-emerald-50 font-bold text-xs"
-            >
-              <Upload className="w-3.5 h-3.5" /> Upload proof manually
-            </button>
-          </div>
+          (() => {
+            const hasLink = !!order?.payments?.balance?.paymongoLinkId;
+            const amount = Number(order?.payments?.balance?.amount || 0).toLocaleString();
+            const doCheck = async () => {
+              setChecking('balance'); setCheckMsg('Checking PayMongo…');
+              try {
+                const r = await checkPaymongoPayment(orderId, 'balance');
+                if (r?.status === 'verified' || r?.status === 'already_verified') {
+                  setCheckMsg('✅ Payment verified — refreshing…');
+                  setTimeout(() => window.location.reload(), 1000);
+                } else {
+                  setCheckMsg('PayMongo says payment not completed yet. If you just paid, wait a few seconds and try again.');
+                }
+              } catch (e: any) { setCheckMsg(e?.message || 'Check failed'); }
+              finally { setChecking(null); }
+            };
+            return (
+              <div className="mb-2.5 space-y-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      const r = await createQuotationPaymentLink(orderId, 'balance');
+                      if (r?.checkoutUrl) window.open(r.checkoutUrl, '_blank', 'noopener');
+                    } catch (e: any) { alert(e?.message || 'Failed to start payment'); }
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-bold text-sm shadow-md hover:shadow-lg"
+                >
+                  💳 Pay ₱{amount} balance online →
+                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  {hasLink && (
+                    <button onClick={doCheck} disabled={checking === 'balance'}
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white text-emerald-700 border-2 border-emerald-300 hover:bg-emerald-50 font-bold text-xs disabled:opacity-60">
+                      {checking === 'balance' ? '⟳ Checking…' : '↻ I paid — check status'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setProofStage('balance'); setProofOpen(true); }}
+                    className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white text-emerald-700 border-2 border-emerald-300 hover:bg-emerald-50 font-bold text-xs ${hasLink ? '' : 'col-span-2'}`}
+                  >
+                    <Upload className="w-3.5 h-3.5" /> Upload proof manually
+                  </button>
+                </div>
+              </div>
+            );
+          })()
         )}
 
         <div className="flex gap-2 items-end">

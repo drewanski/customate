@@ -760,3 +760,11 @@ export async function createQuotationPaymentLink(orderId, type) {
     body: JSON.stringify({ orderId, type }),
   });
 }
+
+// Ask the backend to ping PayMongo and see if this stage's payment has been
+// completed. If yes, the backend flips payments[type].verifiedAt and cascades
+// the status. Used by the "I paid — check now" button + auto-check when the
+// customer returns from PayMongo with ?paid=<type> in the URL.
+export async function checkPaymongoPayment(orderId, type) {
+  return apiRequest(`/paymongo/check/${orderId}/${type}`, { method: 'POST' });
+}

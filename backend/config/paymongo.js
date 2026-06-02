@@ -174,6 +174,28 @@ export async function createEWalletSource({
  *
  * Status transitions: pending → chargeable (authorized) → consumed (charged)
  */
+/**
+ * Look up a PayMongo Link by id. Returns { id, status, payments } so
+ * the caller can decide whether the link's been paid. Used by the
+ * "check payment now" endpoint to verify on customer return without
+ * needing a webhook (handy in dev where webhooks can't reach localhost).
+ */
+export async function retrievePaymentLink(linkId) {
+  try {
+    const response = await paymongoApi.get(`/links/${linkId}`);
+    const link = response.data.data;
+    return {
+      id: link.id,
+      status: link.attributes.status,     // 'unpaid' | 'paid' | 'expired'
+      amount: link.attributes.amount,
+      payments: link.attributes.payments || [],
+    };
+  } catch (error) {
+    console.error('PayMongo Retrieve Link Error:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.errors?.[0]?.detail || error.message);
+  }
+}
+
 export async function retrieveSource(sourceId) {
   try {
     const response = await paymongoApi.get(`/sources/${sourceId}`);
