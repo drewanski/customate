@@ -362,6 +362,26 @@ export function CustomizationStudio() {
   });
 
 
+  // ─── Print-size → decal-scale sync ────────────────────────────────────
+  // The print-size picker (Logo / A4 / A3 / A2) doubles as the size of the
+  // actual decal on the 3D model. Tapping a different print size snaps
+  // both the text and image scales to a sensible default for that print:
+  //   Logo  → 0.45  (small chest logo)
+  //   A4    → 0.95  (medium, the default)
+  //   A3    → 1.45  (large)
+  //   A2    → 1.85  (extra-large, near full coverage)
+  // The user can still fine-tune with the +/- gizmo afterwards.
+  useEffect(() => {
+    const scaleMap: Record<string, number> = { logo: 0.45, a4: 0.95, a3: 1.45, a2: 1.85, none: 0.95 };
+    const target = scaleMap[customization.printSize] ?? 0.95;
+    setCustomization((c) => ({
+      ...c,
+      textScale: target,
+      imageScale: target,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customization.printSize]);
+
   // ─── Print-quality plumbing ────────────────────────────────────────────
   // Probe the uploaded image's natural dimensions whenever it changes. We
   // need this for the DPI check; without it the analyzer has nothing to

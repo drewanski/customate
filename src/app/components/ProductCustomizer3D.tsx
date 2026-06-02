@@ -165,13 +165,18 @@ type FabricPreset = {
 };
 
 const FABRIC_PRESETS: Record<FabricMaterial, FabricPreset> = {
-  'cotton':       { label: 'Cotton',        roughness: 0.92, metalness: 0.00, bumpScale: 0.35, weave: 'plain', repeat: 24 },
-  'cotton-poly':  { label: 'Cotton-Poly',   roughness: 0.78, metalness: 0.02, bumpScale: 0.28, weave: 'plain', repeat: 26 },
-  'poly':         { label: 'Polyester',     roughness: 0.55, metalness: 0.06, bumpScale: 0.18, weave: 'plain', repeat: 28 },
-  'drifit':       { label: 'Dri-Fit',       roughness: 0.62, metalness: 0.04, bumpScale: 0.55, weave: 'mesh',  repeat: 40 },
-  'linen':        { label: 'Linen',         roughness: 0.90, metalness: 0.00, bumpScale: 0.75, weave: 'linen', repeat: 18 },
-  'jersey':       { label: 'Jersey Knit',   roughness: 0.70, metalness: 0.02, bumpScale: 0.50, weave: 'rib',   repeat: 30 },
-  'silk':         { label: 'Silk Touch',    roughness: 0.22, metalness: 0.14, bumpScale: 0.10, weave: 'satin', repeat: 32 },
+  // bumpScale lowered across the board — old values (0.35–0.75) made the
+  // procedural patterns read as obvious checkerboards / dot grids instead
+  // of as fabric texture. Real fabric weave should be barely perceptible
+  // at normal zoom — material differences are conveyed primarily by
+  // roughness/metalness, with bumpScale only as a subtle accent.
+  'cotton':       { label: 'Cotton',        roughness: 0.95, metalness: 0.00, bumpScale: 0.06, weave: 'plain', repeat: 60 },
+  'cotton-poly':  { label: 'Cotton-Poly',   roughness: 0.82, metalness: 0.02, bumpScale: 0.05, weave: 'plain', repeat: 60 },
+  'poly':         { label: 'Polyester',     roughness: 0.48, metalness: 0.08, bumpScale: 0.03, weave: 'satin', repeat: 30 },
+  'drifit':       { label: 'Dri-Fit',       roughness: 0.65, metalness: 0.04, bumpScale: 0.12, weave: 'mesh',  repeat: 80 },
+  'linen':        { label: 'Linen',         roughness: 0.92, metalness: 0.00, bumpScale: 0.18, weave: 'linen', repeat: 40 },
+  'jersey':       { label: 'Jersey Knit',   roughness: 0.74, metalness: 0.02, bumpScale: 0.10, weave: 'rib',   repeat: 50 },
+  'silk':         { label: 'Silk Touch',    roughness: 0.22, metalness: 0.14, bumpScale: 0.02, weave: 'satin', repeat: 32 },
 };
 
 // Build a small (256×256) procedural weave normal map. Cached by weave kind
@@ -191,52 +196,71 @@ function buildWeaveTexture(weave: FabricPreset['weave']): THREE.Texture {
 
   switch (weave) {
     case 'plain': {
-      // Even crosshatch — cotton/poly grain.
-      g.strokeStyle = 'rgba(0,0,0,0.25)';
-      g.lineWidth = 1;
-      for (let i = 0; i < size; i += 4) {
-        g.beginPath(); g.moveTo(0, i); g.lineTo(size, i); g.stroke();
-        g.beginPath(); g.moveTo(i, 0); g.lineTo(i, size); g.stroke();
+      // Soft, low-frequency noise — should read as a faint fabric grain,
+      // not a checkerboard. Sparse, jittered pixels at low alpha.
+      const img = g.getImageData(0, 0, size, size);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        if (Math.random() > 0.7) continue;
+        const v = (Math.random() - 0.5) * 12;
+        d[i]     = Math.max(0, Math.min(255, d[i]     + v));
+        d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + v));
       }
+      g.putImageData(img, 0, 0);
       break;
     }
     case 'mesh': {
-      // Athletic Dri-Fit micro-mesh — tiny perforated dots.
-      g.fillStyle = 'rgba(0,0,0,0.45)';
-      for (let y = 0; y < size; y += 8) {
-        for (let x = (y % 16 === 0 ? 0 : 4); x < size; x += 8) {
+      // Athletic Dri-Fit micro-mesh — very fine, very faint perforations.
+      // Smaller dots + much lower alpha than before; reads as texture from
+      // arm's length, not as polka dots up close.
+      g.fillStyle = 'rgba(0,0,0,0.10)';
+      for (let y = 0; y < size; y += 5) {
+        for (let x = (y % 10 === 0 ? 0 : 2.5); x < size; x += 5) {
           g.beginPath();
-          g.arc(x, y, 1.6, 0, Math.PI * 2);
+          g.arc(x, y, 0.7, 0, Math.PI * 2);
           g.fill();
         }
       }
       break;
     }
     case 'linen': {
-      // Coarse, irregular crossweave with random thread variation.
-      g.strokeStyle = 'rgba(0,0,0,0.45)';
-      for (let i = 0; i < size; i += 6) {
-        g.lineWidth = 1 + Math.random() * 1.2;
-        g.beginPath(); g.moveTo(0, i + (Math.random() - 0.5)); g.lineTo(size, i + (Math.random() - 0.5)); g.stroke();
-        g.beginPath(); g.moveTo(i + (Math.random() - 0.5), 0); g.lineTo(i + (Math.random() - 0.5), size); g.stroke();
+      // Coarse natural slubs — only horizontal threads visible, irregular
+      // spacing and lengths so it doesn't look like graph paper.
+      g.strokeStyle = 'rgba(0,0,0,0.22)';
+      for (let y = 0; y < size; y += 4 + Math.random() * 4) {
+        g.lineWidth = 0.6 + Math.random() * 0.8;
+        const startX = Math.random() * 30;
+        const endX = size - Math.random() * 30;
+        g.beginPath();
+        g.moveTo(startX, y + (Math.random() - 0.5) * 1.5);
+        g.lineTo(endX, y + (Math.random() - 0.5) * 1.5);
+        g.stroke();
+      }
+      // A few cross threads, very sparse, for slub character.
+      g.strokeStyle = 'rgba(0,0,0,0.12)';
+      for (let x = 0; x < size; x += 12 + Math.random() * 12) {
+        g.lineWidth = 0.5;
+        g.beginPath();
+        g.moveTo(x, 0); g.lineTo(x + (Math.random() - 0.5) * 3, size);
+        g.stroke();
       }
       break;
     }
     case 'rib': {
-      // Vertical ribbing — jersey-style knit.
-      for (let x = 0; x < size; x += 3) {
-        const dark = (x / 3) % 2 === 0;
-        g.fillStyle = dark ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.10)';
-        g.fillRect(x, 0, 2, size);
+      // Vertical ribbing — subtle, narrow stripes.
+      for (let x = 0; x < size; x += 4) {
+        const dark = (x / 4) % 2 === 0;
+        g.fillStyle = dark ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.04)';
+        g.fillRect(x, 0, 3, size);
       }
       break;
     }
     case 'satin': {
-      // Subtle diagonal sheen — silk.
+      // Subtle diagonal sheen — silk / smooth polyester.
       const grd = g.createLinearGradient(0, 0, size, size);
-      grd.addColorStop(0,   'rgba(255,255,255,0.18)');
-      grd.addColorStop(0.5, 'rgba(0,0,0,0.10)');
-      grd.addColorStop(1,   'rgba(255,255,255,0.18)');
+      grd.addColorStop(0,   'rgba(255,255,255,0.10)');
+      grd.addColorStop(0.5, 'rgba(0,0,0,0.05)');
+      grd.addColorStop(1,   'rgba(255,255,255,0.10)');
       g.fillStyle = grd;
       g.fillRect(0, 0, size, size);
       break;
