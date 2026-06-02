@@ -64,17 +64,14 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
 async function forwardGeocode(query: string): Promise<NominatimResult[]> {
   if (!query.trim()) return [];
   try {
-    // `countrycodes=ph` biases results toward the Philippines so the
-    // customer's typing doesn't pull up random worldwide matches.
     const r = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&accept-language=en&q=${encodeURIComponent(query)}&limit=5&countrycodes=ph&addressdetails=1`,
-      // No custom headers — anything beyond a "simple" header set
-      // triggers a CORS preflight that Nominatim's free tier rejects.
-      // Pass `accept-language` as a URL param instead (Nominatim honors it).
     );
-    if (!r.ok) return [];
-    return await r.json();
-  } catch {
+    if (!r.ok) { console.warn('[map] Nominatim forward returned', r.status); return []; }
+    const j = await r.json();
+    return Array.isArray(j) ? j : [];
+  } catch (err) {
+    console.warn('[map] Nominatim forward failed', err);
     return [];
   }
 }
@@ -222,9 +219,20 @@ export function AddressMapPicker({ value, onChange, disabled, className = '', la
                   </button>
                 )}
               </div>
-              {searchResults.length > 0 && (
-                <div className="absolute left-4 right-4 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto z-10">
-                  {searchResults.map((r, i) => (
+              {/* Dropdown — always rendered when there's a query so the
+                  customer sees the searching/no-results state. Helps
+                  diagnose "search is broken" feedback. */}
+              {search.trim().length >= 2 && (
+                <div className="absolute left-4 right-4 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto z-20">
+                  {searching && (
+                    <p className="px-3 py-2 text-xs text-slate-500 inline-flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Searching OpenStreetMap…
+                    </p>
+                  )}
+                  {!searching && searchResults.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-slate-500">No matches. Try a broader term (e.g. "Las Piñas") or click the map directly.</p>
+                  )}
+                  {!searching && searchResults.map((r, i) => (
                     <button
                       key={i}
                       onClick={() => pickResult(r)}
