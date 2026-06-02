@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { apiRequest } from '../api';
 import { Search, X, Package, Sparkles, ArrowUpDown, AlertCircle } from 'lucide-react';
 import { formatPeso } from '../utils/format';
+import { productPriceRange } from '../utils/pricing';
 import { Pagination, usePagination } from '../components/Pagination';
 
 export function ProductCatalog() {
@@ -225,7 +226,21 @@ export function ProductCatalog() {
                       {product.description || ' '}
                     </p>
                     <div className="flex items-center justify-between">
-                      <span className="text-lg font-black text-slate-900">{formatPeso(product.price)}</span>
+                      {(() => {
+                        // Price RANGE — DTF cotton and sublimation polyester have very
+                        // different bands, so showing one number is misleading. The
+                        // range here is base smallest-size + Logo print → largest-size
+                        // + A2 print; same numbers the customer sees on the Customizer.
+                        const r = productPriceRange({ category: (product as any).productCategory, name: product.name });
+                        return (
+                          <div className="flex flex-col">
+                            <span className="text-lg font-black text-slate-900">{r.label}</span>
+                            {r.min !== r.max && (
+                              <span className="text-[10px] font-semibold text-slate-500">est. range</span>
+                            )}
+                          </div>
+                        );
+                      })()}
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold text-blue-600 bg-blue-50 group-hover:bg-blue-600 group-hover:text-white transition-colors">
                         Customize →
                       </span>

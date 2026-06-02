@@ -48,8 +48,10 @@ interface NominatimResult {
 async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
   try {
     const r = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`,
-      { headers: { 'Accept-Language': 'en' } },
+      `https://nominatim.openstreetmap.org/reverse?format=json&accept-language=en&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`,
+      // No custom headers — anything beyond a "simple" header set
+      // triggers a CORS preflight that Nominatim's free tier rejects.
+      // Pass `accept-language` as a URL param instead (Nominatim honors it).
     );
     if (!r.ok) return null;
     const j = await r.json();
@@ -65,8 +67,10 @@ async function forwardGeocode(query: string): Promise<NominatimResult[]> {
     // `countrycodes=ph` biases results toward the Philippines so the
     // customer's typing doesn't pull up random worldwide matches.
     const r = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=ph&addressdetails=1`,
-      { headers: { 'Accept-Language': 'en' } },
+      `https://nominatim.openstreetmap.org/search?format=json&accept-language=en&q=${encodeURIComponent(query)}&limit=5&countrycodes=ph&addressdetails=1`,
+      // No custom headers — anything beyond a "simple" header set
+      // triggers a CORS preflight that Nominatim's free tier rejects.
+      // Pass `accept-language` as a URL param instead (Nominatim honors it).
     );
     if (!r.ok) return [];
     return await r.json();

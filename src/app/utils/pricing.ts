@@ -375,3 +375,44 @@ export function formatRange(min: number, max: number): string {
   if (Math.round(min) === Math.round(max)) return formatPeso(min);
   return `${formatPeso(min)} – ${formatPeso(max)}`;
 }
+
+/**
+ * Estimate the price RANGE for a product card on the catalog — the
+ * cheapest possible config (smallest size + smallest print) → most
+ * expensive (largest size + largest print). Used on the Products page
+ * so customers see e.g. "₱295 – ₱440" instead of one misleading number,
+ * since DTF cotton and sublimation polyester have very different bands.
+ *
+ * Pass either the explicit category or the product name (will infer).
+ */
+export function productPriceRange(opts: {
+  category?: ProductCategory | string;
+  name?: string;
+}): { min: number; max: number; label: string; baseRange?: { min: number; max: number } } {
+  const cat = (opts.category as ProductCategory)
+    || ({} as any).inferCategory
+    || inferCategoryFromName(opts.name);
+
+  // Fixed-price categories
+  if (cat === 'tote') return { min: 180, max: 180, label: '₱180' };
+  if (cat === 'mug')  return { min: 120, max: 120, label: '₱120' };
+
+  // Wearables — base × size + Logo (cheapest print) → base × largest size + A2
+  if (cat === 'cotton_shirt') {
+    const baseMin = COTTON_PRICE.XS;
+    const baseMax = COTTON_PRICE['5XL'];
+    const min = baseMin + PRINT_SIZE_FEE.logo;  // 230 + 65 = 295
+    const max = baseMax + PRINT_SIZE_FEE.a2;    // 290 + 150 = 440
+    return { min, max, label: formatRange(min, max), baseRange: { min: baseMin, max: baseMax } };
+  }
+  if (cat === 'polyester_wearable') {
+    const baseMin = POLYESTER_PRICE.small;
+    const baseMax = POLYESTER_PRICE.plus;
+    const min = baseMin + PRINT_SIZE_FEE.logo;  // 140 + 65 = 205
+    const max = baseMax + PRINT_SIZE_FEE.a2;    // 210 + 150 = 360
+    return { min, max, label: formatRange(min, max), baseRange: { min: baseMin, max: baseMax } };
+  }
+  // Unknown — fall back to a generic shirt band so the card isn't blank.
+  return { min: 295, max: 440, label: '₱295 – ₱440' };
+}
+
