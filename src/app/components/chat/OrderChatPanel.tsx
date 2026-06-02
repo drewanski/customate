@@ -487,6 +487,57 @@ export function OrderChatPanel({
                     );
                   }
 
+                  // ── QC published card — shows the finished-product photo
+                  //    inline so the customer doesn't have to hunt for it,
+                  //    plus a prominent "Pay balance" CTA right under the
+                  //    photo. Matches either by explicit meta.type OR by
+                  //    legacy body keyword + order.qcPhoto (so older orders
+                  //    whose system message predates the meta also render
+                  //    the photo inline). */}
+                  const looksLikeQcPublish = /passed quality control|qc photo|finished product photo/i.test(String(m.body || ''));
+                  if (m?.meta?.type === 'qc_published' || (looksLikeQcPublish && order?.qcPhoto)) {
+                    const qcPhoto = m.meta.qcPhoto || order?.qcPhoto;
+                    const bal = Number(m.meta.balanceAmount || order?.payments?.balance?.amount || 0);
+                    const alreadyPaid = !!order?.payments?.balance?.verifiedAt;
+                    return (
+                      <div key={m._id} className="flex justify-center my-3">
+                        <div className="w-full max-w-md rounded-2xl bg-white border-2 border-emerald-300 shadow-lg overflow-hidden">
+                          <div className="px-4 py-2.5 bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4" />
+                            <p className="text-sm font-black tracking-tight uppercase">Quality control passed</p>
+                            <span className="ml-auto text-[10px] opacity-80">{formatTime(new Date(m.createdAt))}</span>
+                          </div>
+                          {qcPhoto ? (
+                            <a href={qcPhoto} target="_blank" rel="noreferrer" className="block bg-slate-50">
+                              <img src={qcPhoto} alt="Finished product" className="w-full max-h-80 object-contain" />
+                            </a>
+                          ) : (
+                            <div className="bg-slate-100 py-12 text-center text-slate-500 text-xs">Photo not available</div>
+                          )}
+                          <div className="p-4 space-y-3">
+                            <p className="text-sm text-slate-700 leading-snug">
+                              Your finished item is ready. {!alreadyPaid && <>Please settle the remaining <span className="font-black text-emerald-700">₱{bal.toLocaleString()}</span> balance to schedule release.</>}
+                              {alreadyPaid && <>Balance has been paid — your order is on its way!</>}
+                            </p>
+                            {myRole === 'customer' && !alreadyPaid && (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    const r = await createQuotationPaymentLink(orderId, 'balance');
+                                    if (r?.checkoutUrl) window.open(r.checkoutUrl, '_blank', 'noopener');
+                                  } catch (e: any) { alert(e?.message || 'Failed to start payment'); }
+                                }}
+                                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white font-black text-sm shadow-md hover:shadow-lg"
+                              >
+                                💳 Pay ₱{bal.toLocaleString()} balance now →
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   // ── Payment-proof card — admin sees Verify / Reject ──
                   if (m?.meta?.type === 'payment_proof') {
                     const stage = m.meta.stage as 'downpayment' | 'balance';
