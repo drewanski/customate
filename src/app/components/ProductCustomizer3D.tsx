@@ -379,7 +379,7 @@ const BODY_SIZES: Record<BodySize, {
 
 const PRODUCT_MODELS: Record<ProductType, ProductModelConfig> = {
   shirt: {
-    path: '/oversized-t-shirt/oversized_t-shirt.glb',
+    path: '/models-optimized/oversized_t-shirt.glb',
     scale: 1.15,
     // Position [0,0,0] paired with the auto-centering in ProductMesh puts
     // the shirt's geometric center exactly at world origin — the camera
@@ -424,7 +424,7 @@ const PRODUCT_MODELS: Record<ProductType, ProductModelConfig> = {
     // no maxDecalFraction — cylindrical wrap looks correct
   },
   tote: {
-    path: '/models/tote_bag.glb',
+    path: '/models-optimized/tote_bag.glb',
     scale: 0.25,
     position: [0, -0.95, 0],
     rotation: [0, 0, 0],
@@ -433,7 +433,7 @@ const PRODUCT_MODELS: Record<ProductType, ProductModelConfig> = {
     maxDecalFraction: 0.55,
   },
   mousepad: {
-    path: '/models/mouse_pad_keyboard_pad.glb',
+    path: '/models-optimized/mouse_pad_keyboard_pad.glb',
     scale: 0.09,
     position: [0, -0.15, 0],
     rotation: [0, 0, 0],
