@@ -945,43 +945,16 @@ export function Checkout() {
                 {deliveryError && (
                   <p className="mt-1.5 text-[11px] text-rose-600 font-semibold">{deliveryError}</p>
                 )}
+                {/* Lead-time info only — capacity warning kept, but the
+                    legacy tier surcharge (% rush fee, +₱840 PRIORITY etc.)
+                    is GONE. The pricing engine is the sole source of rush
+                    pricing now (+₱20/item), shown in the Order Summary
+                    above. Two competing rush systems were confusing. */}
                 {deliveryQuote && !deliveryError && (
-                  <div
-                    className="mt-2 p-2.5 rounded-lg border"
-                    style={{
-                      backgroundColor: `${deliveryQuote.color}15`,
-                      borderColor: `${deliveryQuote.color}55`,
-                    }}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <p
-                          className="text-xs font-black uppercase tracking-wider"
-                          style={{ color: deliveryQuote.color }}
-                        >
-                          {deliveryQuote.label}
-                        </p>
-                        <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
-                          {deliveryQuote.leadTimeDays} business day
-                          {deliveryQuote.leadTimeDays === 1 ? '' : 's'} lead time
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        {deliveryQuote.rushFee > 0 ? (
-                          <p
-                            className="text-sm font-black"
-                            style={{ color: deliveryQuote.color }}
-                          >
-                            +{formatPeso(deliveryQuote.rushFee)}
-                          </p>
-                        ) : (
-                          <p className="text-sm font-black text-emerald-600">No surcharge</p>
-                        )}
-                        <p className="text-[10px] text-slate-500 font-semibold">
-                          {Math.round((deliveryQuote.surchargePct || 0) * 100)}% rush fee
-                        </p>
-                      </div>
-                    </div>
+                  <div className="mt-2 p-2.5 rounded-lg border border-slate-200 bg-slate-50">
+                    <p className="text-[11px] text-slate-600 font-semibold">
+                      Estimated lead time: {deliveryQuote.leadTimeDays} business day{deliveryQuote.leadTimeDays === 1 ? '' : 's'}
+                    </p>
                     {deliveryQuote.capacity?.available === false && (
                       <p className="mt-1.5 text-[11px] text-rose-700 font-semibold">
                         ⚠ {deliveryQuote.capacity.reason}
@@ -991,18 +964,14 @@ export function Checkout() {
                 )}
               </div>
 
-              {/* Rush fee line — only show when there's actually a fee.
-                  Label adapts: shows the tier label when the legacy delivery
-                  quote system returned one, otherwise just "Rush fee" so it
-                  doesn't render as "Rush fee ()" with empty parentheses. */}
+              {/* Rush fee line — driven SOLELY by the pricing engine
+                  (+₱20/item). Label is plain so there's no confusion with
+                  the lead-time tier above. */}
               {rushFee > 0 && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">
-                    Rush fee{deliveryQuote?.label ? ` (${deliveryQuote.label})` : ''}
-                  </span>
+                  <span className="text-gray-600">Rush fee</span>
                   <span
-                    className="font-bold"
-                    style={{ color: deliveryQuote?.color || '#475569' }}
+                    className="font-bold text-orange-600"
                   >
                     +{formatPeso(rushFee)}
                   </span>

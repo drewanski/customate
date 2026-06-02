@@ -62,3 +62,6 @@ public/models/Universal*/
 dist/models/Universal*/
 customate-frontend.zip
 customate-product-assets.zip
+
+# Hostinger upload archives — large, never commit
+*.zip
