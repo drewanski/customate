@@ -135,7 +135,17 @@ export function Checkout() {
       })
       .catch((err: any) => {
         if (cancelled) return;
-        setDeliveryError(err?.message || 'Failed to quote delivery.');
+        // Swallow auth/network errors silently — the delivery-quote
+        // endpoint requires a logged-in user, and showing "No token,
+        // authorization denied" on the checkout page leaks an internal
+        // error message to customers who are just browsing. The submit
+        // button itself will gate behind login.
+        const msg = String(err?.message || '');
+        if (/no token|authorization denied|unauthorized|401/i.test(msg)) {
+          setDeliveryError('');
+        } else {
+          setDeliveryError(msg || 'Failed to quote delivery.');
+        }
         setDeliveryQuote(null);
       })
       .finally(() => {
@@ -741,45 +751,51 @@ export function Checkout() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {items.map((item) => (
-                <div key={item.id} className="flex gap-3 p-3 rounded-xl bg-slate-50/60 border border-slate-100 hover:border-slate-200 transition-colors">
-                  <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-white border border-slate-100">
-                    <img
-                      src={item.product.image}
-                      alt={item.product.name}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-bold text-slate-900 text-sm leading-tight truncate">{item.product.name}</p>
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-bold text-slate-700">
-                            ×{item.quantity}
-                          </span>
-                          {item.customization.size && (
+              {items.map((item, idx) => {
+                // Same source of truth used by Order Summary above. No
+                // more "Review Items says ₱350 but the summary says ₱305"
+                // mismatch — both lines come from estimateOrderTotal().
+                const line = estimate.lines[idx];
+                return (
+                  <div key={item.id} className="flex gap-3 p-3 rounded-xl bg-slate-50/60 border border-slate-100 hover:border-slate-200 transition-colors">
+                    <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-white border border-slate-100">
+                      <img
+                        src={item.product.image}
+                        alt={item.product.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-900 text-sm leading-tight truncate">{item.product.name}</p>
+                          <div className="flex flex-wrap gap-1 mt-1.5">
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-bold text-slate-700">
-                              {item.customization.size}
+                              ×{item.quantity}
                             </span>
-                          )}
-                          {item.customization.placement && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-bold text-slate-700">
-                              {item.customization.placement}
-                            </span>
-                          )}
-                          {item.customization.text && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-[10px] font-bold text-blue-700 max-w-[14ch] truncate">
-                              "{item.customization.text}"
-                            </span>
-                          )}
+                            {item.customization.size && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-bold text-slate-700">
+                                {item.customization.size}
+                              </span>
+                            )}
+                            {item.customization.placement && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-bold text-slate-700">
+                                {item.customization.placement}
+                              </span>
+                            )}
+                            {item.customization.text && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-[10px] font-bold text-blue-700 max-w-[14ch] truncate">
+                                "{item.customization.text}"
+                              </span>
+                            )}
+                          </div>
                         </div>
+                        <p className="font-black text-slate-900 text-sm whitespace-nowrap">{line ? formatPeso(line.net) : formatPeso(item.totalPrice)}</p>
                       </div>
-                      <p className="font-black text-slate-900 text-sm whitespace-nowrap">{formatPeso(item.totalPrice)}</p>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
 
@@ -975,11 +991,14 @@ export function Checkout() {
                 )}
               </div>
 
-              {/* Rush fee line — only show when there's actually a fee */}
+              {/* Rush fee line — only show when there's actually a fee.
+                  Label adapts: shows the tier label when the legacy delivery
+                  quote system returned one, otherwise just "Rush fee" so it
+                  doesn't render as "Rush fee ()" with empty parentheses. */}
               {rushFee > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">
-                    Rush fee ({deliveryQuote?.label || ''})
+                    Rush fee{deliveryQuote?.label ? ` (${deliveryQuote.label})` : ''}
                   </span>
                   <span
                     className="font-bold"
