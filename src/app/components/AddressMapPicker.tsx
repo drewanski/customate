@@ -203,7 +203,12 @@ export function AddressMapPicker({ value, onChange, disabled, className = '', la
               </button>
             </div>
 
-            <div className="p-4 border-b border-slate-100 relative">
+            {/* Search header — needs an explicit high z-index because
+                Leaflet's internal panes go up to z=700 inside the map
+                container below. Without this, the autocomplete dropdown
+                falls behind the map tiles when it spills past the
+                header's bottom edge. */}
+            <div className="p-4 border-b border-slate-100 relative z-[1000]">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -223,7 +228,7 @@ export function AddressMapPicker({ value, onChange, disabled, className = '', la
                   customer sees the searching/no-results state. Helps
                   diagnose "search is broken" feedback. */}
               {search.trim().length >= 2 && (
-                <div className="absolute left-4 right-4 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto z-20">
+                <div className="absolute left-4 right-4 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto z-[1001]">
                   {searching && (
                     <p className="px-3 py-2 text-xs text-slate-500 inline-flex items-center gap-1.5">
                       <Loader2 className="w-3 h-3 animate-spin" /> Searching OpenStreetMap…
