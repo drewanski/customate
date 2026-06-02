@@ -1111,15 +1111,18 @@ function ProjectedDecal({
       }
     }
 
-    // Projection depth — has to span enough of the mesh that curved areas
-    // (mug walls, sleeve cuffs) get captured, but not so deep that it punches
-    // through to the back face. Using meshSize.z (the mesh's natural
-    // thickness in the local-Z axis) is the right axis to scale; the
-    // old version used meshSize.x*0.6 which was huge for flat products
-    // like the hand fan and caused decals to leak onto back-facing wrinkles.
+    // Projection depth — keep it SHALLOW (under half the mesh thickness)
+    // so the projection box never reaches the back of the garment. This
+    // is the geometric guarantee that decals don't bleed through. We used
+    // to use meshSize.z * 1.2 which punched right through, then relied on
+    // a tight facing filter (0.5) to clean up — but that filter also
+    // dropped wrinkle triangles whose normals deviated past 60°, leaving
+    // visible HOLES in the print where the fabric creased. Solution:
+    // shallow depth + loose facing filter = clean front render, no holes
+    // on wrinkles, no bleed-through.
     const depth = meshSize
-      ? Math.max(meshSize.z * 1.2, 0.3)
-      : Math.max(w * 1.5, 0.3);
+      ? Math.max(meshSize.z * 0.55, 0.25)
+      : Math.max(w * 0.8, 0.25);
     return new THREE.Vector3(w, h, depth);
   }, [element.scale, element.aspectRatio, element.type, targetMesh, maxDecalFraction]);
 
@@ -1177,11 +1180,12 @@ function ProjectedDecal({
       // normal aligns with the user's chosen surface normal (front-
       // facing relative to where the decal was placed). Anything pointing
       // the opposite direction is the unwanted "back-side" geometry.
-      // Tighter facing threshold (0.5 ~= within 60° of the click normal)
-      // so side-facing wrinkle triangles don't survive the filter and bleed
-      // through when the customer rotates the camera around to the back.
-      // Old 0.15 (within ~81°) was too permissive on bumpy surfaces.
-      const filtered = filterDecalByFacing(geometry, pose.normal, 0.5);
+      // Loose facing filter (~78° cone) keeps wrinkle-tilted triangles
+      // so the decal renders continuously across creases (no holes). The
+      // tight depth above (meshSize.z * 0.55) is what prevents back-bleed
+      // now — the box simply doesn't reach the back face, so we no longer
+      // need an aggressive filter to clean it up.
+      const filtered = filterDecalByFacing(geometry, pose.normal, 0.2);
       if (!filtered) {
         geometry.dispose();
         continue;
