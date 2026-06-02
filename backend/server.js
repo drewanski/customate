@@ -182,18 +182,27 @@ app.use((req, _res, next) => {
 // /chat/unread/count, /orders, etc.) and the original 200 limit would
 // throttle a single developer doing one walkthrough.
 const IS_PROD = process.env.NODE_ENV === 'production';
+// Render's free tier puts every request through one tiny IPv4 NAT pool —
+// a single browser page can fire 15-30 calls (session check, inventory,
+// chat unread, notifications, polling). 200/15min ran out in ~10 page
+// refreshes which made the production site appear dead. Bumped to a
+// realistic working number; the actual abuse protection lives in the
+// authLimiter below and per-route guards.
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: IS_PROD ? 200 : 5000,
+  max: IS_PROD ? 2000 : 5000,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { error: 'Too many requests. Please try again later.' },
 });
 
-// Auth-only: tight in prod to stop brute-force; relaxed in dev for testing.
+// Auth-only: stops brute-force without breaking real users. 10 was too
+// strict in prod — a customer mis-typing their password 4 times then
+// using Google sign-in would already be at the cap. Raised to 30 (still
+// tight, and we only count FAILED attempts via skipSuccessfulRequests).
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: IS_PROD ? 10 : 100,
+  max: IS_PROD ? 30 : 100,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skipSuccessfulRequests: true, // only count failed auth attempts
