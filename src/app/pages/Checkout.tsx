@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../components/Card';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { Textarea } from '../components/Textarea';
+import { AddressMapPicker } from '../components/AddressMapPicker';
 import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
 import { apiRequest, getProfile, validateCouponCode, quoteDelivery as quoteDeliveryApi } from '../api';
@@ -499,48 +500,15 @@ export function Checkout() {
                 disabled={loading}
                 required
               />
-              <div className="relative">
-                <Textarea
-                  label="Shipping Address"
-                  placeholder="House no., Street, Barangay, City, Province"
-                  value={shippingAddress}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                    setShippingAddress(e.target.value);
-                    setShowAddressSuggestions(true);
-                  }}
-                  onFocus={() => setShowAddressSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowAddressSuggestions(false), 120)}
-                  rows={4}
-                  disabled={loading}
-                  required
-                />
-                {showAddressSuggestions && addressSuggestions.length > 0 && (
-                  <div className="absolute z-10 mt-2 w-full rounded-lg border border-gray-200 bg-white shadow-lg">
-                    {addressSuggestions.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          setShippingAddress((prev) => {
-                            const v = prev || '';
-                            if (!v.trim()) return s;
-                            if (v.trim().toLowerCase() === s.trim().toLowerCase()) return v;
-                            return `${v.trimEnd()}\n${s}`;
-                          });
-                          setShowAddressSuggestions(false);
-                        }}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                    <div className="px-3 py-2 text-xs text-gray-500 border-t border-gray-100">
-                      Suggestions are templates. Please complete your full address.
-                    </div>
-                  </div>
-                )}
-              </div>
+              {/* Address picker with map. Customer can type freely OR
+                  click "Pin on map" to drop a pin on a Leaflet+OSM map;
+                  the address auto-fills from Nominatim reverse-geocoding. */}
+              <AddressMapPicker
+                value={shippingAddress}
+                onChange={setShippingAddress}
+                disabled={loading}
+                label="Shipping Address"
+              />
               <Textarea
                 label="Order Notes (optional)"
                 placeholder="Any additional instructions (e.g., delivery time, color preference, etc.)"
