@@ -7,7 +7,7 @@ import {
 import {
   getOrderChat, sendOrderChatMessage, apiRequest,
   acceptQuotation, declineQuotation, verifyPayment, rejectPayment, uploadPaymentProof,
-  createQuotationPaymentLink,
+  createQuotationPaymentLink, customerCancelOrder,
 } from '../../api';
 import { formatPeso } from '../../utils/format';
 import { useAuth } from '../../hooks/useAuth';
@@ -284,13 +284,27 @@ export function OrderChatPanel({
               )}
             </div>
             {!hideViewOrderLink && order?.id && (
-              <Link
-                to={myRole === 'admin' ? `/admin/orders/${order.id}` : `/order-tracking/${order.id}`}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-blue-700 bg-white border border-blue-200 hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                title="Open the full order page"
-              >
-                View order <ExternalLink className="w-3 h-3" />
-              </Link>
+              <div className="flex items-center gap-1.5">
+                {/* Quote shortcut — when the order needs a quote sent or
+                    revised, surface it right in the chat header so admin
+                    doesn't have to navigate to /admin/orders manually. */}
+                {myRole === 'admin' && ['quote_requested', 'quoted'].includes(order?.status) && (
+                  <Link
+                    to={`/admin/orders?id=${order.id}`}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black text-white bg-gradient-to-br from-blue-600 to-indigo-600 hover:shadow-md transition-shadow"
+                    title={order?.status === 'quoted' ? 'Edit & resend the quotation' : 'Build & send the quotation'}
+                  >
+                    📄 {order?.quotation?.declinedAt ? 'Revise quote' : order?.status === 'quoted' ? 'Edit quote' : 'Send quote'} →
+                  </Link>
+                )}
+                <Link
+                  to={myRole === 'admin' ? `/admin/orders?id=${order.id}` : `/order-tracking/${order.id}`}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-blue-700 bg-white border border-blue-200 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                  title="Open the full order page"
+                >
+                  View order <ExternalLink className="w-3 h-3" />
+                </Link>
+              </div>
             )}
           </div>
 
@@ -393,25 +407,41 @@ export function OrderChatPanel({
                             </div>
                           </div>
                           {myRole === 'customer' && !acceptedAlready && !declinedAlready && order?.status === 'quoted' && (
-                            <div className="px-4 pb-4 flex gap-2">
+                            <div className="px-4 pb-4 space-y-2">
                               <button
                                 onClick={async () => {
                                   try { await acceptQuotation(orderId); window.location.reload(); } catch (e: any) { alert(e?.message || 'Failed'); }
                                 }}
-                                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-md hover:shadow-lg"
+                                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-md hover:shadow-lg"
                               >
-                                <CheckCircle2 className="w-4 h-4" /> Accept quote
+                                <CheckCircle2 className="w-4 h-4" /> Accept quote · ₱{Number(q.total).toLocaleString()}
                               </button>
-                              <button
-                                onClick={async () => {
-                                  const r = prompt('Tell the store why (price, design, timing, etc.):');
-                                  if (!r) return;
-                                  try { await declineQuotation(orderId, r); window.location.reload(); } catch (e: any) { alert(e?.message || 'Failed'); }
-                                }}
-                                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white text-rose-700 border-2 border-rose-200 hover:bg-rose-50 font-bold text-sm"
-                              >
-                                Discuss
-                              </button>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  onClick={async () => {
+                                    const r = prompt('What would you like adjusted? (e.g. "₱X is too high", "use different fabric", "ship sooner")');
+                                    if (!r || !r.trim()) return;
+                                    try { await declineQuotation(orderId, r.trim()); window.location.reload(); } catch (e: any) { alert(e?.message || 'Failed'); }
+                                  }}
+                                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white text-amber-700 border-2 border-amber-300 hover:bg-amber-50 font-bold text-xs"
+                                >
+                                  📝 Request revisions
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (!confirm('Decline this quote and cancel the order? This cannot be undone.')) return;
+                                    const r = prompt('Tell the store why you\'re cancelling (required):');
+                                    if (!r || !r.trim()) return;
+                                    try {
+                                      await customerCancelOrder(orderId, r.trim());
+                                      window.location.reload();
+                                    } catch (e: any) { alert(e?.message || 'Failed to cancel'); }
+                                  }}
+                                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white text-rose-700 border-2 border-rose-300 hover:bg-rose-50 font-bold text-xs"
+                                >
+                                  ✗ Decline & cancel order
+                                </button>
+                              </div>
                             </div>
                           )}
                           {acceptedAlready && (

@@ -58,12 +58,20 @@ export function AdminMessages() {
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [search, setSearch] = useState('');
 
-  const load = async () => {
-    setLoading(true);
+  // Track whether we already auto-selected on first load. Without this the
+  // 10-second polling closure captures a stale activeId=null and yanks the
+  // admin back to the most-recent thread every refresh — making it
+  // impossible to read any older order.
+  const initializedRef = React.useRef(false);
+
+  const load = async (opts: { setActiveIfMissing?: boolean } = {}) => {
     try {
       const data = await getChatThreads();
       setThreads(data || []);
-      if (!activeId && data?.length) setActiveId(data[0].orderId);
+      if (opts.setActiveIfMissing && !initializedRef.current && data?.length) {
+        setActiveId(data[0].orderId);
+        initializedRef.current = true;
+      }
     } catch {
       setThreads([]);
     } finally {
@@ -71,9 +79,11 @@ export function AdminMessages() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load({ setActiveIfMissing: true }); }, []);
   useEffect(() => {
-    const t = setInterval(load, 10000);
+    // Background poll — refreshes thread list & unread counts WITHOUT
+    // touching activeId so the admin stays on the order they were reading.
+    const t = setInterval(() => load(), 10000);
     return () => clearInterval(t);
   }, []);
 

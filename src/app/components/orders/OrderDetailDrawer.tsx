@@ -197,13 +197,41 @@ function QuoteBuilderPanel({ order, onSaved }: { order: any; onSaved: () => Prom
       <div className="flex items-start justify-between mb-3">
         <div>
           <p className="text-[10px] font-black text-blue-700 uppercase tracking-widest">Quote Builder</p>
-          <p className="text-base font-bold text-slate-900">Send the customer a final price</p>
-          <p className="text-xs text-slate-600 mt-0.5">Pre-filled from the estimation engine. Adjust the numbers as needed, then send.</p>
+          <p className="text-base font-bold text-slate-900">
+            {order.quotation?.declinedAt ? 'Revise & resend quotation' : order.status === 'quoted' ? 'Edit & resend quotation' : 'Send the customer a final price'}
+          </p>
+          <p className="text-xs text-slate-600 mt-0.5">
+            {order.quotation?.declinedAt
+              ? `Customer requested changes: "${order.quotation.declinedReason || 'no reason given'}". Adjust below and resend.`
+              : order.status === 'quoted'
+                ? 'Previous quote already sent. Edit any line and resend — the new version is archived as a revision.'
+                : 'Pre-filled from the estimation engine. Adjust the numbers as needed, then send.'}
+          </p>
         </div>
         <div className="text-right">
           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total</p>
           <p className="text-2xl font-black text-blue-700">₱{total.toLocaleString()}</p>
+          {Number(order.quotation?.revisions?.length) > 0 && (
+            <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
+              Revision #{(order.quotation.revisions.length || 0) + 1}
+            </p>
+          )}
         </div>
+      </div>
+
+      {/* Reset / regenerate — re-runs the pricing engine on the current
+          order configuration, overwriting any manual edits. Useful if the
+          customer requested a different size/fabric and the admin wants
+          a fresh starting point. */}
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Quotation lines</p>
+        <button
+          onClick={() => setItems(buildLinesFromOrder())}
+          className="text-[11px] font-bold text-blue-700 hover:text-blue-900 inline-flex items-center gap-1"
+          title="Re-generate lines from the current order configuration"
+        >
+          ↻ Regenerate from order
+        </button>
       </div>
 
       <div className="space-y-2">
@@ -260,8 +288,28 @@ function QuoteBuilderPanel({ order, onSaved }: { order: any; onSaved: () => Prom
         disabled={busy || total <= 0}
         className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white font-black text-sm shadow-md hover:shadow-lg disabled:opacity-50"
       >
-        <Send className="w-4 h-4" /> {busy ? 'Sending…' : (order.status === 'quoted' ? 'Send revised quotation' : 'Send quotation to customer')}
+        <Send className="w-4 h-4" /> {busy
+          ? 'Sending…'
+          : (order.quotation?.declinedAt
+              ? 'Send revised quotation'
+              : order.status === 'quoted'
+                ? 'Resend updated quotation'
+                : 'Send quotation to customer')}
       </button>
+
+      {Number(order.quotation?.revisions?.length) > 0 && (
+        <div className="mt-3 pt-3 border-t border-blue-200">
+          <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Revision history</p>
+          <div className="space-y-1 text-[11px] text-slate-600 max-h-24 overflow-y-auto">
+            {(order.quotation.revisions || []).slice().reverse().map((r: any, i: number) => (
+              <div key={i} className="flex justify-between bg-white/60 rounded px-2 py-1">
+                <span>v{order.quotation.revisions.length - i} · {r.sentAt ? new Date(r.sentAt).toLocaleString() : ''}</span>
+                <span className="font-bold text-slate-800">₱{Number(r.total || 0).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
