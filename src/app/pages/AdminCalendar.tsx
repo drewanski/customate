@@ -478,6 +478,11 @@ export function AdminCalendar() {
                         handleDropToDay(cell.date);
                       } else {
                         setSelectedDay(ymd(cell.date));
+                        // Smooth-scroll the details panel into view so
+                        // admin doesn't have to hunt for it below the fold.
+                        setTimeout(() => {
+                          document.getElementById('calendar-day-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 50);
                       }
                     }}
                     disabled={!cell.inMonth || bulkScheduling}
@@ -652,8 +657,8 @@ export function AdminCalendar() {
 
         {/* Selected day orders */}
         {selectedDay && (
-          <div className="mt-6 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <div id="calendar-day-panel" className="mt-6 bg-white rounded-2xl border-2 border-blue-200 shadow-md overflow-hidden scroll-mt-20">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-gradient-to-br from-blue-50 to-indigo-50">
               <h2 className="font-black text-slate-900 text-base">
                 Orders due {new Date(selectedDay).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
               </h2>
@@ -676,7 +681,7 @@ export function AdminCalendar() {
                   return (
                     <Link
                       key={o.id}
-                      to={`/admin/orders/${o.id}`}
+                      to={`/admin/orders?id=${o.id}`}
                       className="block px-4 py-3 hover:bg-slate-50 flex items-center gap-3"
                     >
                       {/* Compact design preview — sparkles badge marks
