@@ -257,13 +257,24 @@ export function UserDetailDrawer({ isOpen, onClose, userId, onChanged }: Props) 
               <StatTile label="Refunded" value={formatPeso(data.totalRefunded || 0)} icon={AlertTriangle} tint={(data.totalRefunded || 0) > 0 ? 'text-rose-600' : ''} />
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" size="sm" disabled={acting || u.role === 'admin'} onClick={() => handleRoleChange('admin')}>
-                <Crown className="w-3.5 h-3.5 mr-1" /> Promote to admin
-              </Button>
-              <Button variant="outline" size="sm" disabled={acting || u.role !== 'admin'} onClick={() => handleRoleChange('customer')}>
-                Revoke admin
-              </Button>
+            {/* Compliance panel item #4: admins can no longer promote a
+                customer to admin from the UI. The backend also enforces
+                this (returns 403 on role=admin). We only expose "Revoke
+                admin" so a misplaced role can still be downgraded. */}
+            <div className="grid grid-cols-1 gap-2">
+              {u.role === 'admin' ? (
+                <Button variant="outline" size="sm" disabled={acting} onClick={() => handleRoleChange('customer')}>
+                  Revoke admin
+                </Button>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600 flex items-start gap-2">
+                  <Crown className="w-3.5 h-3.5 mt-0.5 text-slate-400 flex-shrink-0" />
+                  <span>
+                    Admin role cannot be granted from this panel. Contact the system
+                    owner to add a new administrator.
+                  </span>
+                </div>
+              )}
             </div>
 
             {feedback && (

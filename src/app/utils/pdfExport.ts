@@ -19,6 +19,33 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+/**
+ * jsPDF's built-in helvetica/times fonts are WinAnsi-only — they have no
+ * glyph for ₱ (U+20B1) or several other Unicode symbols that come out of
+ * `Intl.NumberFormat('en-PH', { currency: 'PHP' })`. Without sanitising,
+ * "₱4,675.00" renders as "±&4&,&6&7&5&.&0&0" (placeholder boxes).
+ *
+ * `sanitizeForPdf` swaps the peso sign for the ASCII prefix "PHP " and
+ * normalises whitespace so every value lands as a clean printable string.
+ * Use it on every cell that may contain a currency / NBSP / fancy quote.
+ */
+export function sanitizeForPdf(input: unknown): string {
+  let s = input === null || input === undefined ? '' : String(input);
+  // Currency + common Unicode replacements
+  s = s
+    .replace(/₱/g, 'PHP ')   // ₱
+    .replace(/ /g, ' ')      // non-breaking space
+    .replace(/ /g, ' ')      // thin space
+    .replace(/[‘’]/g, "'") // smart single quotes
+    .replace(/[“”]/g, '"') // smart double quotes
+    .replace(/–/g, '-')      // en dash
+    .replace(/—/g, '-')      // em dash
+    .replace(/•/g, '*');     // bullet
+  // Collapse any other non-WinAnsi runs to ?
+  s = s.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '');
+  return s.replace(/\s+/g, ' ').trim();
+}
+
 export const BUSINESS = {
   legalName: 'Bryle Closet',
   tagline: 'T-Shirt Printing Services & Souvenirs',
@@ -96,12 +123,12 @@ export async function createBrandedPdf(opts: PdfHeaderOptions): Promise<jsPDF> {
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15);
-  doc.text(BUSINESS.legalName, 32, 12);
+  doc.text(sanitizeForPdf(BUSINESS.legalName), 32, 12);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
-  doc.text(BUSINESS.tagline, 32, 17);
+  doc.text(sanitizeForPdf(BUSINESS.tagline), 32, 17);
   doc.setFontSize(7.5);
-  doc.text(BUSINESS.address, 32, 21.5);
+  doc.text(sanitizeForPdf(BUSINESS.address), 32, 21.5);
 
   // Generated-on stamp (right-aligned)
   const stamp = `Generated ${new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}`;
@@ -114,12 +141,12 @@ export async function createBrandedPdf(opts: PdfHeaderOptions): Promise<jsPDF> {
   doc.setTextColor(...BRAND_DARK);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
-  doc.text(opts.title, 10, 40);
+  doc.text(sanitizeForPdf(opts.title), 10, 40);
   if (opts.subtitle) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.setTextColor(...BRAND_MUTED);
-    doc.text(opts.subtitle, 10, 46);
+    doc.text(sanitizeForPdf(opts.subtitle), 10, 46);
   }
 
   // Subtle separator
@@ -140,11 +167,11 @@ export async function createBrandedPdf(opts: PdfHeaderOptions): Promise<jsPDF> {
       doc.setTextColor(...BRAND_MUTED);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7);
-      doc.text(k.label.toUpperCase(), x + 3, startY + 5);
+      doc.text(sanitizeForPdf(k.label).toUpperCase(), x + 3, startY + 5);
       doc.setTextColor(...BRAND_DARK);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
-      doc.text(String(k.value), x + 3, startY + 12);
+      doc.text(sanitizeForPdf(k.value), x + 3, startY + 12);
     });
     // Position cursor below the KPI strip for the caller.
     (doc as any).__nextY = startY + tileH + 6;
@@ -176,12 +203,12 @@ export function addBrandedTable(
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...BRAND_DARK);
-    doc.text(opts.title, 10, startY);
+    doc.text(sanitizeForPdf(opts.title), 10, startY);
     startY += 4;
   }
   autoTable(doc, {
-    head: [head],
-    body: body.map((row) => row.map((c) => (c === null || c === undefined ? '' : String(c)))),
+    head: [head.map(sanitizeForPdf)],
+    body: body.map((row) => row.map(sanitizeForPdf)),
     startY,
     theme: 'grid',
     styles: {
@@ -210,7 +237,7 @@ export function addSectionHeading(doc: jsPDF, text: string) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
   doc.setTextColor(...BRAND_DARK);
-  doc.text(text, 10, y);
+  doc.text(sanitizeForPdf(text), 10, y);
   (doc as any).__nextY = y + 5;
 }
 
@@ -228,8 +255,8 @@ export function finalizePdf(doc: jsPDF) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(...BRAND_MUTED);
-    doc.text(`${BUSINESS.legalName} · ${BUSINESS.address}`, 10, pageHeight - 7);
-    doc.text(`Page ${i} of ${pageCount} · Powered by CustoMate`, pageWidth - 10, pageHeight - 7, { align: 'right' });
+    doc.text(sanitizeForPdf(`${BUSINESS.legalName} - ${BUSINESS.address}`), 10, pageHeight - 7);
+    doc.text(sanitizeForPdf(`Page ${i} of ${pageCount} - Powered by CustoMate`), pageWidth - 10, pageHeight - 7, { align: 'right' });
   }
 }
 

@@ -895,6 +895,36 @@ export function Checkout() {
                     <div className="text-xs text-slate-500 mt-0.5">Pick up at shop</div>
                   </button>
                 </div>
+
+                {/* Compliance clarification — delivery uses a 3rd-party
+                    courier whose fee is the customer's responsibility,
+                    UNLESS the rider's drop-off is inside Taguig (free).
+                    Pickup is from the Bryle Closet store address. */}
+                {deliveryMethod === 'delivery' ? (
+                  <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-[12px] leading-snug text-blue-900">
+                    <p className="font-bold mb-1">3rd-party courier delivery</p>
+                    <p>
+                      We hand off finished orders to partner couriers
+                      (Lalamove, Grab, LBC, J&T, Ninjavan). Shipping fees
+                      are quoted at handoff and{' '}
+                      <span className="font-bold">paid by the customer</span>{' '}
+                      directly to the rider or app.
+                    </p>
+                    <p className="mt-1">
+                      <span className="font-bold">Free shipping inside Taguig City</span> — if your
+                      delivery address is within Taguig, the rider fee is
+                      shouldered by Bryle Closet.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[12px] leading-snug text-emerald-900">
+                    <p className="font-bold mb-1">In-store pickup</p>
+                    <p>
+                      Pick up at <span className="font-bold">Block 1 Lot 42 Sennai Ruhale St., Calzada, Tipas, Taguig City</span>{' '}
+                      once your order is marked Ready. No shipping fee.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* ─── Rush order toggle (panel revision #7) ──────────────── */}

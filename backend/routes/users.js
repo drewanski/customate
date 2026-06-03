@@ -198,7 +198,16 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
     const update = {};
 
     if (typeof role !== 'undefined') {
-      if (!['customer', 'admin'].includes(role)) {
+      // Compliance panel item #4 — admins must NOT be able to manually
+      // promote other users to admin. Demotion (admin → customer) is
+      // still allowed so legitimate role mistakes can be undone, but
+      // any attempt to promote returns 403 with an explicit message.
+      if (role === 'admin') {
+        return res.status(403).json({
+          message: 'Admin role cannot be granted manually. Contact the system owner.',
+        });
+      }
+      if (!['customer'].includes(role)) {
         return res.status(400).json({ message: 'Invalid role' });
       }
       update.role = role;
@@ -294,7 +303,14 @@ router.put('/bulk/update', authMiddleware, adminMiddleware, async (req, res) => 
     }
     
     const validUpdates = {};
-    if (updates.role && ['customer', 'admin'].includes(updates.role)) {
+    // Bulk: same compliance rule — only demotion is permitted via the
+    // user-management UI. Promotion to admin is denied at the API layer.
+    if (updates.role === 'admin') {
+      return res.status(403).json({
+        message: 'Admin role cannot be granted manually. Contact the system owner.',
+      });
+    }
+    if (updates.role && ['customer'].includes(updates.role)) {
       validUpdates.role = updates.role;
     }
     if (updates.status && ['active', 'inactive', 'suspended'].includes(updates.status)) {
