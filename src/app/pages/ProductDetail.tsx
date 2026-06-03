@@ -8,6 +8,7 @@ import {
 import { useCart } from '../hooks/useCart';
 import { ToastContainer, ToastType } from '../components/Toast';
 import { formatPeso } from '../utils/format';
+import { productPriceRange } from '../utils/pricing';
 import { NotFound } from './NotFound';
 import { ProductReviews } from '../components/reviews/ProductReviews';
 
@@ -173,10 +174,30 @@ export function ProductDetail() {
             </div>
 
             {/* Price */}
-            <div className="flex items-baseline gap-3 pb-6 border-b border-slate-100">
-              <span className="text-4xl font-black text-slate-900">{formatPeso(product.price)}</span>
-              <span className="text-sm text-slate-500">starting price</span>
-            </div>
+            {/* Use the live pricing engine so what's shown here matches
+                Cart, Checkout, Customizer, and the admin Quote Builder.
+                The static product.price field is just a legacy seed value;
+                productPriceRange returns the real fabric/size + print-size
+                range for the product's category. */}
+            {(() => {
+              const range = productPriceRange({ category: product.category, name: product.name });
+              const sameMinMax = range.min === range.max;
+              return (
+                <div className="flex flex-col gap-1 pb-6 border-b border-slate-100">
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-4xl font-black text-slate-900">
+                      {sameMinMax ? formatPeso(range.min) : formatPeso(range.min)}
+                    </span>
+                    {!sameMinMax && (
+                      <span className="text-2xl font-bold text-slate-400">– {formatPeso(range.max)}</span>
+                    )}
+                  </div>
+                  <span className="text-xs text-slate-500">
+                    {sameMinMax ? 'fixed price' : 'depends on size & print area'}
+                  </span>
+                </div>
+              );
+            })()}
 
             {/* SKU & stock */}
             <div className="grid grid-cols-2 gap-4">
