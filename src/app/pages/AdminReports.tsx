@@ -39,6 +39,7 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts';
+import { createBrandedPdf, addBrandedTable, addSectionHeading, finalizePdf, savePdf } from '../utils/pdfExport';
 
 // All data here comes from /api/analytics/* — NO hardcoded numbers.
 // The legacy report page had a flat table; this rewrite gives admins the
@@ -170,12 +171,80 @@ export function AdminReports() {
    * free, supports the chart SVGs natively, and produces a higher-quality
    * vector PDF than a rasterized html2canvas screenshot would.
    */
-  const handleExportPDF = () => {
-    // Give the user a moment to switch to the tab they want (Overview /
-    // Orders / Inventory / Operations) — whatever's visible is what gets
-    // printed. We set a brief delay so the active-tab content fully renders
-    // before the print dialog opens.
-    setTimeout(() => window.print(), 50);
+  const handleExportPDF = async () => {
+    // Build a real branded PDF for the currently-active analytics tab.
+    // Each tab gets its own KPI strip + data tables; the brand header,
+    // pagination, and footer come from the shared pdfExport utility so
+    // every export across the admin looks like one document family.
+    const tabLabel = activeTab[0].toUpperCase() + activeTab.slice(1);
+    const doc = await createBrandedPdf({
+      title: `Analytics — ${tabLabel}`,
+      subtitle: `Period: ${period} · live data snapshot`,
+      kpis: [
+        { label: "Today's revenue", value: formatPeso(summary?.today?.revenue || 0) },
+        { label: 'Monthly revenue', value: formatPeso(summary?.monthlyRevenue || 0) },
+        { label: 'Pending orders', value: String(summary?.pendingOrders ?? 0) },
+        { label: 'Low stock', value: String(summary?.lowStockAlert ?? 0) },
+      ],
+    });
+
+    if (activeTab === 'overview' || activeTab === 'orders') {
+      addSectionHeading(doc, 'Revenue by day');
+      addBrandedTable(doc,
+        ['Date', 'Orders', 'Revenue'],
+        dailyChartData.map((d: any) => [d.label, d.orders, formatPeso(d.revenue)]),
+      );
+      if (statusChartData.length) {
+        addSectionHeading(doc, 'Order status breakdown');
+        addBrandedTable(doc,
+          ['Status', 'Count'],
+          statusChartData.map((s: any) => [s.name, s.value]),
+        );
+      }
+      if (orderAnalytics?.topProducts?.length) {
+        addSectionHeading(doc, 'Top products');
+        addBrandedTable(doc,
+          ['Product', 'Orders'],
+          orderAnalytics.topProducts.map((p: any) => [p.name, p.count]),
+        );
+      }
+    }
+
+    if (activeTab === 'inventory') {
+      addSectionHeading(doc, 'Stock value by category');
+      addBrandedTable(doc,
+        ['Category', 'SKUs', 'Units', 'Value'],
+        categoryChartData.map((c: any) => [c.name, c.count, c.stock, formatPeso(c.value)]),
+      );
+      if (inventoryAnalytics?.lowStock?.length) {
+        addSectionHeading(doc, 'Low-stock alerts');
+        addBrandedTable(doc,
+          ['Item', 'Category', 'Stock', 'Min'],
+          inventoryAnalytics.lowStock.map((i: any) => [i.name, i.category, i.stock, i.minStock]),
+        );
+      }
+    }
+
+    if (activeTab === 'operational') {
+      addSectionHeading(doc, 'Production pipeline');
+      addBrandedTable(doc,
+        ['Stage', 'Orders'],
+        pipelineChartData.map((p: any) => [p.stage, p.count]),
+      );
+      addSectionHeading(doc, 'Weekly comparison');
+      addBrandedTable(doc,
+        ['Metric', 'Value'],
+        [
+          ['This week', operationalAnalytics?.weeklyComparison?.thisWeek ?? 0],
+          ['Last week', operationalAnalytics?.weeklyComparison?.lastWeek ?? 0],
+          ['Change', `${(operationalAnalytics?.weeklyComparison?.changePercent ?? 0).toFixed(1)}%`],
+          ['Avg turnaround', `${(operationalAnalytics?.turnaroundTime?.averageDays ?? 0).toFixed(1)} days`],
+        ],
+      );
+    }
+
+    finalizePdf(doc);
+    savePdf(doc, `bryle-closet-analytics-${activeTab}`);
   };
 
   const weeklyDelta = operationalAnalytics?.weeklyComparison?.changePercent || 0;

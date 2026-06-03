@@ -16,6 +16,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { getStockMovements } from '../../api';
+import { generateSimpleReport } from '../../utils/pdfExport';
 
 interface Props {
   isOpen: boolean;
@@ -199,7 +200,27 @@ export function InventoryAuditLogModal({ isOpen, onClose }: Props) {
                 <Download className="w-3 h-3" /> CSV
               </button>
               <button
-                onClick={() => window.print()}
+                onClick={async () => {
+                  const body = movements.map((m) => [
+                    new Date(m.createdAt).toLocaleString(),
+                    m.inventorySku || '—',
+                    m.inventoryName || '—',
+                    (TYPE_META[m.type]?.label || m.type).toUpperCase(),
+                    `${TYPE_META[m.type]?.sign || ''}${m.quantity}`,
+                    String(m.balanceAfter),
+                    m.performedByName || '—',
+                    m.reason || m.notes || '—',
+                  ]);
+                  await generateSimpleReport({
+                    title: 'Inventory Audit Log',
+                    subtitle: `Full ledger · ${movements.length} movements`,
+                    tables: [{
+                      head: ['When', 'SKU', 'Item', 'Type', 'Qty', 'Balance', 'By', 'Reason'],
+                      body,
+                    }],
+                    filename: 'bryle-closet-audit-log',
+                  });
+                }}
                 disabled={!movements.length}
                 className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
                 title="Open the print dialog → save as PDF"

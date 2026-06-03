@@ -3,6 +3,7 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { PrintablePage } from '../components/admin/PrintablePage';
+import { generateSimpleReport } from '../utils/pdfExport';
 import { Pagination, usePagination } from '../components/Pagination';
 import {
   Percent,
@@ -166,7 +167,34 @@ export function AdminCoupons() {
               <Download className="w-4 h-4" /> {exporting ? 'Exporting…' : 'Export CSV'}
             </button>
             <button
-              onClick={() => window.print()}
+              onClick={async () => {
+                const body = coupons.map((c: any) => [
+                  c.code || '—',
+                  TYPE_META[c.type]?.label || c.type || '—',
+                  c.type === 'percentage' ? `${c.discountValue}%`
+                    : c.type === 'fixed_amount' ? formatPeso(c.discountValue || 0)
+                    : '—',
+                  c.minOrderAmount ? formatPeso(c.minOrderAmount) : '—',
+                  `${c.usedCount || 0}${c.usageLimit ? ` / ${c.usageLimit}` : ''}`,
+                  c.validUntil ? new Date(c.validUntil).toLocaleDateString() : '—',
+                  couponStatus(c).toUpperCase(),
+                ]);
+                await generateSimpleReport({
+                  title: 'Coupons & Promotions Report',
+                  subtitle: 'Active campaigns and redemption performance',
+                  kpis: [
+                    { label: 'Total', value: String(coupons.length) },
+                    { label: 'Active', value: String(coupons.filter((c: any) => couponStatus(c) === 'active').length) },
+                    { label: 'Expired', value: String(coupons.filter((c: any) => couponStatus(c) === 'expired').length) },
+                    { label: 'Redemptions', value: String(coupons.reduce((s: number, c: any) => s + (c.usedCount || 0), 0)) },
+                  ],
+                  tables: [{
+                    head: ['Code', 'Type', 'Value', 'Min spend', 'Used', 'Expires', 'Status'],
+                    body,
+                  }],
+                  filename: 'bryle-closet-coupons',
+                });
+              }}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
             >
               <Download className="w-4 h-4" /> Export PDF

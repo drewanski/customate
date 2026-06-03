@@ -28,6 +28,7 @@ import { RestockModal } from '../components/inventory/RestockModal';
 import { StockHistoryModal } from '../components/inventory/StockHistoryModal';
 import { InventoryAuditLogModal } from '../components/inventory/InventoryAuditLogModal';
 import { PrintablePage } from '../components/admin/PrintablePage';
+import { generateSimpleReport } from '../utils/pdfExport';
 import { AdjustStockModal } from '../components/inventory/AdjustStockModal';
 import { SuppliersManagerModal } from '../components/inventory/SuppliersManagerModal';
 import { AIRestockPanel } from '../components/inventory/AIRestockPanel';
@@ -425,7 +426,48 @@ export function AdminInventory() {
             )}
             {canExport && (
               <button
-                onClick={() => window.print()}
+                onClick={async () => {
+                  // Build a real branded PDF — fixes the previous
+                  // window.print() flow that produced blank/mangled output.
+                  const totalUnits = inventory.reduce((s, i) => s + (i.stock || 0), 0);
+                  const totalValue = inventory.reduce((s, i) => s + (i.stock || 0) * (i.price || 0), 0);
+                  const lowCount = inventory.filter((i) => (i.stock || 0) <= (i.minStock || 0)).length;
+                  const outCount = inventory.filter((i) => (i.stock || 0) === 0).length;
+                  const body = [...inventory]
+                    .sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name))
+                    .map((i) => [
+                      i.sku || '—',
+                      i.name,
+                      i.category || '—',
+                      String(i.stock ?? 0),
+                      String(i.minStock ?? 0),
+                      formatPeso(i.price || 0),
+                      formatPeso((i.stock || 0) * (i.price || 0)),
+                      (i.stock || 0) === 0 ? 'OUT OF STOCK'
+                        : (i.stock || 0) <= (i.minStock || 0) ? 'LOW'
+                        : 'OK',
+                    ]);
+                  const lowBody = inventory
+                    .filter((i) => (i.stock || 0) <= (i.minStock || 0))
+                    .map((i) => [i.sku || '—', i.name, i.category || '—', String(i.stock ?? 0), String(i.minStock ?? 0)]);
+                  await generateSimpleReport({
+                    title: 'Inventory Report',
+                    subtitle: 'Stock levels, valuations, and restock alerts',
+                    kpis: [
+                      { label: 'SKUs', value: String(inventory.length) },
+                      { label: 'Total units', value: totalUnits.toLocaleString() },
+                      { label: 'Stock value', value: formatPeso(totalValue) },
+                      { label: 'Low / Out', value: `${lowCount} / ${outCount}` },
+                    ],
+                    tables: [
+                      { title: 'Full catalog', head: ['SKU', 'Name', 'Category', 'Stock', 'Min', 'Unit Price', 'Stock Value', 'Status'], body },
+                      ...(lowBody.length
+                        ? [{ title: 'Restock needed', head: ['SKU', 'Name', 'Category', 'Stock', 'Min'], body: lowBody }]
+                        : []),
+                    ],
+                    filename: 'bryle-closet-inventory',
+                  });
+                }}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
               >
                 <Download className="w-4 h-4" />

@@ -25,6 +25,7 @@ import { apiRequest, getOrderStats, bulkUpdateOrderStatus, downloadOrderCsv } fr
 import { formatPeso } from '../utils/format';
 import { OrderDetailDrawer } from '../components/orders/OrderDetailDrawer';
 import { PrintablePage, ExportPdfButton } from '../components/admin/PrintablePage';
+import { generateSimpleReport } from '../utils/pdfExport';
 
 const STATUS_TINT: Record<string, string> = {
   pending: 'bg-amber-100 text-amber-700 border-amber-200',
@@ -249,7 +250,34 @@ export function AdminOrders() {
               {exporting ? 'Exporting…' : 'Export CSV'}
             </button>
             <button
-              onClick={() => window.print()}
+              onClick={async () => {
+                const body = orders.map((o: any) => [
+                  String(o._id || o.id || '').slice(-6).toUpperCase(),
+                  o.customer?.name || o.customerName || o.recipientName || '—',
+                  String(o.status || '').replace(/_/g, ' '),
+                  String(o.paymentStatus || '').replace(/_/g, ' '),
+                  formatPeso(o.totalAmount || o.total || 0),
+                  formatPeso(o.paidAmount || 0),
+                  shortDate(o.createdAt),
+                ]);
+                const totalRev = orders.reduce((s, o) => s + (o.totalAmount || o.total || 0), 0);
+                const paidRev = orders.reduce((s, o) => s + (o.paidAmount || 0), 0);
+                await generateSimpleReport({
+                  title: 'Orders Report',
+                  subtitle: statusFilter === 'all' ? 'All orders snapshot' : `Filtered: ${statusFilter.replace(/_/g, ' ')}`,
+                  kpis: [
+                    { label: 'Orders', value: String(orders.length) },
+                    { label: 'Gross value', value: formatPeso(totalRev) },
+                    { label: 'Collected', value: formatPeso(paidRev) },
+                    { label: 'Outstanding', value: formatPeso(Math.max(0, totalRev - paidRev)) },
+                  ],
+                  tables: [{
+                    head: ['Ref', 'Customer', 'Status', 'Payment', 'Total', 'Paid', 'Created'],
+                    body,
+                  }],
+                  filename: 'bryle-closet-orders',
+                });
+              }}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
             >
               <Download className="w-4 h-4" />

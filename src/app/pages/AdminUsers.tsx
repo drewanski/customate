@@ -24,6 +24,7 @@ import {
 } from '../api';
 import { UserDetailDrawer } from '../components/users/UserDetailDrawer';
 import { PrintablePage } from '../components/admin/PrintablePage';
+import { generateSimpleReport } from '../utils/pdfExport';
 
 const STATUS_TINT: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -182,7 +183,32 @@ export function AdminUsers() {
               <Download className="w-4 h-4" /> {exporting ? 'Exporting…' : 'Export CSV'}
             </button>
             <button
-              onClick={() => window.print()}
+              onClick={async () => {
+                const body = users.map((u: any) => [
+                  u.name || '—',
+                  u.email || '—',
+                  u.role || 'customer',
+                  u.status || 'active',
+                  u.emailVerified ? 'Yes' : 'No',
+                  u.orderCount ?? '—',
+                  u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—',
+                ]);
+                await generateSimpleReport({
+                  title: 'Users Report',
+                  subtitle: 'Customer & staff directory',
+                  kpis: [
+                    { label: 'Users', value: String(users.length) },
+                    { label: 'Customers', value: String(users.filter((u: any) => u.role === 'customer').length) },
+                    { label: 'Staff', value: String(users.filter((u: any) => u.role !== 'customer').length) },
+                    { label: 'Verified', value: String(users.filter((u: any) => u.emailVerified).length) },
+                  ],
+                  tables: [{
+                    head: ['Name', 'Email', 'Role', 'Status', 'Verified', 'Orders', 'Joined'],
+                    body,
+                  }],
+                  filename: 'bryle-closet-users',
+                });
+              }}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-white/15 backdrop-blur-sm border border-white/20 hover:bg-white/20 transition"
             >
               <Download className="w-4 h-4" /> Export PDF
