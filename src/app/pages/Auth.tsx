@@ -436,10 +436,16 @@ export function Register() {
     return () => clearInterval(timer);
   }, [resendSeconds]);
 
+  // Letters, spaces, hyphens, and apostrophes only — covers Filipino names
+  // like "María", "O'Brien", "Dela Cruz". Rejects digits + anything else.
+  const NAME_RE = /^[A-Za-zÀ-ÿÀ-ſ\s'\-]+$/;
+
   const validateForm = () => {
     const nextErrors: { [key: string]: string } = {};
     if (!formData.firstName.trim()) nextErrors.firstName = 'First name is required';
+    else if (!NAME_RE.test(formData.firstName.trim())) nextErrors.firstName = 'Letters only — no numbers or special characters';
     if (!formData.lastName.trim()) nextErrors.lastName = 'Last name is required';
+    else if (!NAME_RE.test(formData.lastName.trim())) nextErrors.lastName = 'Letters only — no numbers or special characters';
     if (!formData.email.trim()) nextErrors.email = 'Email is required';
     else if (!isValidEmail(formData.email)) nextErrors.email = 'Invalid email format';
     if (!formData.contactNumber.trim()) nextErrors.contactNumber = 'Contact number is required';
@@ -567,7 +573,13 @@ export function Register() {
               label="First name"
               placeholder="John"
               value={formData.firstName}
-              onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+              onChange={(e) => {
+                // Strip digits and anything that isn't a letter / space /
+                // hyphen / apostrophe as the user types — no need to wait
+                // for blur to show an error.
+                const v = e.target.value.replace(/[0-9]/g, '');
+                setFormData({ ...formData, firstName: v });
+              }}
               required
               disabled={loading || googleLoading}
               icon={<User className="w-4 h-4" />}
@@ -578,7 +590,10 @@ export function Register() {
               label="Last name"
               placeholder="Doe"
               value={formData.lastName}
-              onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[0-9]/g, '');
+                setFormData({ ...formData, lastName: v });
+              }}
               required
               disabled={loading || googleLoading}
               icon={<User className="w-4 h-4" />}

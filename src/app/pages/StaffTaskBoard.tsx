@@ -159,13 +159,26 @@ function classifyDeadline(task: any): UrgencyInfo {
 
 const PRIORITY_WEIGHTS: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 
+/** True when this task was just assigned by admin and the staff hasn't
+ *  started working on it yet — these get pinned to the top of To Do
+ *  with a "Just assigned" badge so they don't get lost behind older
+ *  scheduled work. */
+function isFreshAssignment(t: any): boolean {
+  return t.status === 'approved' && !t.productionLastStartedAt && (t.productionTimeMinutes || 0) === 0;
+}
+
 /**
- * Sort tasks within a column so the work that needs ASAP attention is on top.
- * Overdue tasks always win, then due-today, then urgent-priority, then by
- * raw deadline + priority + age. Stable for cards with identical metrics.
+ * Sort tasks within a column. Rule of thumb: anything that's "new from
+ * the manager and hasn't been touched" goes ABOVE date-driven sorting,
+ * so staff sees fresh assignments first. Then overdue → due-today →
+ * priority → age, as before.
  */
 function sortTasksForColumn(tasks: any[]): any[] {
   return [...tasks].sort((a, b) => {
+    // Pin freshly-assigned approved tasks to the top.
+    const fa = isFreshAssignment(a);
+    const fb = isFreshAssignment(b);
+    if (fa !== fb) return fa ? -1 : 1;
     const ua = classifyDeadline(a);
     const ub = classifyDeadline(b);
     if (ua.weight !== ub.weight) return ua.weight - ub.weight;
@@ -478,6 +491,15 @@ function TaskCard({ task, column, busy, onAdvance, onSubmitQc, onFlagIssue }: Ta
         <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
           urgency.bucket === 'overdue' ? 'bg-rose-600' : 'bg-amber-500'
         }`} />
+      )}
+
+      {/* Fresh-assignment banner — appears across the top of any approved
+          task the staff hasn't started yet. Stands out so newly-assigned
+          work doesn't get buried in a scrolling To Do list. */}
+      {isFreshAssignment(task) && (
+        <div className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[10px] font-black uppercase tracking-wider flex items-center justify-between">
+          <span>📥 New assignment — click Start Work when ready</span>
+        </div>
       )}
 
       {/* Top strip — priority chip, order ref, prominent deadline pill */}

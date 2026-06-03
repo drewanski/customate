@@ -524,57 +524,24 @@ export function AdminCalendar() {
                     >
                       {cell.date.getDate()}
                     </div>
-                    {count > 0 && meta && (
+                    {/* Single, clean count badge — number of orders due
+                        this day. Tier breakdown lives in the side panel
+                        when the day is clicked. No more mini stripe dots,
+                        no Start/Due/Day N/M micro-badges — the calendar
+                        is a glance-level view, details live in the panel. */}
+                    {count > 0 && (
                       <div
-                        className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black text-white shadow-sm"
-                        style={{ backgroundColor: meta.color }}
+                        className="mt-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-black text-white shadow-sm"
+                        style={{ backgroundColor: meta?.color || '#3b82f6' }}
                       >
-                        <meta.icon className="w-2.5 h-2.5" />
                         {count}
                       </div>
                     )}
-                    {/* Mini tier breakdown dots */}
-                    {cell.data?.counts && count > 0 && (
-                      <div className="absolute bottom-1 left-1.5 right-1.5 flex gap-0.5">
-                        {(['priority', 'rush', 'express', 'standard'] as const).map((t) => {
-                          const n = cell.data.counts[t] || 0;
-                          if (!n) return null;
-                          return (
-                            <div
-                              key={t}
-                              className="h-1 flex-1 rounded-full"
-                              style={{ backgroundColor: TIER_META[t].color }}
-                              title={`${TIER_META[t].label}: ${n}`}
-                            />
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Production-span indicator — Start / Due / Day N/M */}
-                    {hasProduction && cell.inMonth && (
-                      <div className="absolute top-1 right-1 flex flex-col items-end gap-0.5">
-                        {productionOrders[0]._isStart && (
-                          <span className="text-[7px] font-black bg-blue-600 text-white px-1 py-0.5 rounded uppercase tracking-wider leading-none">
-                            Start
-                          </span>
-                        )}
-                        {productionOrders[0]._isEnd && !productionOrders[0]._isStart && (
-                          <span className="text-[7px] font-black bg-emerald-600 text-white px-1 py-0.5 rounded uppercase tracking-wider leading-none">
-                            Due
-                          </span>
-                        )}
-                        {!productionOrders[0]._isStart && !productionOrders[0]._isEnd && (
-                          <span className="text-[7px] font-bold bg-slate-200 text-slate-700 px-1 py-0.5 rounded leading-none">
-                            {productionOrders[0]._dayNum}/{productionOrders[0]._totalDays}
-                          </span>
-                        )}
-                        {productionOrders.length > 1 && (
-                          <span className="text-[7px] font-bold bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded leading-none">
-                            +{productionOrders.length - 1}
-                          </span>
-                        )}
-                      </div>
+                    {/* Subtle dot — production active on this day, no
+                        count visible because the order is already in
+                        progress (not due this day). */}
+                    {hasProduction && !count && cell.inMonth && (
+                      <div className="mt-1 inline-block w-1.5 h-1.5 rounded-full bg-blue-400" title="Production day" />
                     )}
                   </button>
                 );
@@ -598,7 +565,7 @@ export function AdminCalendar() {
                 <p className="text-xs text-slate-500 text-center py-8">Loading…</p>
               ) : queue.length === 0 ? (
                 <p className="text-xs text-slate-500 text-center py-8 italic">
-                  Production queue is clear 🎉
+                  Production queue is clear.
                 </p>
               ) : (
                 queue.slice(0, 40).map((o) => {
