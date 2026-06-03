@@ -68,10 +68,16 @@ export function AIRestockPanel({ onRestock, refreshKey }: Props) {
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-6">
-      {/* Header bar */}
-      <button
+      {/* Header bar — div instead of <button> because it contains a nested
+          refresh <button>, and <button> inside <button> is invalid HTML
+          (React fires a dev-only validateDOMNesting warning). Click +
+          keyboard handlers preserve the original expand/collapse behaviour. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center justify-between gap-3 p-4 hover:bg-slate-50/60 transition"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded((v) => !v); } }}
+        className="w-full flex items-center justify-between gap-3 p-4 hover:bg-slate-50/60 transition cursor-pointer"
       >
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 via-fuchsia-500 to-orange-500 flex items-center justify-center text-white shadow-md flex-shrink-0">
@@ -119,7 +125,7 @@ export function AIRestockPanel({ onRestock, refreshKey }: Props) {
           </button>
           {expanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
         </div>
-      </button>
+      </div>
 
       {/* Suggestions list */}
       {expanded && shouldShow && (
