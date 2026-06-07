@@ -453,14 +453,16 @@ const PRODUCT_MODELS: Record<ProductType, ProductModelConfig> = {
     // no maxDecalFraction — cylindrical wrap looks correct
   },
   tote: {
-    // Tote previously sat low because position.y was -0.95 and camera
-    // was zoomed too far out (6.5). Centred at origin with a closer
-    // camera so the bag is framed dead-centre on load.
+    // Tote GLB is unusually tall — at scale 0.28 with a 4.6m camera the
+    // body fell out of frame and only the handles read. Dropping the scale
+    // back down + pushing the camera out so the entire bag fits in the
+    // viewport with margin to spare. Position stays at origin so the
+    // auto-centering group handles the bbox centroid correctly.
     path: '/models-optimized/tote_bag.glb',
-    scale: 0.28,
+    scale: 0.22,
     position: [0, 0, 0],
     rotation: [0, 0, 0],
-    camera: [0, 0, 4.6],
+    camera: [0, 0, 5.8],
     defaultDecalSize: 0.55,
     maxDecalFraction: 0.55,
   },
