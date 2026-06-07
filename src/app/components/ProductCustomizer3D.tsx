@@ -430,29 +430,37 @@ const PRODUCT_MODELS: Record<ProductType, ProductModelConfig> = {
     tryOnOffsetY: 0.85,
   },
   mug: {
+    // Mug + tote were starting bottom-aligned because the per-product
+    // position offset was pulling them well below world origin even after
+    // the auto-centering group ran. Zeroing the Y offset and slightly
+    // upsizing the scale puts the mug dead-centre in the viewport at
+    // first load. Camera Z tightened so the mug fills the frame.
     path: '/models/plain_mug.glb',
-    scale: 1.4,
-    position: [0, -0.65, 0],
+    scale: 1.8,
+    position: [0, 0, 0],
     rotation: [0, 0, 0],
-    camera: [0, 0.15, 2.6],
+    camera: [0, 0, 2.2],
     defaultDecalSize: 0.45,
     // no maxDecalFraction — cylindrical wrap looks correct
   },
   tumbler: {
     path: '/models/plain_mug.glb', // fallback to mug; replace when tumbler glb exists
-    scale: 1.2,
-    position: [0, -0.45, 0],
+    scale: 1.6,
+    position: [0, 0, 0],
     rotation: [0, 0, 0],
-    camera: [0, 0.1, 2.8],
+    camera: [0, 0, 2.4],
     defaultDecalSize: 0.4,
     // no maxDecalFraction — cylindrical wrap looks correct
   },
   tote: {
+    // Tote previously sat low because position.y was -0.95 and camera
+    // was zoomed too far out (6.5). Centred at origin with a closer
+    // camera so the bag is framed dead-centre on load.
     path: '/models-optimized/tote_bag.glb',
-    scale: 0.25,
-    position: [0, -0.95, 0],
+    scale: 0.28,
+    position: [0, 0, 0],
     rotation: [0, 0, 0],
-    camera: [0, 0.2, 6.5],
+    camera: [0, 0, 4.6],
     defaultDecalSize: 0.55,
     maxDecalFraction: 0.55,
   },
