@@ -2,7 +2,6 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
-import nodemailer from 'nodemailer';
 import axios from 'axios';
 import User from '../models/User.js';
 import EmailOtp from '../models/EmailOtp.js';
@@ -495,8 +494,9 @@ router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: 'Email is required' });
+    const normalizedEmail = String(email).trim().toLowerCase();
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
       // Don't reveal if email exists
       return res.json({ message: 'If an account exists, a reset link has been sent' });
@@ -510,19 +510,11 @@ router.post('/forgot-password', async (req, res) => {
     );
 
     // Send email with reset link
-    const resetTransport = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
-
     const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
 
-    await resetTransport.sendMail({
+    await sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to: email,
+      to: normalizedEmail,
       subject: 'Reset Your CustoMate Password',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">

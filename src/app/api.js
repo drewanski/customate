@@ -115,10 +115,22 @@ export async function guestLogin(name) {
 }
 
 export async function forgotPassword(email) {
-  return apiRequest('/auth/forgot-password', {
-    method: 'POST',
-    body: JSON.stringify({ email })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    return await apiRequest('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('The reset email service took too long to respond. Please try again shortly.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function resetPassword(token, newPassword) {
