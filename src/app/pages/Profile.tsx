@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { apiRequest, getProfile, updateProfile } from '../api';
+import { apiRequest, getProfile, updateProfile, changePassword } from '../api';
 import type { User } from '../data/types';
 import { Modal } from '../components/Modal';
-import { User as UserIcon, Mail, Phone, Shield, Edit3, LogOut, Save, X, Camera, LayoutDashboard, ShoppingCart, Truck, ArrowLeft, MapPin, Plus, Trash2, Home, Briefcase, Star } from 'lucide-react';
+import { User as UserIcon, Mail, Phone, Shield, Edit3, LogOut, Save, X, Camera, LayoutDashboard, ShoppingCart, Truck, ArrowLeft, MapPin, Plus, Trash2, Home, Briefcase, Star, Lock, Eye, EyeOff } from 'lucide-react';
 import { formatPeso, shortOrderCode } from '../utils/format';
 import { useAuth } from '../hooks/useAuth';
 
@@ -57,6 +57,15 @@ export default function Profile() {
     isDefault: false
   });
   const [addressLoading, setAddressLoading] = useState(false);
+
+  // Change-password modal state
+  const [changePwdOpen, setChangePwdOpen] = useState(false);
+  const [pwdForm, setPwdForm] = useState({ current: '', next: '', confirm: '' });
+  const [pwdError, setPwdError] = useState('');
+  const [pwdSuccess, setPwdSuccess] = useState('');
+  const [pwdLoading, setPwdLoading] = useState(false);
+  const [showCurrentPwd, setShowCurrentPwd] = useState(false);
+  const [showNewPwd, setShowNewPwd] = useState(false);
 
   const fetchProfile = async () => {
     try {
@@ -280,6 +289,26 @@ export default function Profile() {
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleChangePassword = async () => {
+    setPwdError('');
+    setPwdSuccess('');
+    if (!pwdForm.current) { setPwdError('Current password is required'); return; }
+    if (!pwdForm.next) { setPwdError('New password is required'); return; }
+    if (pwdForm.next.length < 8) { setPwdError('New password must be at least 8 characters'); return; }
+    if (pwdForm.next !== pwdForm.confirm) { setPwdError('Passwords do not match'); return; }
+    setPwdLoading(true);
+    try {
+      await changePassword(pwdForm.current, pwdForm.next);
+      setPwdSuccess('Password changed successfully!');
+      setPwdForm({ current: '', next: '', confirm: '' });
+      setTimeout(() => { setChangePwdOpen(false); setPwdSuccess(''); }, 1500);
+    } catch (err: any) {
+      setPwdError(err.message || 'Failed to change password');
+    } finally {
+      setPwdLoading(false);
+    }
   };
 
   // Show loading spinner while loading
@@ -562,14 +591,24 @@ export default function Profile() {
                     </Button>
                   </>
                 ) : (
-                  <Button
-                    variant="outline"
-                    onClick={() => setLogoutOpen(true)}
-                    className="w-full border-red-300 text-red-600 hover:bg-red-50 font-medium py-3 transition-all duration-200 flex items-center justify-center gap-2"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    Logout
-                  </Button>
+                  <div className="flex flex-col gap-2 w-full">
+                    <Button
+                      variant="outline"
+                      onClick={() => { setChangePwdOpen(true); setPwdError(''); setPwdSuccess(''); }}
+                      className="w-full border-blue-300 text-blue-700 hover:bg-blue-50 font-medium py-3 transition-all duration-200 flex items-center justify-center gap-2"
+                    >
+                      <Lock className="w-4 h-4" />
+                      Change Password
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setLogoutOpen(true)}
+                      className="w-full border-red-300 text-red-600 hover:bg-red-50 font-medium py-3 transition-all duration-200 flex items-center justify-center gap-2"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Logout
+                    </Button>
+                  </div>
                 )}
               </div>
             </CardContent>
@@ -731,6 +770,84 @@ export default function Profile() {
           <div className="space-y-2">
             <p className="text-gray-900 font-medium">Are you sure you want to logout?</p>
             <p className="text-sm text-gray-600">You will need to login again to access your account.</p>
+          </div>
+        </Modal>
+
+        {/* Change Password Modal */}
+        <Modal
+          isOpen={changePwdOpen}
+          onClose={() => setChangePwdOpen(false)}
+          title="Change Password"
+          footer={
+            <>
+              <Button variant="outline" onClick={() => setChangePwdOpen(false)} disabled={pwdLoading}>
+                Cancel
+              </Button>
+              <Button onClick={handleChangePassword} disabled={pwdLoading} className="bg-blue-600 hover:bg-blue-700 text-white">
+                {pwdLoading ? 'Saving…' : 'Change Password'}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            {pwdError && <p className="text-sm text-red-600 font-medium">{pwdError}</p>}
+            {pwdSuccess && <p className="text-sm text-emerald-600 font-medium">{pwdSuccess}</p>}
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Current Password</label>
+              <div className="relative">
+                <Input
+                  type={showCurrentPwd ? 'text' : 'password'}
+                  value={pwdForm.current}
+                  onChange={(e) => setPwdForm({ ...pwdForm, current: e.target.value })}
+                  placeholder="Enter current password"
+                  disabled={pwdLoading}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrentPwd((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  tabIndex={-1}
+                >
+                  {showCurrentPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">New Password</label>
+              <div className="relative">
+                <Input
+                  type={showNewPwd ? 'text' : 'password'}
+                  value={pwdForm.next}
+                  onChange={(e) => setPwdForm({ ...pwdForm, next: e.target.value })}
+                  placeholder="At least 8 characters"
+                  disabled={pwdLoading}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPwd((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  tabIndex={-1}
+                >
+                  {showNewPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Confirm New Password</label>
+              <Input
+                type="password"
+                value={pwdForm.confirm}
+                onChange={(e) => setPwdForm({ ...pwdForm, confirm: e.target.value })}
+                placeholder="Re-enter new password"
+                disabled={pwdLoading}
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              Forgot your current password?{' '}
+              <Link to="/forgot-password" className="text-blue-600 font-semibold hover:underline" onClick={() => setChangePwdOpen(false)}>
+                Reset via email
+              </Link>
+            </p>
           </div>
         </Modal>
 

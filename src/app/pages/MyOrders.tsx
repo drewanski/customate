@@ -8,6 +8,7 @@ import { apiRequest, getMyOrders, customerCancelOrder, fileReturn as fileReturnA
 import { OrderCard } from '../components/orders/OrderCard';
 import { ReviewModal } from '../components/ReviewModal';
 import { Pagination, usePagination } from '../components/Pagination';
+import { useCart } from '../hooks/useCart';
 
 interface TabDef {
   key: string;
@@ -53,6 +54,7 @@ export function MyOrders() {
   const [returnMsg, setReturnMsg] = useState('');
 
   const navigate = useNavigate();
+  const { addItem } = useCart();
 
   const reload = async () => {
     setLoading(true);
@@ -138,9 +140,30 @@ export function MyOrders() {
   };
 
   const onReorder = (orderId: string) => {
-    // Re-order: navigate to the catalog. A future enhancement would re-fill
-    // the cart automatically. For now, this gives the customer a fast jump.
-    navigate('/products');
+    const o = orders.find((x) => (x.id || x._id) === orderId);
+    if (!o) { navigate('/products'); return; }
+    const items: any[] = Array.isArray(o.items) ? o.items : [];
+    items.forEach((it: any) => {
+      const product = {
+        id: it.productId || it.sku,
+        sku: it.sku,
+        name: it.name,
+        price: it.unitPrice || it.price || 0,
+        image: it.image || it.customization?.previewImage || '',
+        category: it.category || '',
+        description: '',
+        stock: 9999,
+      };
+      const customization = {
+        text: it.customization?.text || '',
+        font: it.customization?.font || 'Arial',
+        color: it.customization?.color || '#000000',
+        size: it.customization?.size || it.size || '',
+        placement: it.customization?.placement || 'Center Front',
+      };
+      addItem(product as any, customization as any, it.quantity || 1);
+    });
+    navigate('/cart');
   };
 
   const onRate = (orderId: string) => {

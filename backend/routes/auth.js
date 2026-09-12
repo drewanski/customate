@@ -8,6 +8,7 @@ import User from '../models/User.js';
 import EmailOtp from '../models/EmailOtp.js';
 import PhoneOtp from '../models/PhoneOtp.js';
 import { sendMail } from '../services/mailer.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -579,6 +580,29 @@ router.post('/reset-password', async (req, res) => {
       return res.status(400).json({ message: 'Invalid token' });
     }
     res.status(500).json({ message: 'Failed to reset password' });
+  }
+});
+
+// Authenticated change-password (logged-in user knows their current password)
+router.post('/change-password', authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current password and new password are required' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: 'New password must be at least 8 characters' });
+    }
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const match = await bcrypt.compare(currentPassword, user.password);
+    if (!match) return res.status(400).json({ message: 'Current password is incorrect' });
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+    res.json({ ok: true, message: 'Password changed successfully' });
+  } catch (err) {
+    console.error('[change-password]', err);
+    res.status(500).json({ message: 'Failed to change password' });
   }
 });
 

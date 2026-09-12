@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { Select } from '../components/Select';
 import { Textarea } from '../components/Textarea';
@@ -75,11 +75,15 @@ function fabricSwatchCss(material: string): string {
 export function CustomizationStudio() {
   const { productId } = useParams();
   const navigate = useNavigate();
+  const [urlParams] = useSearchParams();
   const { addItem } = useCart();
   const { user } = useAuth();
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState(() => {
+    const n = parseInt(urlParams.get('qty') || '1', 10);
+    return isNaN(n) || n < 1 ? 1 : n;
+  });
   const [justAdded, setJustAdded] = useState(false);
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: ToastType }>>([]);
   const [activeSidebarTab, setActiveSidebarTab] = useState<'text' | 'image' | 'ai' | 'options'>('text');
@@ -979,7 +983,7 @@ export function CustomizationStudio() {
         <div
           className={`
             bg-white border-r border-slate-200 overflow-y-auto p-4 md:p-5 z-50
-            md:relative md:w-80 md:translate-y-0 md:max-h-none
+            md:relative md:w-80 md:translate-y-0 md:max-h-none md:min-h-0
             fixed bottom-0 left-0 right-0 max-h-[75vh] rounded-t-3xl shadow-2xl
             transition-transform duration-300 ease-out
             ${mobileSheetOpen ? 'translate-y-0' : 'translate-y-full md:translate-y-0'}

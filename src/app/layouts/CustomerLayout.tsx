@@ -1,6 +1,6 @@
-import React from 'react';
-import { Link, Outlet, useLocation } from 'react-router-dom';
-import { ShoppingCart, User, Search } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { ShoppingCart, User, Search, X } from 'lucide-react';
 import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
 import { Chatbot } from '../components/Chatbot';
@@ -10,8 +10,32 @@ import { ChatToast } from '../components/chat/ChatToast';
 
 export function CustomerLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { totalItems } = useCart();
   const { user, loading } = useAuth();
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const openSearch = () => {
+    setSearchOpen(true);
+    setTimeout(() => searchInputRef.current?.focus(), 50);
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery('');
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      navigate(`/products?search=${encodeURIComponent(searchQuery.trim())}`);
+    } else {
+      navigate('/products');
+    }
+    closeSearch();
+  };
   // Real-time chat-arrival toast for customers — slides in whenever the
   // store messages them or an automatic status update lands.
   const { toast: chatToast, dismissToast } = useChatNotifications();
@@ -57,7 +81,11 @@ export function CustomerLayout() {
             
             <div className="flex items-center gap-4">
               {/* Search first */}
-              <button className="flex items-center gap-1 text-gray-600 hover:text-gray-900 transition-colors">
+              <button
+                onClick={openSearch}
+                className="flex items-center gap-1 text-gray-600 hover:text-gray-900 transition-colors"
+                aria-label="Search products"
+              >
                 <Search className="w-5 h-5" />
                 <span className="text-sm font-medium">Search</span>
               </button>
@@ -133,6 +161,46 @@ export function CustomerLayout() {
           </div>
         </div>
       </footer>
+      {/* Search overlay */}
+      {searchOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-start justify-center pt-24 px-4"
+          onClick={closeSearch}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <form onSubmit={handleSearchSubmit} className="flex items-center gap-3 p-4">
+              <Search className="w-5 h-5 text-gray-400 shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search products…"
+                className="flex-1 text-base text-gray-900 placeholder:text-gray-400 outline-none bg-transparent"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="p-1 text-gray-400 hover:text-gray-600"
+                  aria-label="Clear"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+              >
+                Search
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
       <Chatbot />
       <ChatToast toast={chatToast} onDismiss={dismissToast} viewerRole="customer" />
     </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../api';
 import { Search, X, Package, Sparkles, ArrowUpDown, AlertCircle } from 'lucide-react';
 import { formatPeso } from '../utils/format';
@@ -7,7 +7,8 @@ import { productPriceRange } from '../utils/pricing';
 import { Pagination, usePagination } from '../components/Pagination';
 
 export function ProductCatalog() {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [urlParams] = useSearchParams();
+  const [searchTerm, setSearchTerm] = useState(() => urlParams.get('search') || '');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [sortBy, setSortBy] = useState('name');
 

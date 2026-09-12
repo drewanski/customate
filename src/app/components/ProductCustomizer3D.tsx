@@ -1114,7 +1114,29 @@ function ProjectedDecal({
     const bb = new THREE.Box3().setFromObject(targetMesh);
     const center = bb.getCenter(new THREE.Vector3());
     center.z = bb.max.z + 0.001;
-    return { position: center, normal: new THREE.Vector3(0, 0, 1) };
+
+    // Use the placement hint so the initial (un-clicked) decal lands where
+    // the customer would expect it — e.g. upper-chest for "Center Front",
+    // not at the geometric bounding-box mid-point (which is the belly).
+    const placement = element.placement;
+    const meshH = bb.max.y - bb.min.y;
+    const meshW = bb.max.x - bb.min.x;
+    if (placement === 'Left Chest') {
+      center.y = bb.min.y + meshH * 0.72;
+      center.x -= meshW * 0.18;
+    } else if (placement === 'Full Front') {
+      center.y = bb.min.y + meshH * 0.55;
+    } else if (placement === 'Center Back') {
+      center.y = bb.min.y + meshH * 0.68;
+    } else {
+      // "Center Front" and any unrecognized value → upper-chest area
+      center.y = bb.min.y + meshH * 0.68;
+    }
+
+    const faceNormal = placement === 'Center Back'
+      ? new THREE.Vector3(0, 0, -1)
+      : new THREE.Vector3(0, 0, 1);
+    return { position: center, normal: faceNormal };
   }, [
     targetMesh,
     element.normal?.x,
@@ -1123,6 +1145,7 @@ function ProjectedDecal({
     element.position.x,
     element.position.y,
     element.position.z,
+    element.placement,
   ]);
 
   const sizeVec = useMemo(() => {

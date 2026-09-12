@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { login, register, googleSignIn, sendPhoneOtp, verifyPhoneOtp, sendOtp, verifyOtp, guestLogin } from '../api';
-import { useNavigate, Link } from 'react-router-dom';
+import { login, register, googleSignIn, sendPhoneOtp, verifyPhoneOtp, sendOtp, verifyOtp, guestLogin, forgotPassword, resetPassword } from '../api';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/Card';
@@ -843,7 +843,7 @@ export function ForgotPassword() {
     try {
       setLoading(true);
       setError('');
-      // TODO: Implement forgot password API call
+      await forgotPassword(email.trim());
       setSuccess(true);
     } catch (err: any) {
       setError(err.message || 'Failed to send reset email');
@@ -924,6 +924,7 @@ export function ForgotPassword() {
 }
 
 export function ResetPassword() {
+  const [searchParams] = useSearchParams();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -932,14 +933,19 @@ export function ResetPassword() {
   const [showPwd, setShowPwd] = useState(false);
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
 
+  const token = searchParams.get('token') || '';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    if (!token) {
+      setError('Invalid or expired reset link. Please request a new one.');
+      return;
+    }
     if (!password) {
       setError('Password is required');
       return;
     }
-    
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -948,7 +954,7 @@ export function ResetPassword() {
     try {
       setLoading(true);
       setError('');
-      // TODO: Implement reset password API call
+      await resetPassword(token, password);
       setSuccess(true);
     } catch (err: any) {
       setError(err.message || 'Failed to reset password');

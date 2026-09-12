@@ -9,9 +9,10 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-dotenv.config({ path: 'backend/.env' });
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 // Validate environment BEFORE we import routes — fail fast on misconfiguration
 // instead of discovering a missing PayMongo key the first time a customer
@@ -310,6 +311,21 @@ const healthHandler = async (req, res) => {
 //   /api/health — matches the rest of our API namespace
 app.get('/healthz', healthHandler);
 app.get('/api/health', healthHandler);
+
+// ─── Serve built frontend (production) ───────────────────────────────────────
+// The dist/ folder sits one level up from backend/ in dev, but when deployed
+// to Hostinger the ZIP is flattened so dist/ is alongside server.js.
+// Try the sibling path first, fall back to parent.
+const DIST_SIBLING = path.join(__dirname, 'dist');
+const DIST_PARENT  = path.join(__dirname, '..', 'dist');
+const DIST_DIR = existsSync(DIST_SIBLING) ? DIST_SIBLING : DIST_PARENT;
+
+app.use(express.static(DIST_DIR, { maxAge: '1d' }));
+
+// SPA catch-all — must be AFTER all /api routes so the API still wins
+app.get('*', (req, res) => {
+  res.sendFile(path.join(DIST_DIR, 'index.html'));
+});
 
 // Centralized error handler — catches anything thrown in routes/middleware
 // and returns a JSON error instead of an HTML stack trace (which leaks info).
