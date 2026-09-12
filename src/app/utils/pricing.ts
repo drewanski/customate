@@ -142,6 +142,11 @@ export interface ItemCustomization {
   image?: string;
   decals?: any[];
   rush?: boolean;
+  /** Server-validated variant surcharges. Never trust raw client amounts. */
+  fabricPriceModifier?: number;
+  shirtTypePriceModifier?: number;
+  /** Server-provided base for products outside the standard rate-card groups. */
+  basePrice?: number;
 }
 
 export interface ItemLike {
@@ -159,7 +164,7 @@ export interface ItemLike {
  */
 export function getBaseUnitPrice(item: ItemLike): { price: number; label: string } {
   const c = item.customization || {};
-  const cat = (c.productCategory || inferCategoryFromName(item.name)) as ProductCategory;
+  const cat = resolveProductCategory({ category: c.productCategory, name: item.name });
 
   // Tote + Mug are flat-priced.
   if (cat === 'tote') return { price: FIXED_PRICE.tote || 180, label: 'Tote Bag (standard)' };
@@ -175,8 +180,9 @@ export function getBaseUnitPrice(item: ItemLike): { price: number; label: string
     return { price: POLYESTER_PRICE[k], label: `Polyester · ${PRETTY_SIZE[k]}` };
   }
 
-  // Unknown category — assume cotton M as a safe fallback.
-  return { price: 240, label: 'Item · M' };
+  // Other products use their validated inventory base price.
+  const basePrice = Number(c.basePrice);
+  return { price: Number.isFinite(basePrice) && basePrice >= 0 ? basePrice : 240, label: 'Item · standard print' };
 }
 
 function normalizeCottonSize(s: any): CottonSize {
@@ -229,7 +235,7 @@ export interface UnitEstimate {
 
 export function estimateUnitPrice(item: ItemLike): UnitEstimate {
   const c = item.customization || {};
-  const cat = (c.productCategory || inferCategoryFromName(item.name)) as ProductCategory;
+  const cat = resolveProductCategory({ category: c.productCategory, name: item.name });
   const { price: base, label: baseLabel } = getBaseUnitPrice(item);
 
   const ps = String(c.printSize || 'logo').toLowerCase() as PrintSize;
@@ -241,6 +247,10 @@ export function estimateUnitPrice(item: ItemLike): UnitEstimate {
   let method: PrintingMethod = (c.printingMethod as PrintingMethod) || allowed[0];
   if (!allowed.includes(method)) method = allowed[0];
 
+  const variantSurcharges =
+    (Number(c.fabricPriceModifier) || 0) +
+    (Number(c.shirtTypePriceModifier) || 0);
+
   return {
     category: cat,
     categoryLabel: PRETTY_CATEGORY[cat],
@@ -251,7 +261,7 @@ export function estimateUnitPrice(item: ItemLike): UnitEstimate {
     printSizeFee,
     printingMethod: method,
     printingMethodLabel: PRETTY_METHOD[method],
-    unit: base + printSizeFee,
+    unit: base + printSizeFee + variantSurcharges,
   };
 }
 
@@ -387,11 +397,11 @@ export function formatRange(min: number, max: number): string {
  */
 export function productPriceRange(opts: {
   category?: ProductCategory | string;
+  productKey?: string;
   name?: string;
+  basePrice?: number;
 }): { min: number; max: number; label: string; baseRange?: { min: number; max: number } } {
-  const cat = (opts.category as ProductCategory)
-    || ({} as any).inferCategory
-    || inferCategoryFromName(opts.name);
+  const cat = resolveProductCategory(opts);
 
   // Fixed-price categories
   if (cat === 'tote') return { min: 180, max: 180, label: '₱180' };
@@ -412,7 +422,24 @@ export function productPriceRange(opts: {
     const max = baseMax + PRINT_SIZE_FEE.a2;    // 210 + 150 = 360
     return { min, max, label: formatRange(min, max), baseRange: { min: baseMin, max: baseMax } };
   }
-  // Unknown — fall back to a generic shirt band so the card isn't blank.
-  return { min: 295, max: 440, label: '₱295 – ₱440' };
+  const base = Number(opts.basePrice);
+  const safeBase = Number.isFinite(base) && base >= 0 ? base : 240;
+  const min = safeBase + PRINT_SIZE_FEE.logo;
+  const max = safeBase + PRINT_SIZE_FEE.a2;
+  return { min, max, label: formatRange(min, max), baseRange: { min: safeBase, max: safeBase } };
+}
+
+/** Convert inventory display metadata into the pricing engine's categories. */
+export function resolveProductCategory(opts: {
+  category?: string;
+  productKey?: string;
+  name?: string;
+}): ProductCategory {
+  const value = `${opts.productKey || ''} ${opts.category || ''} ${opts.name || ''}`.toLowerCase();
+  if (/mug/.test(value)) return 'mug';
+  if (/tote|bag/.test(value)) return 'tote';
+  if (/jersey|polyester|drifit|dri-fit|sportswear/.test(value)) return 'polyester_wearable';
+  if (/\b(?:shirt|tee|cotton|apparel)\b/.test(value)) return 'cotton_shirt';
+  return 'other';
 }
 

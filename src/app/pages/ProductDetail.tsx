@@ -8,7 +8,7 @@ import {
 import { useCart } from '../hooks/useCart';
 import { ToastContainer, ToastType } from '../components/Toast';
 import { formatPeso } from '../utils/format';
-import { productPriceRange } from '../utils/pricing';
+import { productPriceRange, resolveProductCategory } from '../utils/pricing';
 import { NotFound } from './NotFound';
 import { ProductReviews } from '../components/reviews/ProductReviews';
 
@@ -49,8 +49,11 @@ export function ProductDetail() {
       color: selectedColor || '#000000',
       size: selectedSize,
       placement: 'Center Front',
+      productCategory: resolveProductCategory({ category: product?.category, productKey: product?.productKey, name: product?.name }),
+      printSize: 'logo',
+      basePrice: product?.price,
     }),
-    [selectedColor, selectedSize],
+    [product, selectedColor, selectedSize],
   );
 
   const handleAddToCart = () => {
@@ -180,7 +183,7 @@ export function ProductDetail() {
                 productPriceRange returns the real fabric/size + print-size
                 range for the product's category. */}
             {(() => {
-              const range = productPriceRange({ category: product.category, name: product.name });
+              const range = productPriceRange({ category: product.category, productKey: product.productKey, name: product.name, basePrice: product.price });
               const sameMinMax = range.min === range.max;
               return (
                 <div className="flex flex-col gap-1 pb-6 border-b border-slate-100">

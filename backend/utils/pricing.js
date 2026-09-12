@@ -70,9 +70,18 @@ function normalizePolyesterSize(s) {
   return 'freesize';
 }
 
+export function resolveProductCategory({ category, productKey, name } = {}) {
+  const value = `${productKey || ''} ${category || ''} ${name || ''}`.toLowerCase();
+  if (/mug/.test(value)) return 'mug';
+  if (/tote|bag/.test(value)) return 'tote';
+  if (/jersey|polyester|drifit|dri-fit|sportswear/.test(value)) return 'polyester_wearable';
+  if (/\b(?:shirt|tee|cotton|apparel)\b/.test(value)) return 'cotton_shirt';
+  return 'other';
+}
+
 export function getBaseUnitPrice(item) {
   const c = (item && item.customization) || {};
-  const cat = c.productCategory || inferCategoryFromName(item && item.name);
+  const cat = resolveProductCategory({ category: c.productCategory, name: item && item.name });
 
   if (cat === 'tote') return { price: FIXED_PRICE.tote, label: 'Tote Bag (standard)' };
   if (cat === 'mug')  return { price: FIXED_PRICE.mug,  label: 'Mug + box + sticker' };
@@ -85,12 +94,13 @@ export function getBaseUnitPrice(item) {
     const pretty = ({ small: 'Small', freesize: 'Freesize (M–L)', oversize: 'Oversize (XL–2XL)', plus: 'Plus Size (3XL)' })[k];
     return { price: POLYESTER_PRICE[k], label: `Polyester · ${pretty}` };
   }
-  return { price: 240, label: 'Item · M' };
+  const basePrice = Number(c.basePrice);
+  return { price: Number.isFinite(basePrice) && basePrice >= 0 ? basePrice : 240, label: 'Item · standard print' };
 }
 
 export function estimateUnitPrice(item) {
   const c = (item && item.customization) || {};
-  const cat = c.productCategory || inferCategoryFromName(item && item.name);
+  const cat = resolveProductCategory({ category: c.productCategory, name: item && item.name });
   const { price: base, label: baseLabel } = getBaseUnitPrice(item);
 
   const ps = String(c.printSize || 'logo').toLowerCase();
@@ -106,7 +116,9 @@ export function estimateUnitPrice(item) {
     base, baseLabel,
     printSize, printSizeFee,
     printingMethod: method,
-    unit: base + printSizeFee,
+    unit: base + printSizeFee
+      + (Number(c.fabricPriceModifier) || 0)
+      + (Number(c.shirtTypePriceModifier) || 0),
   };
 }
 

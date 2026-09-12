@@ -232,7 +232,7 @@ export function ProductCatalog() {
                         // different bands, so showing one number is misleading. The
                         // range here is base smallest-size + Logo print → largest-size
                         // + A2 print; same numbers the customer sees on the Customizer.
-                        const r = productPriceRange({ category: (product as any).productCategory, name: product.name });
+                        const r = productPriceRange({ category: product.category, productKey: product.productKey, name: product.name, basePrice: product.price });
                         return (
                           <div className="flex flex-col">
                             <span className="text-lg font-black text-slate-900">{r.label}</span>

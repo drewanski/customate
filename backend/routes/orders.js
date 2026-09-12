@@ -36,7 +36,13 @@ import { markRecovered } from '../services/abandonedCart.js';
 import { uploadImage } from '../services/imageUpload.js';
 import { sendPushToUser, getPushContentForStatus } from '../services/pushNotification.js';
 import { postSystemMessage } from './chat.js';
-import { estimateOrderTotal } from '../utils/pricing.js';
+import {
+  estimateOrderTotal,
+  estimateUnitPrice,
+  resolveProductCategory,
+  BULK_DISCOUNT_PER_ITEM,
+  BULK_DISCOUNT_THRESHOLD,
+} from '../utils/pricing.js';
 
 const router = express.Router();
 
@@ -392,6 +398,7 @@ router.post('/', authMiddleware, async (req, res) => {
     for (const it of items) {
       const qty = Number(it.quantity);
       const inv = inventoryBySku.get(it.sku);
+      let customization = it.customization || {};
 
       // ─── Resolve fabric surcharge (server-authoritative) ──────────────
       // The customer can claim any fabric code; we look it up against the
@@ -411,18 +418,48 @@ router.post('/', authMiddleware, async (req, res) => {
         }
       }
 
-      const unitPriceWithFabric = inv.price + fabricMod;
-      subtotalBeforeDiscount += qty * unitPriceWithFabric;
+      let shirtTypeMod = 0;
+      let shirtTypeCode = customization.shirtType || '';
+      if (shirtTypeCode && Array.isArray(inv.shirtTypes) && inv.shirtTypes.length) {
+        const match = inv.shirtTypes.find((t) => t.code === shirtTypeCode);
+        if (match) {
+          shirtTypeMod = Number(match.priceModifier) || 0;
+        } else {
+          shirtTypeCode = '';
+        }
+      }
+
+      customization = {
+        ...customization,
+        productCategory: resolveProductCategory({
+          category: customization.productCategory,
+          productKey: inv.productKey,
+          name: inv.name,
+        }),
+        basePrice: ['cotton_shirt', 'polyester_wearable', 'tote', 'mug'].includes(customization.productCategory)
+          ? undefined
+          : Number(inv.price) || 0,
+        fabric: fabricCode,
+        fabricLabel,
+        fabricPriceModifier: fabricMod,
+        shirtType: shirtTypeCode,
+        shirtTypePriceModifier: shirtTypeMod,
+      };
+
+      const unitPriceWithPricing = estimateUnitPrice({
+        name: inv.name,
+        customization,
+      }).unit;
+      subtotalBeforeDiscount += qty * unitPriceWithPricing;
+      if (qty >= BULK_DISCOUNT_THRESHOLD) {
+        subtotalBeforeDiscount -= qty * BULK_DISCOUNT_PER_ITEM;
+      }
 
       // ─── Offload large design previews to Cloudinary ──────────────────
       // In production, base64 previews bloat MongoDB; we upload and replace
       // the data URL with a CDN URL. In dev (Cloudinary not configured),
       // uploadImage returns the input unchanged so the snapshot still
       // works for local testing.
-      let customization = it.customization || {};
-      if (fabricCode) {
-        customization = { ...customization, fabric: fabricCode, fabricLabel };
-      }
       if (
         customization.previewImage &&
         typeof customization.previewImage === 'string' &&
@@ -443,7 +480,7 @@ router.post('/', authMiddleware, async (req, res) => {
         sku: inv.sku,
         name: inv.name,
         quantity: qty,
-        unitPrice: unitPriceWithFabric,
+        unitPrice: unitPriceWithPricing,
         customization,
       });
     }

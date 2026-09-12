@@ -33,6 +33,7 @@ import {
   hasBlockingIssues,
   type Issue,
 } from '../utils/printQuality';
+import { estimateUnitPrice, resolveProductCategory } from '../utils/pricing';
 import { DesignQualityPanel } from '../components/DesignQualityPanel';
 import { SizeGuideModal } from '../components/SizeGuideModal';
 
@@ -730,8 +731,21 @@ export function CustomizationStudio() {
   const pickedFabric = Array.isArray(product?.fabrics)
     ? product.fabrics.find((f: any) => f.code === customization.fabric)
     : null;
-  const fabricMod = Number(pickedFabric?.priceModifier) || 0;
-  const unitPrice = (product.price + fabricMod) * 1.25; // 25% markup for custom
+  const pickedShirtType = Array.isArray(product?.shirtTypes)
+    ? product.shirtTypes.find((t: any) => t.code === customization.shirtType)
+    : null;
+  const pricingCustomization = {
+    ...customization,
+    productCategory: resolveProductCategory({
+      category: product.category,
+      productKey: product.productKey,
+      name: product.name,
+    }),
+    fabricPriceModifier: Number(pickedFabric?.priceModifier) || 0,
+    shirtTypePriceModifier: Number(pickedShirtType?.priceModifier) || 0,
+    basePrice: product.price,
+  };
+  const unitPrice = estimateUnitPrice({ name: product.name, customization: pricingCustomization }).unit;
   const totalPrice = (unitPrice * quantity).toFixed(2);
 
   const canUndo = historyRef.current.past.length > 0;
@@ -927,7 +941,7 @@ export function CustomizationStudio() {
                   },
                 };
 
-                addItem(product, enrichedCustomization, quantity);
+                addItem({ ...product, price: unitPrice }, { ...enrichedCustomization, ...pricingCustomization }, quantity);
                 addToast(
                   isCustomized
                     ? 'Custom design saved & added to cart!'
