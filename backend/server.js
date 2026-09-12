@@ -50,6 +50,7 @@ import chatRoutes from './routes/chat.js';
 import pricingRoutes from './routes/pricing.js';
 import NotificationService from './services/notificationService.js';
 import { expireStaleReservations } from './services/inventory.js';
+import { describeMailProvider } from './services/mailer.js';
 
 // ─── Startup env validation ───────────────────────────────────────────────
 // Fail fast on misconfigured deployments rather than crashing at runtime
@@ -305,6 +306,7 @@ const healthHandler = async (req, res) => {
     features: {
       cloudinary: cloudinaryOk,
       smtp: smtpOk,
+      mailProvider: describeMailProvider(),
       paymongo: paymongoOk,
     },
     nodeEnv: process.env.NODE_ENV || 'development',
