@@ -513,7 +513,8 @@ router.post('/forgot-password', async (req, res) => {
     const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
 
     await sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      // Keep reset mail on the same verified sender as the signup OTP path.
+      from: process.env.MAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER,
       to: normalizedEmail,
       subject: 'Reset Your CustoMate Password',
       html: `
