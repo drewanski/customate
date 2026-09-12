@@ -27,8 +27,21 @@ export function ProductCatalog() {
     .filter((p) => selectedCategory === 'all' || p.category === selectedCategory)
     .filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => {
-      if (sortBy === 'price-low') return a.price - b.price;
-      if (sortBy === 'price-high') return b.price - a.price;
+      if (sortBy === 'price-low' || sortBy === 'price-high') {
+        const aRange = productPriceRange({
+          category: a.category,
+          productKey: a.productKey,
+          name: a.name,
+          basePrice: a.price,
+        });
+        const bRange = productPriceRange({
+          category: b.category,
+          productKey: b.productKey,
+          name: b.name,
+          basePrice: b.price,
+        });
+        return sortBy === 'price-low' ? aRange.min - bRange.min : bRange.min - aRange.min;
+      }
       return a.name.localeCompare(b.name);
     });
 
