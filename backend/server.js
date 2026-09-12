@@ -119,6 +119,11 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   // Dev origins are only allowed when NODE_ENV !== 'production'
   ...(isProd ? [] : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173']),
+  // Optional extra origins (comma-separated) set via ADDITIONAL_CORS_ORIGINS env var.
+  // Use this on Render to allow local dev (e.g. http://localhost:5173) against the prod backend.
+  ...(process.env.ADDITIONAL_CORS_ORIGINS
+    ? process.env.ADDITIONAL_CORS_ORIGINS.split(',').map((o) => o.trim())
+    : []),
 ].filter(Boolean);
 
 app.use(cors({
