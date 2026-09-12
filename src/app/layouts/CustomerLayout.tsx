@@ -1,6 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingCart, User, Search, X } from 'lucide-react';
+import { ShoppingCart, User, Search, X, Clock3, ArrowUpRight, Trash2, Sparkles } from 'lucide-react';
 import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
 import { Chatbot } from '../components/Chatbot';
@@ -15,7 +15,26 @@ export function CustomerLayout() {
   const { user, loading } = useAuth();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('customate_recent_searches');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const popularSearches = ['T-shirts', 'Jerseys', 'Mugs', 'Tote bags', 'Tumblers', 'Mousepads'];
+
+  const saveSearch = (value: string) => {
+    const normalized = value.trim().replace(/\s+/g, ' ');
+    if (!normalized) return;
+    setRecentSearches((previous) => {
+      const next = [normalized, ...previous.filter((item) => item.toLowerCase() !== normalized.toLowerCase())].slice(0, 6);
+      localStorage.setItem('customate_recent_searches', JSON.stringify(next));
+      return next;
+    });
+  };
 
   const openSearch = () => {
     setSearchOpen(true);
@@ -27,15 +46,34 @@ export function CustomerLayout() {
     setSearchQuery('');
   };
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      navigate(`/products?search=${encodeURIComponent(searchQuery.trim())}`);
+  const submitSearch = (value: string) => {
+    const normalized = value.trim();
+    if (normalized) {
+      saveSearch(normalized);
+      navigate(`/products?search=${encodeURIComponent(normalized)}`);
     } else {
       navigate('/products');
     }
     closeSearch();
   };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    submitSearch(searchQuery);
+  };
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeSearch();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [searchOpen]);
+
+  const matchingSuggestions = popularSearches.filter((item) =>
+    !searchQuery.trim() || item.toLowerCase().includes(searchQuery.trim().toLowerCase())
+  );
   // Real-time chat-arrival toast for customers — slides in whenever the
   // store messages them or an automatic status update lands.
   const { toast: chatToast, dismissToast } = useChatNotifications();
@@ -164,28 +202,28 @@ export function CustomerLayout() {
       {/* Search overlay */}
       {searchOpen && (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-start justify-center pt-24 px-4"
+          className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-md flex items-start justify-center pt-20 sm:pt-28 px-4"
           onClick={closeSearch}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden"
+            className="bg-white rounded-3xl shadow-2xl shadow-slate-950/20 w-full max-w-xl overflow-hidden border border-white/70"
             onClick={(e) => e.stopPropagation()}
           >
-            <form onSubmit={handleSearchSubmit} className="flex items-center gap-3 p-4">
-              <Search className="w-5 h-5 text-gray-400 shrink-0" />
+            <form onSubmit={handleSearchSubmit} className="flex items-center gap-3 p-4 border-b border-slate-100">
+              <Search className="w-5 h-5 text-blue-600 shrink-0" />
               <input
                 ref={searchInputRef}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search products…"
-                className="flex-1 text-base text-gray-900 placeholder:text-gray-400 outline-none bg-transparent"
+                placeholder="Search products, categories, or materials"
+                className="flex-1 min-w-0 text-base text-gray-900 placeholder:text-slate-400 outline-none bg-transparent"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="p-1 text-gray-400 hover:text-gray-600"
+                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                   aria-label="Clear"
                 >
                   <X className="w-4 h-4" />
@@ -193,11 +231,68 @@ export function CustomerLayout() {
               )}
               <button
                 type="submit"
-                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+                className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm shadow-blue-200"
               >
                 Search
               </button>
             </form>
+            <div className="p-4 sm:p-5 space-y-5">
+              {recentSearches.length > 0 && (
+                <section>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-500">
+                      <Clock3 className="w-3.5 h-3.5" /> Recent searches
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRecentSearches([]);
+                        localStorage.removeItem('customate_recent_searches');
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-rose-600"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Clear
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {recentSearches.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => submitSearch(item)}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                      >
+                        {item}
+                        <ArrowUpRight className="w-3.5 h-3.5" />
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <section>
+                <div className="flex items-center gap-2 mb-2 text-xs font-black uppercase tracking-wider text-slate-500">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-600" /> {searchQuery.trim() ? 'Matching suggestions' : 'Popular searches'}
+                </div>
+                {matchingSuggestions.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {matchingSuggestions.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => submitSearch(item)}
+                        className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-left text-sm font-semibold text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                      >
+                        <span className="truncate">{item}</span>
+                        <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-500">No category suggestions yet. Press Search to see matching products.</p>
+                )}
+              </section>
+            </div>
           </div>
         </div>
       )}
