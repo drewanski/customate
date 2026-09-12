@@ -311,6 +311,24 @@ export function MyOrders() {
             </div>
           ) : (
             <div className="space-y-3">
+              <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-4">
+                <Pagination
+                  page={page}
+                  total={filtered.length}
+                  pageSize={pageSize}
+                  onPageChange={(nextPage) => {
+                    setPage(nextPage);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  onPageSizeChange={(nextPageSize) => {
+                    setPageSize(nextPageSize);
+                    setPage(1);
+                  }}
+                  pageSizeOptions={[10, 25, 50]}
+                  itemLabel="order"
+                  itemLabelPlural="orders"
+                />
+              </div>
               {paginated.map((o) => (
                 <OrderCard
                   key={o.id || o._id}
@@ -322,17 +340,6 @@ export function MyOrders() {
                   unreadCount={unreadByOrder[String(o.id || o._id)] || 0}
                 />
               ))}
-              <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-4 mt-4">
-                <Pagination
-                  page={page}
-                  total={filtered.length}
-                  pageSize={pageSize}
-                  onPageChange={setPage}
-                  onPageSizeChange={setPageSize}
-                  itemLabel="order"
-                  itemLabelPlural="orders"
-                />
-              </div>
             </div>
           )}
         </div>
