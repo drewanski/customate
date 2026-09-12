@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import * as THREE from 'three';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { Select } from '../components/Select';
@@ -364,6 +365,57 @@ export function CustomizationStudio() {
     printingMethod: 'dtf' as 'dtf' | 'sublimation' | 'standard',
     printSize: 'logo' as 'none' | 'logo' | 'a4' | 'a3' | 'a2',
   });
+
+  const getSurfaceBasis = useCallback((normal?: { x: number; y: number; z: number }) => {
+    if (!normal) return null;
+
+    const n = new THREE.Vector3(normal.x, normal.y, normal.z).normalize();
+    const fallback = Math.abs(n.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    const u = new THREE.Vector3().crossVectors(fallback, n).normalize();
+    const v = new THREE.Vector3().crossVectors(n, u).normalize();
+
+    return { normal: n, u, v };
+  }, []);
+
+  const applyPositionToElement = useCallback((element: DesignElement | undefined, sliderState: { x: number; y: number; z: number }) => {
+    if (!element || !element.normal) return element;
+
+    const basis = getSurfaceBasis(element.normal);
+    if (!basis) return element;
+
+    const xOffset = ((sliderState.x - 50) / 50) * 0.45;
+    const yOffset = ((sliderState.y - 50) / 50) * 0.45;
+    const zOffset = (sliderState.z / 50) * 0.35;
+
+    const delta = new THREE.Vector3()
+      .copy(basis.u)
+      .multiplyScalar(xOffset)
+      .addScaledVector(basis.v, yOffset)
+      .addScaledVector(basis.normal, zOffset);
+
+    return {
+      ...element,
+      position: {
+        x: element.position.x + delta.x,
+        y: element.position.y + delta.y,
+        z: (element.position.z ?? 0) + delta.z,
+      },
+    };
+  }, [getSurfaceBasis]);
+
+  useEffect(() => {
+    setDesignElements((prev) =>
+      prev.map((element) => {
+        if (element.id === 'text_1') {
+          return applyPositionToElement(element, customization.textPosition);
+        }
+        if (element.id === 'image_1') {
+          return applyPositionToElement(element, customization.imagePosition);
+        }
+        return element;
+      })
+    );
+  }, [customization.textPosition, customization.imagePosition, applyPositionToElement]);
 
 
   // ─── Print-size → decal-scale sync ────────────────────────────────────
