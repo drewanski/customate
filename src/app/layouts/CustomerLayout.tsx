@@ -3,6 +3,8 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ShoppingCart, User, Search, X, Clock3, ArrowUpRight, Trash2, Sparkles } from 'lucide-react';
 import { useCart } from '../hooks/useCart';
 import { useAuth } from '../hooks/useAuth';
+import { apiRequest } from '../api';
+import { formatPeso } from '../utils/format';
 import { Chatbot } from '../components/Chatbot';
 import { NotificationBell } from '../components/NotificationBell';
 import { useChatNotifications } from '../hooks/useChatNotifications';
@@ -23,8 +25,28 @@ export function CustomerLayout() {
       return [];
     }
   });
+  const [products, setProducts] = useState<any[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const popularSearches = ['T-shirts', 'Jerseys', 'Mugs', 'Tote bags', 'Tumblers', 'Mousepads'];
+
+  useEffect(() => {
+    let cancelled = false;
+    setProductsLoading(true);
+    apiRequest('/inventory/public')
+      .then((data) => {
+        if (!cancelled) setProducts(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setProducts([]);
+      })
+      .finally(() => {
+        if (!cancelled) setProductsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const saveSearch = (value: string) => {
     const normalized = value.trim().replace(/\s+/g, ' ');
@@ -74,6 +96,21 @@ export function CustomerLayout() {
   const matchingSuggestions = popularSearches.filter((item) =>
     !searchQuery.trim() || item.toLowerCase().includes(searchQuery.trim().toLowerCase())
   );
+  const productSuggestions = products
+    .filter((product) => {
+      const query = searchQuery.trim().toLowerCase();
+      if (!query) return true;
+      return `${product.name || ''} ${product.category || ''} ${product.description || ''}`.toLowerCase().includes(query);
+    })
+    .slice(0, 6);
+
+  const openProduct = (product: any) => {
+    const productId = product._id || product.id || product.sku;
+    if (!productId) return;
+    saveSearch(product.name || product.sku || 'Product');
+    navigate(`/product/${productId}`);
+    closeSearch();
+  };
   // Real-time chat-arrival toast for customers — slides in whenever the
   // store messages them or an automatic status update lands.
   const { toast: chatToast, dismissToast } = useChatNotifications();
@@ -237,6 +274,53 @@ export function CustomerLayout() {
               </button>
             </form>
             <div className="p-4 sm:p-5 space-y-5">
+              <section>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-500">
+                    <Search className="w-3.5 h-3.5 text-blue-600" /> {searchQuery.trim() ? 'Products' : 'Featured products'}
+                  </div>
+                  {products.length > 6 && (
+                    <button
+                      type="button"
+                      onClick={() => submitSearch(searchQuery)}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700"
+                    >
+                      View all
+                    </button>
+                  )}
+                </div>
+                {productsLoading ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {[1, 2, 3].map((item) => <div key={item} className="h-20 rounded-xl bg-slate-100 animate-pulse" />)}
+                  </div>
+                ) : productSuggestions.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {productSuggestions.map((product) => (
+                      <button
+                        key={product._id || product.id || product.sku}
+                        type="button"
+                        onClick={() => openProduct(product)}
+                        className="flex items-center gap-3 rounded-xl border border-slate-200 p-2 text-left hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                      >
+                        <img
+                          src={product.image || '/logo.png'}
+                          alt=""
+                          className="w-14 h-14 rounded-lg object-cover bg-slate-100 shrink-0"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-bold text-slate-800">{product.name}</span>
+                          <span className="block truncate text-xs text-slate-500">{product.category || 'Product'}</span>
+                          <span className="block mt-0.5 text-xs font-black text-blue-600">{formatPeso(product.price || 0)}</span>
+                        </span>
+                        <ArrowUpRight className="w-4 h-4 text-slate-400 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-500">No products match that search.</p>
+                )}
+              </section>
+
               {recentSearches.length > 0 && (
                 <section>
                   <div className="flex items-center justify-between mb-2">
