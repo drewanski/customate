@@ -6,6 +6,15 @@ import { formatPeso } from '../utils/format';
 import { productPriceRange } from '../utils/pricing';
 import { Pagination, usePagination } from '../components/Pagination';
 
+function getStartingPrice(product: any): number {
+  return productPriceRange({
+    category: product.category,
+    productKey: product.productKey,
+    name: product.name,
+    basePrice: product.price,
+  }).min;
+}
+
 export function ProductCatalog() {
   const [urlParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState(() => urlParams.get('search') || '');
@@ -28,19 +37,8 @@ export function ProductCatalog() {
     .filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => {
       if (sortBy === 'price-low' || sortBy === 'price-high') {
-        const aRange = productPriceRange({
-          category: a.category,
-          productKey: a.productKey,
-          name: a.name,
-          basePrice: a.price,
-        });
-        const bRange = productPriceRange({
-          category: b.category,
-          productKey: b.productKey,
-          name: b.name,
-          basePrice: b.price,
-        });
-        return sortBy === 'price-low' ? aRange.min - bRange.min : bRange.min - aRange.min;
+        const difference = getStartingPrice(a) - getStartingPrice(b);
+        return sortBy === 'price-low' ? difference || a.name.localeCompare(b.name) : -difference || b.name.localeCompare(a.name);
       }
       return a.name.localeCompare(b.name);
     });
