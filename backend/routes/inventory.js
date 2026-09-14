@@ -14,7 +14,12 @@ const router = express.Router();
 router.get('/public', async (req, res) => {
   try {
     console.log('GET /inventory/public called');
-    const filter = { isActive: true };
+    const filter = {
+      isActive: true,
+      // Paper bags are retired from the customer catalog. Match variants
+      // such as "Paper Bag", "Paper Bags", and "Custom Paper Bag".
+      name: { $not: /paper\s*bag/i },
+    };
     if (req.query.search) {
       const rx = new RegExp(req.query.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       filter.$or = [{ name: rx }, { category: rx }, { description: rx }];
