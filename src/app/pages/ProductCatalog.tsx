@@ -97,7 +97,9 @@ export function ProductCatalog() {
 
             {/* Category */}
             <div className="md:col-span-3">
+              <label htmlFor="product-category" className="sr-only">Filter products by category</label>
               <select
+                id="product-category"
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 className="w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 text-sm text-slate-900 transition-all cursor-pointer"
@@ -115,7 +117,9 @@ export function ProductCatalog() {
               <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
                 <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
               </div>
+              <label htmlFor="product-sort" className="sr-only">Sort products</label>
               <select
+                id="product-sort"
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
                 className="w-full h-11 pl-9 pr-3.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-100 text-sm text-slate-900 transition-all cursor-pointer"
@@ -180,7 +184,7 @@ export function ProductCatalog() {
             <div className="w-20 h-20 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
               <Package className="w-10 h-10 text-slate-400" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 mb-2">No products found</h3>
+            <h2 className="text-lg font-bold text-slate-900 mb-2">No products found</h2>
             <p className="text-sm text-slate-500 mb-6">
               Try adjusting your search or filter.
             </p>
@@ -233,7 +237,7 @@ export function ProductCatalog() {
                   </div>
                   {/* Content */}
                   <div className="p-4">
-                    <h3 className="font-bold text-slate-900 text-base leading-snug mb-1 line-clamp-1">{product.name}</h3>
+                    <h2 className="font-bold text-slate-900 text-base leading-snug mb-1 line-clamp-1">{product.name}</h2>
                     <p className="text-xs text-slate-500 leading-relaxed mb-3 line-clamp-2 min-h-[2lh]">
                       {product.description || ' '}
                     </p>

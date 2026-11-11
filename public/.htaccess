@@ -5,6 +5,10 @@ RewriteEngine On
 RewriteCond %{HTTPS} !=on
 RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
 
+# The SPA route /products shares its name with the public image directory.
+# Route the exact page path before Apache's directory check redirects to /products/.
+RewriteRule ^products/?$ index.html [L]
+
 # SPA fallback — every non-file/non-dir request goes to index.html
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
