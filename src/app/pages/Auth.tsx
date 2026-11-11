@@ -12,6 +12,27 @@ import { GoogleOtpModal } from '../components/GoogleOtpModal';
 
 const GOOGLE_CLIENT_ID = '458001122120-l668j5ulj18pqmu426t6v0pcno0ru73j.apps.googleusercontent.com';
 
+let googleIdentityScriptPromise: Promise<void> | null = null;
+
+function loadGoogleIdentityScript(): Promise<void> {
+  if ((window as any).google?.accounts?.id) return Promise.resolve();
+  if (googleIdentityScriptPromise) return googleIdentityScriptPromise;
+
+  googleIdentityScriptPromise = new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      googleIdentityScriptPromise = null;
+      reject(new Error('Google sign-in could not be loaded'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return googleIdentityScriptPromise;
+}
+
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const isValidEmail = (value: string) => emailRegex.test(value.trim());
@@ -87,50 +108,44 @@ export function Login() {
   };
 
   useEffect(() => {
-    console.log('🔍 Login Google Sign-In: Initializing...');
-    console.log('🔍 Login Google Client ID:', GOOGLE_CLIENT_ID);
-    
-    const googleApi = (window as any).google;
-    console.log('🔍 Login Google API available:', !!googleApi);
-    console.log('🔍 Login Google accounts available:', !!googleApi?.accounts);
-    console.log('🔍 Login Google accounts.id available:', !!googleApi?.accounts?.id);
-    
-    if (!googleApi?.accounts?.id) {
-      console.log('❌ Login Google Sign-In: Google API not loaded yet');
-      return;
-    }
-    
-    console.log('✅ Login Google Sign-In: Initializing Google Identity Services');
-    googleApi.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: async (response: any) => {
-        try {
-          if (googleLoading) return;
-          setGoogleLoading(true);
-          setError('');
-          const res = await googleSignIn(response.credential);
-          loginUser(res.token, res.user);
-          await redirectWithAnimation(res.user.role);
-        } catch (err: any) {
-          // Brand-new Google account — open the OTP gate before creation
-          if (err?.code === 'NEEDS_OTP') {
-            setGoogleOtp({
-              email: err.email,
-              name: err.suggestedName || '',
-              credential: response.credential,
-            });
-            return;
+    let cancelled = false;
+    loadGoogleIdentityScript().then(() => {
+      if (cancelled) return;
+      const googleApi = (window as any).google;
+      if (!googleApi?.accounts?.id) return;
+      googleApi.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async (response: any) => {
+          try {
+            if (googleLoading) return;
+            setGoogleLoading(true);
+            setError('');
+            const res = await googleSignIn(response.credential);
+            loginUser(res.token, res.user);
+            await redirectWithAnimation(res.user.role);
+          } catch (err: any) {
+            // Brand-new Google account — open the OTP gate before creation
+            if (err?.code === 'NEEDS_OTP') {
+              setGoogleOtp({
+                email: err.email,
+                name: err.suggestedName || '',
+                credential: response.credential,
+              });
+              return;
+            }
+            setError(err.message || 'Google sign-in failed');
+          } finally {
+            setGoogleLoading(false);
           }
-          setError(err.message || 'Google sign-in failed');
-        } finally {
-          setGoogleLoading(false);
-        }
-      },
-      auto_select: false,
-      cancel_on_tap_outside: false
+        },
+        auto_select: false,
+        cancel_on_tap_outside: false
+      });
+      setGoogleReady(true);
+    }).catch(() => {
+      // Other sign-in methods remain available if Google is blocked.
     });
-    setGoogleReady(true);
-    console.log('✅ Login Google Sign-In: Initialization complete');
+    return () => { cancelled = true; };
   }, [navigate]);
 
   useEffect(() => {
@@ -346,52 +361,46 @@ export function Register() {
   }, []);
 
   useEffect(() => {
-    console.log('🔍 Google Sign-In: Initializing...');
-    console.log('🔍 Google Client ID:', GOOGLE_CLIENT_ID);
-    
-    const googleApi = (window as any).google;
-    console.log('🔍 Google API available:', !!googleApi);
-    console.log('🔍 Google accounts available:', !!googleApi?.accounts);
-    console.log('🔍 Google accounts.id available:', !!googleApi?.accounts?.id);
-    
-    if (!googleApi?.accounts?.id) {
-      console.log('❌ Google Sign-In: Google API not loaded yet');
-      return;
-    }
-    
-    console.log('✅ Google Sign-In: Initializing Google Identity Services');
-    googleApi.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: async (response: any) => {
-        try {
-          if (googleLoading) return;
-          setGoogleLoading(true);
-          setError('');
-          const res = await googleSignIn(response.credential);
-          loginUser(res.token, res.user);
-          setPostAuthMessage(res.user.role === 'admin' ? 'Opening admin dashboard...' : 'Opening your dashboard...');
-          setPostAuthLoading(true);
-          await new Promise((r) => setTimeout(r, 700));
-          navigate(res.user.role === 'admin' ? '/admin' : '/dashboard');
-        } catch (err: any) {
-          if (err?.code === 'NEEDS_OTP') {
-            setGoogleOtp({
-              email: err.email,
-              name: err.suggestedName || '',
-              credential: response.credential,
-            });
-            return;
+    let cancelled = false;
+    loadGoogleIdentityScript().then(() => {
+      if (cancelled) return;
+      const googleApi = (window as any).google;
+      if (!googleApi?.accounts?.id) return;
+      googleApi.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async (response: any) => {
+          try {
+            if (googleLoading) return;
+            setGoogleLoading(true);
+            setError('');
+            const res = await googleSignIn(response.credential);
+            loginUser(res.token, res.user);
+            setPostAuthMessage(res.user.role === 'admin' ? 'Opening admin dashboard...' : 'Opening your dashboard...');
+            setPostAuthLoading(true);
+            await new Promise((r) => setTimeout(r, 700));
+            navigate(res.user.role === 'admin' ? '/admin' : '/dashboard');
+          } catch (err: any) {
+            if (err?.code === 'NEEDS_OTP') {
+              setGoogleOtp({
+                email: err.email,
+                name: err.suggestedName || '',
+                credential: response.credential,
+              });
+              return;
+            }
+            setError(err.message || 'Google sign-in failed');
+          } finally {
+            setGoogleLoading(false);
           }
-          setError(err.message || 'Google sign-in failed');
-        } finally {
-          setGoogleLoading(false);
-        }
-      },
-      auto_select: false,
-      cancel_on_tap_outside: false
+        },
+        auto_select: false,
+        cancel_on_tap_outside: false
+      });
+      setGoogleReady(true);
+    }).catch(() => {
+      // Other sign-in methods remain available if Google is blocked.
     });
-    setGoogleReady(true);
-    console.log('✅ Google Sign-In: Initialization complete');
+    return () => { cancelled = true; };
   }, [navigate]);
 
   useEffect(() => {
