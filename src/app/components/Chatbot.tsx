@@ -69,6 +69,7 @@ export function Chatbot() {
       <button
         onClick={() => setIsOpen(true)}
         className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 rounded-full shadow-2xl flex items-center justify-center text-white hover:bg-blue-700 transition-all z-50 hover:scale-110 active:scale-95"
+        aria-label="Open CustoMate AI chat"
       >
         <MessageSquare className="w-6 h-6" />
       </button>
@@ -95,12 +96,14 @@ export function Chatbot() {
             <button 
               onClick={() => setIsMinimized(!isMinimized)}
               className="p-1 hover:bg-white/20 rounded transition-colors"
+              aria-label={isMinimized ? 'Expand chat' : 'Minimize chat'}
             >
               {isMinimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
             </button>
             <button 
               onClick={() => setIsOpen(false)}
               className="p-1 hover:bg-white/20 rounded transition-colors"
+              aria-label="Close chat"
             >
               <X className="w-4 h-4" />
             </button>
@@ -152,6 +155,7 @@ export function Chatbot() {
                   size="sm" 
                   className="h-10 w-10 p-0 shrink-0"
                   disabled={!input.trim() || loading}
+                  aria-label="Send message"
                 >
                   <Send className="w-4 h-4" />
                 </Button>

@@ -34,7 +34,7 @@ export function Toast({ message, type, onClose, duration = 3000 }: ToastProps) {
     <div className={`flex items-center gap-3 px-4 py-3 border rounded-lg shadow-lg ${styles[type]}`}>
       {icons[type]}
       <p className="flex-1 text-sm font-medium text-gray-900">{message}</p>
-      <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+      <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors" aria-label="Dismiss notification">
         <X className="w-4 h-4" />
       </button>
     </div>

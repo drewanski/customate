@@ -97,7 +97,7 @@ export function AdminLayout() {
               transparent PNG always reads cleanly against any future header
               gradient — same treatment as the desktop sidebar logo. */}
           <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shadow-md p-0.5">
-            <img src="/logo.png" alt="CustoMate" className="w-full h-full object-contain" />
+            <img src="/logo.png" alt="" className="w-full h-full object-contain" />
           </div>
           <span className="font-bold text-sm text-slate-900">CustoMate Admin</span>
         </div>
@@ -132,7 +132,7 @@ export function AdminLayout() {
             {/* Sidebar logo. Wrapped in a white tile so the blue+gray logo
                 stays readable against the dark sidebar background. */}
             <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-blue-500/30 group-hover:scale-105 transition-transform p-1">
-              <img src="/logo.png" alt="CustoMate" className="w-full h-full object-contain" />
+              <img src="/logo.png" alt="" className="w-full h-full object-contain" />
             </div>
             {!collapsed && (
               <div className="leading-tight">
@@ -244,6 +244,7 @@ export function AdminLayout() {
           <button
             onClick={() => setLogoutOpen(true)}
             title={collapsed ? 'Logout' : undefined}
+            aria-label="Logout"
             className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:bg-rose-500/10 hover:text-rose-300 w-full transition-all duration-200 group"
           >
             <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/5 text-slate-300 group-hover:bg-rose-500/15 group-hover:text-rose-300 shrink-0 transition-colors">

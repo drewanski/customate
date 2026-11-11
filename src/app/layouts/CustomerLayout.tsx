@@ -132,7 +132,7 @@ export function CustomerLayout() {
             <Link to="/" className="flex items-center gap-2">
               <img
                 src="/logo.png"
-                alt="CustoMate"
+                alt=""
                 className="w-10 h-10 object-contain"
               />
               <span className="font-bold text-xl text-gray-900">CustoMate</span>
@@ -166,7 +166,7 @@ export function CustomerLayout() {
               </button>
 
               {/* Cart second */}
-              <Link to="/cart" className="text-gray-600 hover:text-gray-900 transition-colors relative">
+              <Link to="/cart" aria-label={`Shopping cart${totalItems > 0 ? `, ${totalItems} items` : ''}`} className="text-gray-600 hover:text-gray-900 transition-colors relative">
                 <ShoppingCart className="w-5 h-5" />
                 {totalItems > 0 && (
                   <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs w-4 h-4 rounded-full flex items-center justify-center">

@@ -39,7 +39,7 @@ export function Modal({ isOpen, onClose, title, children, footer, size = 'md' }:
         {title && (
           <div className="flex items-center justify-between p-4 border-b border-gray-200">
             <h2 className="font-semibold text-gray-900">{title}</h2>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors" aria-label="Close dialog">
               <X className="w-5 h-5" />
             </button>
           </div>
