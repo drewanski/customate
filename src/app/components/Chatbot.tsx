@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, Send, X, Bot, User, Minimize2, Maximize2, Loader2 } from 'lucide-react';
+import { MessageSquare, Send, X, Bot, User, Minimize2, Maximize2, Loader2, RotateCcw } from 'lucide-react';
 import { Button } from './Button';
 import { Card, CardHeader, CardTitle, CardContent } from './Card';
 import { Input } from './Input';
@@ -15,7 +15,7 @@ export function Chatbot() {
   const [isMinimized, setIsMinimized] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'bot', content: 'Hello! I am CustoMate AI. How can I help you today?' }
+    { role: 'bot', content: 'Hi! Ask me about CustoMate products, live prices, customization, current offers, checkout, or your own orders.' }
   ]);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -26,10 +26,10 @@ export function Chatbot() {
     }
   }, [messages, isOpen]);
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
+  const handleSend = async (question = input) => {
+    if (!question.trim() || loading) return;
 
-    const userMessage = input.trim();
+    const userMessage = question.trim();
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
@@ -52,13 +52,14 @@ export function Chatbot() {
       const response = await apiRequest('/chatbot/chat', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ message: userMessage, history })
+        body: JSON.stringify({ message: userMessage, history, pagePath: window.location.pathname })
       });
 
-      setMessages((prev) => [...prev, { role: 'bot', content: response.content }]);
+      setMessages((prev) => [...prev, { role: 'bot', content: response.content || 'I could not form an answer from the available CustoMate data. Please try asking in a different way.' }]);
     } catch (error) {
       console.error('Chat error:', error);
-      setMessages((prev) => [...prev, { role: 'bot', content: 'Sorry, I am having trouble connecting right now. Please try again later.' }]);
+      const message = error instanceof Error ? error.message : 'Please try again in a moment.';
+      setMessages((prev) => [...prev, { role: 'bot', content: `I couldn't load CustoMate information right now. ${message}` }]);
     } finally {
       setLoading(false);
     }
@@ -88,11 +89,19 @@ export function Chatbot() {
               <CardTitle className="text-sm font-bold">CustoMate AI</CardTitle>
               <div className="flex items-center gap-1">
                 <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-                <span className="text-[10px] opacity-80 uppercase tracking-widest">Online</span>
+                <span className="text-[10px] opacity-80 tracking-wide">CustoMate help</span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <button 
+              onClick={() => setMessages([{ role: 'bot', content: 'Hi! Ask me about CustoMate products, live prices, customization, current offers, checkout, or your own orders.' }])}
+              className="p-1 hover:bg-white/20 rounded transition-colors"
+              aria-label="Start a new chat"
+              title="New chat"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
             <button 
               onClick={() => setIsMinimized(!isMinimized)}
               className="p-1 hover:bg-white/20 rounded transition-colors"
@@ -120,7 +129,7 @@ export function Chatbot() {
                       {msg.role === 'user' ? <User className="w-4 h-4 text-blue-600" /> : <Bot className="w-4 h-4 text-slate-600" />}
                     </div>
                     <div className={`p-3 rounded-2xl text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none shadow-md' : 'bg-slate-100 text-slate-800 rounded-tl-none shadow-sm'}`}>
-                      {msg.content}
+                      <span className="whitespace-pre-wrap break-words">{msg.content}</span>
                     </div>
                   </div>
                 </div>
@@ -138,6 +147,25 @@ export function Chatbot() {
                 </div>
               )}
             </CardContent>
+            {messages.length === 1 && !loading && (
+              <div className="px-4 pb-3 -mt-2 flex flex-wrap gap-2" aria-label="Suggested questions">
+                {[
+                  'What products are in stock?',
+                  'How does customization work?',
+                  'What is the delivery fee?',
+                  'Show my latest order',
+                ].map((question) => (
+                  <button
+                    key={question}
+                    type="button"
+                    onClick={() => void handleSend(question)}
+                    className="rounded-full border border-blue-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-blue-700 hover:bg-blue-50"
+                  >
+                    {question}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="p-3 bg-slate-50 border-t border-slate-100">
               <form 
                 onSubmit={(e) => { e.preventDefault(); handleSend(); }}
@@ -147,6 +175,7 @@ export function Chatbot() {
                   placeholder="Type a message..."
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
+                  maxLength={1200}
                   className="bg-white border-slate-200 focus:ring-blue-500 text-sm h-10"
                   disabled={loading}
                 />
