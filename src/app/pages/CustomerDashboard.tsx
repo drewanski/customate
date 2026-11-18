@@ -301,10 +301,11 @@ export function CustomerDashboard() {
           <p className="text-gray-600 mb-4">{error}</p>
           <button
             onClick={refreshData}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <RefreshCw className="w-4 h-4" />
-            Try Again
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Trying again…' : 'Try Again'}
           </button>
         </div>
       </div>

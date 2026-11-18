@@ -76,7 +76,7 @@ export function useDashboardData(): UseDashboardDataReturn {
       } else {
         setLoading(true);
       }
-      setError(null);
+      if (!isRefresh) setError(null);
 
       const [profileData, ordersData, statsData, activityData] = await Promise.all([
         getProfile(),
@@ -105,6 +105,7 @@ export function useDashboardData(): UseDashboardDataReturn {
         stats: statsData,
         activities: activityData
       });
+      setError(null);
     } catch (err: any) {
       console.error('Dashboard fetch error:', err);
       setError(err.message || 'Failed to load dashboard data');

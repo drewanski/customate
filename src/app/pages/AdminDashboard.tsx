@@ -26,6 +26,7 @@ import {
   BarChart3,
   PieChart as PieIcon,
   ArrowUpRight,
+  RefreshCw,
 } from 'lucide-react';
 import {
   LineChart,
@@ -89,6 +90,7 @@ export default function AdminDashboard() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'inventory' | 'orders'>('overview');
 
   // Inventory Modal State
@@ -228,36 +230,44 @@ export default function AdminDashboard() {
     [orders]
   );
 
-  const loadData = async () => {
+  const loadData = async (showLoading = false) => {
+    if (showLoading) setLoading(true);
+    setDashboardError(false);
     try {
       const token = localStorage.getItem('token');
-      if (!token) return;
+      if (!token) throw new Error('No active session');
 
       const profileRes = await fetch(`${API_URL}/users/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!profileRes.ok) throw new Error(`Profile request failed (${profileRes.status})`);
       const profileData = await profileRes.json();
-      setUser(profileData);
 
       const [invRes, ordersRes] = await Promise.all([
         fetch(`${API_URL}/inventory`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/orders`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
+      if (!invRes.ok || !ordersRes.ok) throw new Error('Dashboard data request failed');
 
       const invData = await invRes.json();
       const ordersData = await ordersRes.json();
+      if (!Array.isArray(invData) || !Array.isArray(ordersData)) {
+        throw new Error('Dashboard data response was invalid');
+      }
 
+      setUser(profileData);
       setInventory(invData);
       setOrders(ordersData);
     } catch (err) {
       console.error('Failed to load admin data:', err);
+      setDashboardError(true);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    loadData(true);
   }, []);
 
   const handleOpenModal = (item?: InventoryItem) => {
@@ -342,6 +352,21 @@ export default function AdminDashboard() {
         <div className="flex flex-col items-center gap-3">
           <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm text-slate-500">Loading dashboard…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (dashboardError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-lg">
+          <AlertTriangle className="mx-auto mb-4 h-14 w-14 text-amber-500" />
+          <h2 className="mb-2 text-xl font-semibold text-slate-900">Unable to load dashboard</h2>
+          <p className="mb-5 text-sm text-slate-600">Check your internet connection or try again when the server is available.</p>
+          <Button onClick={() => loadData(true)}>
+            <RefreshCw className="h-4 w-4" /> Try Again
+          </Button>
         </div>
       </div>
     );
