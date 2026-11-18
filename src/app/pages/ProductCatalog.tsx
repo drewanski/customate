@@ -4,6 +4,7 @@ import { apiRequest } from '../api';
 import { Search, X, Package, Sparkles, ArrowUpDown, AlertCircle } from 'lucide-react';
 import { formatPeso } from '../utils/format';
 import { productPriceRange } from '../utils/pricing';
+import { matchesProductSearch } from '../utils/productSearch';
 import { Pagination, usePagination } from '../components/Pagination';
 
 function getStartingPrice(product: any): number {
@@ -32,9 +33,10 @@ export function ProductCatalog() {
       .finally(() => setLoading(false));
   }, []);
 
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
   const filteredProducts = products
     .filter((p) => selectedCategory === 'all' || p.category === selectedCategory)
-    .filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    .filter((p) => matchesProductSearch(p, normalizedSearchTerm))
     .sort((a, b) => {
       if (sortBy === 'price-low' || sortBy === 'price-high') {
         const difference = getStartingPrice(a) - getStartingPrice(b);
@@ -184,9 +186,13 @@ export function ProductCatalog() {
             <div className="w-20 h-20 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
               <Package className="w-10 h-10 text-slate-400" />
             </div>
-            <h2 className="text-lg font-bold text-slate-900 mb-2">No products found</h2>
+            <h2 className="text-lg font-bold text-slate-900 mb-2">
+              {normalizedSearchTerm ? 'No matching products found' : 'No products found'}
+            </h2>
             <p className="text-sm text-slate-500 mb-6">
-              Try adjusting your search or filter.
+              {normalizedSearchTerm
+                ? `No products match “${searchTerm.trim()}”. Try another search or filter.`
+                : 'Try adjusting your search or filter.'}
             </p>
             <button
               onClick={() => {
