@@ -133,6 +133,13 @@ export async function forgotPassword(email) {
   }
 }
 
+export async function resetPasswordWithOtp(email, code, newPassword) {
+  return apiRequest('/auth/reset-password-by-otp', {
+    method: 'POST',
+    body: JSON.stringify({ email, code, newPassword }),
+  });
+}
+
 export async function resetPassword(token, newPassword) {
   return apiRequest('/auth/reset-password', {
     method: 'POST',

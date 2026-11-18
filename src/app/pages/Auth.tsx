@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { login, register, googleSignIn, sendPhoneOtp, verifyPhoneOtp, sendOtp, verifyOtp, guestLogin, forgotPassword, resetPassword } from '../api';
+import { login, register, googleSignIn, sendPhoneOtp, verifyPhoneOtp, sendOtp, verifyOtp, guestLogin, forgotPassword, resetPassword, resetPasswordWithOtp } from '../api';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../components/Card';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../hooks/useAuth';
 import { AuthLayout, AuthInput, AuthButton, AuthDivider } from '../components/AuthLayout';
-import { Mail, Lock, Eye, EyeOff, User, Phone, AlertCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, User, Phone, AlertCircle, CheckCircle2, ArrowLeft, ShieldCheck } from 'lucide-react';
 import { GoogleOtpModal } from '../components/GoogleOtpModal';
 
 const GOOGLE_CLIENT_ID = '458001122120-l668j5ulj18pqmu426t6v0pcno0ru73j.apps.googleusercontent.com';
@@ -834,28 +834,58 @@ export function Register() {
 
 export function ForgotPassword() {
   const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) {
-      setError('Email is required');
+    setError('');
+    if (!codeSent) {
+      if (!email.trim()) {
+        setError('Email is required');
+        return;
+      }
+      if (!isValidEmail(email)) {
+        setError('Invalid email format');
+        return;
+      }
+
+      try {
+        setLoading(true);
+        await forgotPassword(email.trim());
+        setCodeSent(true);
+      } catch (err: any) {
+        setError(err.message || 'Failed to send password reset code');
+      } finally {
+        setLoading(false);
+      }
       return;
     }
-    if (!isValidEmail(email)) {
-      setError('Invalid email format');
+
+    if (!/^\d{6}$/.test(code)) {
+      setError('Enter the 6-digit code from your email');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match');
       return;
     }
 
     try {
       setLoading(true);
-      setError('');
-      await forgotPassword(email.trim());
+      await resetPasswordWithOtp(email.trim(), code, newPassword);
       setSuccess(true);
     } catch (err: any) {
-      setError(err.message || 'Failed to send reset email');
+      setError(err.message || 'Failed to reset password');
     } finally {
       setLoading(false);
     }
@@ -864,18 +894,17 @@ export function ForgotPassword() {
   if (success) {
     return (
       <AuthLayout
-        title="Check your email"
-        subtitle="We've sent a password reset link to your inbox."
-        brandHeadline="One click away from getting back in."
-        brandSubtext="Click the link in your email and you'll be ready to design again in seconds."
+        title="Password reset complete"
+        subtitle="Your password has been changed."
+        brandHeadline="You're back in control."
+        brandSubtext="Sign in with your new password to get back to your designs and orders."
       >
         <div className="text-center space-y-6">
           <div className="w-16 h-16 mx-auto rounded-full bg-emerald-100 flex items-center justify-center">
             <CheckCircle2 className="w-8 h-8 text-emerald-600" />
           </div>
           <p className="text-sm text-slate-600">
-            We sent a reset link to <span className="font-bold text-slate-900">{email}</span>.
-            Check your inbox (and spam folder, just in case).
+            Your password for <span className="font-bold text-slate-900">{email}</span> has been updated.
           </p>
           <Link
             to="/login"
@@ -891,8 +920,8 @@ export function ForgotPassword() {
 
   return (
     <AuthLayout
-      title="Forgot your password?"
-      subtitle="No worries — enter your email and we'll send you a reset link."
+      title={codeSent ? 'Enter your reset code' : 'Forgot your password?'}
+      subtitle={codeSent ? `Enter the 6-digit code sent to ${email}, then choose a new password.` : 'Enter your registered email and we will send you a one-time reset code.'}
       brandHeadline="We've got your back."
       brandSubtext="Recover access to your designs and orders in just a few clicks."
       footer={
@@ -917,16 +946,72 @@ export function ForgotPassword() {
           type="email"
           placeholder="you@example.com"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => { setEmail(e.target.value); setError(''); }}
           required
-          disabled={loading}
+          disabled={loading || codeSent}
           icon={<Mail className="w-4 h-4" />}
           autoComplete="email"
         />
 
-        <AuthButton type="submit" loading={loading} loadingText="Sending link…">
-          Send reset link
+        {codeSent && (
+          <>
+            <AuthInput
+              label="6-digit reset code"
+              type="text"
+              placeholder="000000"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              required
+              disabled={loading}
+              icon={<ShieldCheck className="w-4 h-4" />}
+              autoComplete="one-time-code"
+              inputMode="numeric"
+            />
+            <AuthInput
+              label="New password"
+              type="password"
+              placeholder="At least 8 characters"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              disabled={loading}
+              icon={<Lock className="w-4 h-4" />}
+              autoComplete="new-password"
+            />
+            <AuthInput
+              label="Confirm new password"
+              type="password"
+              placeholder="Re-enter your new password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              disabled={loading}
+              icon={<Lock className="w-4 h-4" />}
+              autoComplete="new-password"
+            />
+          </>
+        )}
+
+        <AuthButton type="submit" loading={loading} loadingText={codeSent ? 'Updating password…' : 'Sending code…'}>
+          {codeSent ? 'Reset password' : 'Send reset code'}
         </AuthButton>
+        {codeSent && (
+          <div className="flex items-center justify-between text-xs">
+            <button type="button" disabled={loading} onClick={async () => {
+              setLoading(true);
+              setError('');
+              try {
+                await forgotPassword(email.trim());
+                setCode('');
+              } catch (err: any) {
+                setError(err.message || 'Failed to resend reset code');
+              } finally {
+                setLoading(false);
+              }
+            }} className="font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50">Resend code</button>
+            <button type="button" disabled={loading} onClick={() => { setCodeSent(false); setCode(''); setNewPassword(''); setConfirmPassword(''); setError(''); }} className="font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">Use a different email</button>
+          </div>
+        )}
       </form>
     </AuthLayout>
   );

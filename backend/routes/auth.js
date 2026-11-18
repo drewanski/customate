@@ -3,8 +3,10 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
 import axios from 'axios';
+import { createHash, randomInt, timingSafeEqual } from 'crypto';
 import User from '../models/User.js';
 import EmailOtp from '../models/EmailOtp.js';
+import PasswordResetOtp from '../models/PasswordResetOtp.js';
 import PhoneOtp from '../models/PhoneOtp.js';
 import { sendMail } from '../services/mailer.js';
 import { authMiddleware } from '../middleware/auth.js';
@@ -489,53 +491,120 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-// Forgot password - send reset link
+// Forgot password - send a one-time password reset code
 router.post('/forgot-password', async (req, res) => {
   try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ message: 'Email is required' });
-    const normalizedEmail = String(email).trim().toLowerCase();
+    const rawEmail = req.body?.email;
+    if (!rawEmail || typeof rawEmail !== 'string') {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+    const normalizedEmail = rawEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ message: 'Please enter a valid email address' });
+    }
 
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      // This flow intentionally tells the requester when there is no account,
-      // and it exits before creating a reset token or sending any email.
       return res.status(404).json({
         message: 'No account is registered with that email address. Check the email or create an account.',
       });
     }
 
-    // Generate reset token (valid for 1 hour)
-    const resetToken = jwt.sign(
-      { userId: user._id, purpose: 'password-reset' },
-      process.env.JWT_SECRET,
-      { expiresIn: '1h' }
+    const code = String(randomInt(100000, 1000000));
+    const codeHash = createHash('sha256').update(code).digest('hex');
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+    await PasswordResetOtp.findOneAndUpdate(
+      { email: normalizedEmail },
+      { codeHash, expiresAt, attempts: 0 },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    // Send email with reset link
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
+    try {
+      await sendMail({
+        from: process.env.MAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER,
+        to: normalizedEmail,
+        subject: 'Your CustoMate password reset code',
+        text: `Your CustoMate password reset code is ${code}. It expires in ${OTP_EXPIRY_MINUTES} minutes.`,
+        html: `
+          <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+            <h2 style="color: #1e293b; margin: 0 0 8px;">Reset your password</h2>
+            <p style="color: #475569; margin: 0 0 16px;">Enter this one-time code on CustoMate to choose a new password:</p>
+            <div style="font-family: monospace; font-size: 32px; letter-spacing: 8px; font-weight: 800; color: #2563eb; background: #f1f5f9; padding: 16px; border-radius: 12px; text-align: center; margin: 16px 0;">${code}</div>
+            <p style="color: #94a3b8; font-size: 13px;">This code expires in ${OTP_EXPIRY_MINUTES} minutes. If you didn't request a password reset, ignore this email.</p>
+          </div>
+        `,
+      });
+    } catch (mailError) {
+      await PasswordResetOtp.deleteOne({ email: normalizedEmail, codeHash });
+      console.error('Password reset OTP mail failed:', mailError.message);
+      return res.status(503).json({
+        message: 'The password reset code could not be sent right now. Please try again shortly.',
+      });
+    }
 
-    await sendMail({
-      // Keep reset mail on the same verified sender as the signup OTP path.
-      from: process.env.MAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER,
-      to: normalizedEmail,
-      subject: 'Reset Your CustoMate Password',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #2563eb;">Password Reset Request</h2>
-          <p>Hello ${user.name},</p>
-          <p>You requested to reset your password. Click the button below to set a new password:</p>
-          <a href="${resetUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 16px 0;">Reset Password</a>
-          <p>Or copy this link: <code>${resetUrl}</code></p>
-          <p style="color: #666; font-size: 14px;">This link expires in 1 hour. If you didn't request this, please ignore this email.</p>
-        </div>
-      `
-    });
-
-    res.json({ message: 'If an account exists, a reset link has been sent' });
+    const payload = { message: 'Password reset code sent', expiresAt };
+    if (process.env.NODE_ENV !== 'production') payload.devCode = code;
+    res.json(payload);
   } catch (err) {
     console.error('Forgot password error:', err);
-    res.status(500).json({ message: 'Failed to send reset link' });
+    res.status(500).json({ message: 'Failed to send password reset code' });
+  }
+});
+
+// Verify a password reset OTP and update the password in one operation.
+router.post('/reset-password-by-otp', async (req, res) => {
+  try {
+    const rawEmail = req.body?.email;
+    const code = String(req.body?.code || '').trim();
+    const newPassword = req.body?.newPassword;
+    if (!rawEmail || typeof rawEmail !== 'string' || !code || !newPassword) {
+      return res.status(400).json({ message: 'Email, code, and new password are required' });
+    }
+    if (!/^\d{6}$/.test(code)) {
+      return res.status(400).json({ message: 'Enter the 6-digit code from your email' });
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters' });
+    }
+
+    const email = rawEmail.trim().toLowerCase();
+    const record = await PasswordResetOtp.findOne({ email });
+    if (!record) return res.status(400).json({ message: 'Reset code not found. Request a new code.' });
+    if (record.attempts >= OTP_MAX_ATTEMPTS) {
+      await PasswordResetOtp.deleteOne({ _id: record._id });
+      return res.status(400).json({ message: 'Too many attempts. Request a new code.' });
+    }
+    if (Date.now() > record.expiresAt.getTime()) {
+      await PasswordResetOtp.deleteOne({ _id: record._id });
+      return res.status(400).json({ message: 'Reset code expired. Request a new one.' });
+    }
+
+    const suppliedHash = createHash('sha256').update(code).digest();
+    const storedHash = Buffer.from(record.codeHash, 'hex');
+    if (storedHash.length !== suppliedHash.length || !timingSafeEqual(storedHash, suppliedHash)) {
+      record.attempts += 1;
+      await record.save();
+      return res.status(400).json({
+        message: 'The reset code is incorrect.',
+        attemptsRemaining: Math.max(0, OTP_MAX_ATTEMPTS - record.attempts),
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      await PasswordResetOtp.deleteOne({ _id: record._id });
+      return res.status(404).json({
+        message: 'No account is registered with that email address. Check the email or create an account.',
+      });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+    await PasswordResetOtp.deleteOne({ _id: record._id });
+    res.json({ message: 'Password reset successfully' });
+  } catch (err) {
+    console.error('Password reset OTP error:', err);
+    res.status(500).json({ message: 'Failed to reset password' });
   }
 });
 
