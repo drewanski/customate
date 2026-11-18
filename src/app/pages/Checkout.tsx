@@ -905,10 +905,9 @@ export function Checkout() {
                     <p className="font-bold mb-1">3rd-party courier delivery</p>
                     <p>
                       We hand off finished orders to partner couriers
-                      (Lalamove, Grab, LBC, J&T, Ninjavan). Shipping fees
-                      are quoted at handoff and{' '}
-                      <span className="font-bold">paid by the customer</span>{' '}
-                      directly to the rider or app.
+                      (Lalamove, Grab, LBC, J&amp;T, Ninja Van). The system shipping line is{' '}
+                      <span className="font-bold">₱100 below a ₱500 merchandise subtotal and free at or above ₱500.</span>{' '}
+                      The courier may quote a separate rider fee for the destination, paid directly to the rider or app.
                     </p>
                     <p className="mt-1">
                       <span className="font-bold">Free shipping inside Taguig City</span> — if your
@@ -1077,6 +1076,7 @@ export function Checkout() {
                   <div className="text-right">
                     <p className="text-2xl font-black text-slate-900">{formatPeso(finalTotal)}</p>
                     <p className="text-[10px] text-slate-500 font-semibold">VAT included</p>
+                    <p className="mt-1 max-w-[220px] text-[10px] leading-4 text-slate-500">Shipping and any destination courier fee are confirmed in the final quote.</p>
                   </div>
                 </div>
               </div>

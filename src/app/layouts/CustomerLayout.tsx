@@ -216,7 +216,7 @@ export function CustomerLayout() {
               <ul className="text-sm text-gray-600 space-y-2">
                 <li><a href="#" className="hover:text-blue-600">Contact Us</a></li>
                 <li><a href="#" className="hover:text-blue-600">FAQ</a></li>
-                <li><a href="#" className="hover:text-blue-600">Shipping</a></li>
+                <li><Link to="/shipping" className="hover:text-blue-600">Shipping</Link></li>
               </ul>
             </div>
             <div>

@@ -30,6 +30,7 @@ const PaymentCancel = lazy(() => import('./pages/PaymentCancel').then((m) => ({ 
 const NotFound = lazy(() => import('./pages/NotFound').then((m) => ({ default: m.NotFound })));
 const Privacy = lazy(() => import('./pages/Privacy').then((m) => ({ default: m.Privacy })));
 const Terms = lazy(() => import('./pages/Terms').then((m) => ({ default: m.Terms })));
+const Shipping = lazy(() => import('./pages/Shipping').then((m) => ({ default: m.Shipping })));
 
 // Auth (single file, multiple exports)
 const Login = lazy(() => import('./pages/Auth').then((m) => ({ default: m.Login })));
@@ -174,6 +175,7 @@ export const router = createBrowserRouter([
       { path: 'payment/cancel', Component: withSuspense(PaymentCancel) },
       { path: 'privacy', Component: withSuspense(Privacy) },
       { path: 'terms', Component: withSuspense(Terms) },
+      { path: 'shipping', Component: withSuspense(Shipping) },
       // 404 catch-all for unknown URLs within the customer layout
       { path: '*', Component: withSuspense(NotFound) },
     ],

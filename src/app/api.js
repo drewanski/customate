@@ -629,6 +629,9 @@ export async function getCustomerActivity() {
 export async function getDeliveryTiers() {
   return apiRequest('/orders/delivery/tiers');
 }
+export async function getShippingInfo() {
+  return apiRequest('/orders/shipping/info');
+}
 export async function quoteDelivery(requestedDeliveryDate, subtotal) {
   return apiRequest('/orders/delivery/quote', {
     method: 'POST',

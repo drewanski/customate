@@ -45,6 +45,17 @@ import {
 } from '../utils/pricing.js';
 
 const router = express.Router();
+const DELIVERY_FEE_UNDER_THRESHOLD = 100;
+const FREE_DELIVERY_THRESHOLD = 500;
+const PICKUP_FEE = 0;
+const PICKUP_ADDRESS = 'Block 1 Lot 42 Sennai Ruhale St., Calzada, Tipas, Taguig City';
+const DELIVERY_COURIERS = ['Lalamove', 'Grab', 'LBC', 'J&T', 'Ninja Van'];
+const SHIPPING_REGIONS = [
+  { id: 'metro-manila', name: 'Metro Manila (NCR)', description: 'Courier delivery across Metro Manila. The checkout notes that Taguig City rider fees are shouldered by the store.' },
+  { id: 'luzon', name: 'Luzon (outside NCR)', description: 'Delivery availability, courier options, and the final courier quote are confirmed from the address at checkout.' },
+  { id: 'visayas', name: 'Visayas', description: 'Delivery availability, courier options, and the final courier quote are confirmed from the address at checkout.' },
+  { id: 'mindanao', name: 'Mindanao', description: 'Delivery availability, courier options, and the final courier quote are confirmed from the address at checkout.' },
+];
 
 /**
  * Snapshot the calling admin for audit rows. Pulled once per request to
@@ -534,8 +545,9 @@ router.post('/', authMiddleware, async (req, res) => {
     // Pickup is always free. Delivery follows the free-over-₱500 threshold.
     // Computed here so the frontend can't tamper with the total.
     const itemsSubtotal = subtotalBeforeDiscount - (urgencySnapshot.rushFee || 0);
-    const shippingFee =
-      deliveryMethod === 'pickup' ? 0 : itemsSubtotal >= 500 ? 0 : 100;
+    const shippingFee = deliveryMethod === 'pickup'
+      ? PICKUP_FEE
+      : itemsSubtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE_UNDER_THRESHOLD;
     // Add shipping into the pre-discount subtotal so coupon math sees a
     // total that includes shipping — same as how rush already works.
     subtotalBeforeDiscount += shippingFee;
@@ -1672,6 +1684,36 @@ router.get('/delivery/tiers', (_req, res) => {
       softCapPerDay: t.softCapPerDay,
       color: t.color,
       description: t.description,
+    })),
+  });
+});
+
+// Public, server-sourced shipping information used by the customer Shipping page.
+router.get('/shipping/info', (_req, res) => {
+  res.json({
+    updatedAt: new Date().toISOString(),
+    coverage: 'Nationwide across the Philippines, subject to courier serviceability for the delivery address.',
+    regions: SHIPPING_REGIONS,
+    couriers: DELIVERY_COURIERS,
+    fees: {
+      deliveryBelowThreshold: DELIVERY_FEE_UNDER_THRESHOLD,
+      freeDeliveryThreshold: FREE_DELIVERY_THRESHOLD,
+      pickup: PICKUP_FEE,
+      taguigRiderFeeCovered: true,
+    },
+    pickup: { address: PICKUP_ADDRESS, fee: PICKUP_FEE },
+    deliveryNotes: [
+      'The system shipping fee is ₱100 when the merchandise subtotal is below ₱500 and free at or above ₱500.',
+      'Third-party courier rider fees are quoted for the destination and may be paid directly to the courier. Taguig City rider fees are shouldered by the store, as stated in checkout.',
+      'The estimated production lead time is selected at checkout. Courier transit time depends on destination and courier availability; the system does not publish fixed region-specific transit-day promises.',
+    ],
+    productionTiers: URGENCY_TIERS.map((tier) => ({
+      id: tier.tier,
+      name: tier.label,
+      minBusinessDays: tier.minLeadDays,
+      maxBusinessDays: tier.tier === 'standard' ? null : tier.maxLeadDays,
+      surchargePercent: Math.round(tier.surchargePct * 100),
+      description: tier.description,
     })),
   });
 });
