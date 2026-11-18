@@ -2114,6 +2114,8 @@ export function CustomizationStudio() {
             <div className="flex items-center p-1 m-1 bg-slate-100 rounded-xl">
               <button
                 onClick={() => setIsPreview3D(true)}
+                aria-pressed={isPreview3D}
+                title="Show the product in 3D"
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   isPreview3D
                     ? 'bg-white text-blue-600 shadow-sm'
@@ -2125,6 +2127,8 @@ export function CustomizationStudio() {
               </button>
               <button
                 onClick={() => setIsPreview3D(false)}
+                aria-pressed={!isPreview3D}
+                title="Show a flat 2D design preview"
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   !isPreview3D
                     ? 'bg-white text-blue-600 shadow-sm'
@@ -2363,12 +2367,19 @@ export function CustomizationStudio() {
                 </ErrorBoundary>
               </div>
             ) : (
-              <div className="relative group">
+              <div className="relative group flex max-h-[78vh] max-w-full flex-col items-center justify-center rounded-2xl bg-white/95 p-4 shadow-2xl ring-1 ring-white/40">
+                <div className="mb-3 flex w-full items-center justify-between gap-4 text-xs">
+                  <span className="font-semibold text-slate-700">Flat design preview</span>
+                  <span className="inline-flex items-center gap-1.5 text-slate-500">
+                    <span className="h-3 w-3 rounded-full border border-slate-300" style={{ backgroundColor: customization.productColor }} />
+                    Product color
+                  </span>
+                </div>
                 {/* Product Base Image */}
                 <img
                   src={product.image}
-                  alt="Product Base"
-                  className="max-w-full max-h-[70vh] object-contain drop-shadow-2xl select-none pointer-events-none"
+                  alt={`${product.name} flat preview`}
+                  className="max-w-full max-h-[calc(78vh-4rem)] object-contain drop-shadow-2xl select-none pointer-events-none"
                 />
                 
                 {/* Placement Area Boundary (Visual Guide) */}
@@ -2388,7 +2399,13 @@ export function CustomizationStudio() {
                         fontSize: `${customization.textSize}px`,
                         fontWeight: 'bold',
                         transform: `translate(-50%, -50%) rotate(${customization.textRotation}deg)`,
-                        textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                        textShadow: customization.textShadow
+                          ? `0 0 ${customization.textShadow}px ${customization.textShadowColor || '#000000'}`
+                          : '0 1px 2px rgba(0,0,0,0.1)',
+                        WebkitTextStroke: customization.textStroke
+                          ? `${customization.textStroke}px ${customization.textStrokeColor || '#ffffff'}`
+                          : undefined,
+                        letterSpacing: `${customization.textLetterSpacing || 0}px`,
                         maxWidth: '80%',
                         wordBreak: 'break-word',
                         cursor: 'move'
@@ -2406,8 +2423,10 @@ export function CustomizationStudio() {
                       style={{
                         left: `${customization.imagePosition.x}%`,
                         top: `${customization.imagePosition.y}%`,
-                        width: '100px',
+                        width: `${Math.max(24, 100 * (customization.imageScale || 1))}px`,
                         height: 'auto',
+                        opacity: customization.imageOpacity ?? 1,
+                        transform: `translate(-50%, -50%) rotate(${customization.imageRotation || 0}deg) scale(${customization.imageFlipX ? -1 : 1}, ${customization.imageFlipY ? -1 : 1})`,
                         cursor: 'move'
                       }}
                     >
