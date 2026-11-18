@@ -2467,6 +2467,31 @@ export function CustomizationStudio() {
       <AIDesignCritique
         isOpen={critiqueOpen}
         onClose={() => setCritiqueOpen(false)}
+        onApplyTip={(category) => {
+          const text = designElements.find((element) => element.type === 'text');
+          if (!text) {
+            addToast('Add a text layer first to apply this quick fix.', 'info');
+            return;
+          }
+          const changes: Partial<DesignElement> = {};
+          if (category === 'contrast' || category === 'color') {
+            changes.color = (text.color || '').toLowerCase() === '#ffffff' ? '#111827' : '#ffffff';
+            setCustomization((prev) => ({ ...prev, color: changes.color! }));
+          } else if (category === 'size') {
+            setCustomization((prev) => ({ ...prev, textSize: Math.min(96, Math.round(prev.textSize * 1.2)), textScale: Math.min(4, prev.textScale * 1.2) }));
+            changes.scale = Math.min(4, text.scale * 1.2);
+          } else if (category === 'style') {
+            setCustomization((prev) => ({ ...prev, font: 'Arial' }));
+            changes.font = 'Arial';
+          } else if (category === 'placement' || category === 'composition') {
+            changes.position = { ...text.position, x: 50, y: 50 };
+          } else {
+            addToast('This tip is guidance only. Use the editor controls to make the change.', 'info');
+            return;
+          }
+          handleDesignChange(designElements.map((element) => element.id === text.id ? { ...element, ...changes } : element));
+          addToast('Quick fix applied. You can undo it from the editor toolbar.', 'success');
+        }}
         productName={product?.name}
         designContext={[
           customization.text && `text "${customization.text}"`,

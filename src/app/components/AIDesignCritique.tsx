@@ -30,6 +30,7 @@ interface Props {
   captureSnapshot: () => Promise<string | null>;
   productName?: string;
   designContext?: string;
+  onApplyTip?: (category: string) => void;
 }
 
 const CATEGORY_META: Record<string, { icon: any; tint: string; label: string }> = {
@@ -49,12 +50,13 @@ const CATEGORY_META: Record<string, { icon: any; tint: string; label: string }> 
  * Auto-runs on first open so the user doesn't have to wait through an extra
  * click; can be re-run from the button at the bottom.
  */
-export function AIDesignCritique({ isOpen, onClose, captureSnapshot, productName, designContext }: Props) {
+export function AIDesignCritique({ isOpen, onClose, captureSnapshot, productName, designContext, onApplyTip }: Props) {
   const [loading, setLoading] = useState(false);
   const [tips, setTips] = useState<Tip[]>([]);
   const [fallback, setFallback] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasRun, setHasRun] = useState(false);
+  const [appliedTip, setAppliedTip] = useState<number | null>(null);
 
   const runCritique = async () => {
     setError(null);
@@ -67,6 +69,7 @@ export function AIDesignCritique({ isOpen, onClose, captureSnapshot, productName
       }
       const res = await aiCritiqueDesign({ image: snapshot, productName, designContext });
       setTips(Array.isArray(res?.tips) ? res.tips : []);
+      setAppliedTip(null);
       setFallback(!!res?.fallback);
       setHasRun(true);
     } catch (err: any) {
@@ -120,7 +123,7 @@ export function AIDesignCritique({ isOpen, onClose, captureSnapshot, productName
             </div>
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-widest text-white/80">AI Critique</p>
-              <p className="text-sm font-bold mt-0.5">Three quick tips to make your design better</p>
+              <p className="text-sm font-bold mt-0.5">Choose a tip, then apply it</p>
               <p className="text-[11px] text-white/85 mt-0.5">
                 Based on a snapshot of your {productName || 'product'}.
               </p>
@@ -153,6 +156,9 @@ export function AIDesignCritique({ isOpen, onClose, captureSnapshot, productName
                 </span>
               </div>
             )}
+            <div className="mb-2 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-800">
+              Start with the first tip. Apply quick fixes here, or use the tip as guidance in the editor.
+            </div>
             <div className="space-y-2">
               {tips.map((t, i) => {
                 const meta = CATEGORY_META[t.category] || CATEGORY_META.composition;
@@ -171,6 +177,12 @@ export function AIDesignCritique({ isOpen, onClose, captureSnapshot, productName
                           </span>
                         </div>
                         <p className="text-xs text-slate-600 mt-1 leading-relaxed">{t.tip}</p>
+                        {onApplyTip && (
+                          <button type="button" onClick={() => { onApplyTip(t.category); setAppliedTip(i); }}
+                            className="mt-2 inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            {appliedTip === i ? <><CheckCircle2 className="w-3.5 h-3.5" /> Applied</> : 'Apply quick fix'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
