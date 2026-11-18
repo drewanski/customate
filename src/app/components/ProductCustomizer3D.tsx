@@ -1545,27 +1545,6 @@ function CameraSetup({ position }: { position: [number, number, number] }) {
   return null;
 }
 
-/** Fits the product's actual loaded geometry in an orthographic camera. */
-function OrthographicProductFit({ meshes }: { meshes: THREE.Mesh[] }) {
-  const { camera, size } = useThree();
-  useEffect(() => {
-    if (!(camera instanceof THREE.OrthographicCamera) || meshes.length === 0) return;
-    const bounds = new THREE.Box3();
-    meshes.forEach((mesh) => {
-      mesh.updateWorldMatrix(true, false);
-      bounds.expandByObject(mesh);
-    });
-    const dimensions = bounds.getSize(new THREE.Vector3());
-    const largestDimension = Math.max(dimensions.x, dimensions.y, dimensions.z);
-    if (!Number.isFinite(largestDimension) || largestDimension <= 0) return;
-    const center = bounds.getCenter(new THREE.Vector3());
-    camera.zoom = Math.min(size.width, size.height) / (largestDimension * 1.3);
-    camera.lookAt(center);
-    camera.updateProjectionMatrix();
-  }, [camera, meshes, size.width, size.height]);
-  return null;
-}
-
 /**
  * Smooth camera controller — lerps the camera toward a target position
  * over multiple frames whenever the target changes. Used by the camera-
@@ -1651,8 +1630,6 @@ export interface ProductCustomizer3DProps {
   autoRotate?: boolean;
   /** Auto-rotate speed (in revolutions per minute, OrbitControls scale). */
   autoRotateSpeed?: number;
-  /** Render the real product model from a locked orthographic front/back view. */
-  flatPreview?: boolean;
   /** Use realistic high-quality shadows (heavier — admin opt-in). */
   premiumShadows?: boolean;
 }
@@ -1671,7 +1648,6 @@ export function ProductCustomizer3D({
   cameraPreset = null,
   autoRotate = false,
   autoRotateSpeed = 1.5,
-  flatPreview = false,
   premiumShadows = false,
 }: ProductCustomizer3DProps) {
   const envMeta = ENVIRONMENT_META[environment] || ENVIRONMENT_META.studio;
@@ -1851,12 +1827,9 @@ export function ProductCustomizer3D({
   return (
     <div ref={wrapperRef} className="w-full h-full relative" style={{ minHeight: 400 }}>
       <Canvas
-        orthographic={flatPreview}
         shadows
         dpr={[1, 2]}
-        camera={flatPreview
-          ? { position: config.camera, zoom: 100, near: 0.1, far: 100 }
-          : { position: config.camera, fov: 35, near: 0.1, far: 100 }}
+        camera={{ position: config.camera, fov: 35, near: 0.1, far: 100 }}
         onPointerMissed={() => onActiveElementChange?.(null)}
         // preserveDrawingBuffer is required for canvas.toDataURL() to return
         // actual pixels — without it, WebGL clears the backbuffer between
@@ -1884,16 +1857,13 @@ export function ProductCustomizer3D({
         {!cameraPreset && (
           <CameraSetup
             position={
-              flatPreview
-                ? [0, 0, baseCameraDistance]
-                : config.wearable && tryOn
+              config.wearable && tryOn
                 ? [config.camera[0], config.camera[1] + 0.4, config.camera[2] * 2.0]
                 : config.camera
             }
           />
         )}
 
-        {flatPreview && <OrthographicProductFit meshes={meshes} />}
 
         {/* Smooth animated camera for preset angles */}
         <SmoothCamera
@@ -1969,7 +1939,7 @@ export function ProductCustomizer3D({
           {/* Mannequin body lives at the scene root and positions itself based
               on the garment's actual world-space bounding box, so we don't
               need product-specific offset constants. */}
-          {!flatPreview && config.wearable && tryOn && garmentBounds && (
+          {config.wearable && tryOn && garmentBounds && (
             <MannequinBody
               size={bodySize}
               gender={bodyGender}
@@ -2045,19 +2015,18 @@ export function ProductCustomizer3D({
           maxPolarAngle={Math.PI - Math.PI / 6}
           autoRotate={autoRotate}
           autoRotateSpeed={autoRotateSpeed}
-          enabled={!flatPreview}
         />
       </Canvas>
 
       {/* Placement hint */}
-      {!flatPreview && activeElement && (
+      {activeElement && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-slate-900/80 backdrop-blur text-[11px] font-semibold text-white shadow-lg pointer-events-none">
           Click anywhere on the product to place · drag the gizmo to fine-tune
         </div>
       )}
 
       {/* Customize/Appearance panel (all products) */}
-      {!flatPreview && <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-2">
+      <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-2">
         <button
           onClick={() => setAppearanceOpen((v) => !v)}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold shadow-md transition-all ${
@@ -2301,7 +2270,7 @@ export function ProductCustomizer3D({
             </div>
           </div>
         )}
-      </div>}
+      </div>
 
       {/* Try-On controls (wearable products only) */}
       {config.wearable && (

@@ -17,6 +17,7 @@ import { autoStickerize } from '../utils/autoStickerize';
 import { AIDesignAssistant } from '../components/AIDesignAssistant';
 import { AIDesignCritique } from '../components/AIDesignCritique';
 import { ProductCustomizer3D, EnvironmentPreset, CameraPreset } from '../components/ProductCustomizer3D';
+import { FlatProductPreview } from '../components/FlatProductPreview';
 import { ProStudioToolbar } from '../components/studio/ProStudioToolbar';
 import { LayersPanel } from '../components/studio/LayersPanel';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -2367,33 +2368,33 @@ export function CustomizationStudio() {
                 </ErrorBoundary>
               </div>
             ) : (
-              <div className="w-full h-[500px] md:h-[600px] relative">
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm pointer-events-none">
-                  2D orthographic view · {view === 'front' ? 'Front' : 'Back'}
-                </div>
-                <ErrorBoundary>
-                  <WebGLCheck>
-                    <ProductCustomizer3D
-                      productType={[product?.type, product?.name, product?.category, product?.sku]
-                        .filter(Boolean)
-                        .join(' ') || 'default'}
-                      productName={product?.name}
-                      productColor={customization.productColor}
-                      fabricMaterial={pickedFabric?.material || ''}
-                      view={view}
-                      placement={customization.placement}
-                      onDesignChange={handleDesignChange}
-                      initialElements={designElements}
-                      activeElement={activeDesignElement}
-                      onActiveElementChange={setActiveDesignElement}
-                      environment={environment}
-                      cameraPreset={null}
-                      autoRotate={false}
-                      flatPreview
-                    />
-                  </WebGLCheck>
-                </ErrorBoundary>
-              </div>
+              <FlatProductPreview
+                productName={product?.name || 'Custom Product'}
+                productType={product?.type}
+                category={product?.category}
+                view={view}
+                productColor={customization.productColor}
+                text={customization.text}
+                textColor={customization.color}
+                font={customization.font}
+                textSize={customization.textSize}
+                textRotation={customization.textRotation}
+                textPosition={customization.textPosition}
+                textStroke={customization.textStroke}
+                textStrokeColor={customization.textStrokeColor}
+                textShadow={customization.textShadow}
+                textShadowColor={customization.textShadowColor}
+                textLetterSpacing={customization.textLetterSpacing}
+                textSurface={customization.textSurface}
+                image={customization.image}
+                imagePosition={customization.imagePosition}
+                imageScale={customization.imageScale}
+                imageRotation={customization.imageRotation}
+                imageOpacity={customization.imageOpacity}
+                imageFlipX={customization.imageFlipX}
+                imageFlipY={customization.imageFlipY}
+                imageSurface={customization.imageSurface}
+              />
             )}
           </div>
 
