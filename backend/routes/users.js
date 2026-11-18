@@ -285,8 +285,31 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
 // Admin: delete user
 router.delete('/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const user = await User.findByIdAndDelete(req.params.id);
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+    if (String(req.params.id) === String(req.user.userId)) {
+      return res.status(400).json({ message: 'You cannot delete your own account' });
+    }
+    const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (user.role === 'admin') {
+      const remainingAdmins = await User.countDocuments({ role: 'admin', _id: { $ne: user._id } });
+      if (remainingAdmins === 0) {
+        return res.status(409).json({ message: 'The final admin account cannot be deleted' });
+      }
+    }
+
+    const actor = await actorSnapshot(req);
+    await UserAuditLog.create({
+      user: user._id,
+      userRef: user.name,
+      type: 'account_deleted',
+      note: 'Account permanently deleted',
+      ...actor,
+    });
+    await User.deleteOne({ _id: user._id });
     res.json({ message: 'User deleted successfully' });
   } catch (err) {
     res.status(500).json({ message: 'Server error' });

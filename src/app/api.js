@@ -267,6 +267,9 @@ export async function updateUserAdmin(userId, payload) {
     body: JSON.stringify(payload),
   });
 }
+export async function deleteUserAdmin(userId) {
+  return apiRequest(`/users/${userId}`, { method: 'DELETE' });
+}
 export async function bulkUpdateUsers(userIds, updates) {
   return apiRequest('/users/bulk/update', {
     method: 'PUT',

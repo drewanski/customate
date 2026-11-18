@@ -498,8 +498,11 @@ router.post('/forgot-password', async (req, res) => {
 
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      // Don't reveal if email exists
-      return res.json({ message: 'If an account exists, a reset link has been sent' });
+      // This flow intentionally tells the requester when there is no account,
+      // and it exits before creating a reset token or sending any email.
+      return res.status(404).json({
+        message: 'No account is registered with that email address. Check the email or create an account.',
+      });
     }
 
     // Generate reset token (valid for 1 hour)

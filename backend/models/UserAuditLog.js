@@ -27,6 +27,7 @@ const userAuditLogSchema = new mongoose.Schema({
       'email_verified',    // OTP completed
       'password_reset',    // User reset via forgot-password flow
       'logged_in',         // (optional — could be noisy, opt-in)
+      'account_deleted',   // Account permanently removed by an admin
     ],
     index: true,
   },
