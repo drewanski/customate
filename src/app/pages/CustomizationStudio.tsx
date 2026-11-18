@@ -2367,78 +2367,32 @@ export function CustomizationStudio() {
                 </ErrorBoundary>
               </div>
             ) : (
-              <div className="relative group flex max-h-[78vh] max-w-full flex-col items-center justify-center rounded-2xl bg-white/95 p-4 shadow-2xl ring-1 ring-white/40">
-                <div className="mb-3 flex w-full items-center justify-between gap-4 text-xs">
-                  <span className="font-semibold text-slate-700">Flat design preview</span>
-                  <span className="inline-flex items-center gap-1.5 text-slate-500">
-                    <span className="h-3 w-3 rounded-full border border-slate-300" style={{ backgroundColor: customization.productColor }} />
-                    Product color
-                  </span>
+              <div className="w-full h-[500px] md:h-[600px] relative">
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm pointer-events-none">
+                  2D orthographic view · {view === 'front' ? 'Front' : 'Back'}
                 </div>
-                {/* Product Base Image */}
-                <img
-                  src={product.image}
-                  alt={`${product.name} flat preview`}
-                  className="max-w-full max-h-[calc(78vh-4rem)] object-contain drop-shadow-2xl select-none pointer-events-none"
-                />
-                
-                {/* Placement Area Boundary (Visual Guide) */}
-                <div className="absolute top-[20%] left-[20%] right-[20%] bottom-[25%] border-2 border-dashed border-blue-400/20 rounded-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity" />
-
-                {/* Design Elements Container */}
-                <div className="absolute inset-0 pointer-events-none">
-                  {/* Custom Text */}
-                  {customization.text && (
-                    <div
-                      className="absolute transform -translate-x-1/2 -translate-y-1/2 text-center pointer-events-auto group/text"
-                      style={{
-                        left: `${customization.textPosition.x}%`,
-                        top: `${customization.textPosition.y}%`,
-                        fontFamily: customization.font,
-                        color: customization.color,
-                        fontSize: `${customization.textSize}px`,
-                        fontWeight: 'bold',
-                        transform: `translate(-50%, -50%) rotate(${customization.textRotation}deg)`,
-                        textShadow: customization.textShadow
-                          ? `0 0 ${customization.textShadow}px ${customization.textShadowColor || '#000000'}`
-                          : '0 1px 2px rgba(0,0,0,0.1)',
-                        WebkitTextStroke: customization.textStroke
-                          ? `${customization.textStroke}px ${customization.textStrokeColor || '#ffffff'}`
-                          : undefined,
-                        letterSpacing: `${customization.textLetterSpacing || 0}px`,
-                        maxWidth: '80%',
-                        wordBreak: 'break-word',
-                        cursor: 'move'
-                      }}
-                    >
-                      {customization.text}
-                      <div className="absolute -inset-2 border-2 border-blue-500 rounded-sm opacity-0 group-hover/text:opacity-100 pointer-events-none" />
-                    </div>
-                  )}
-
-                  {/* Custom Image */}
-                  {customization.image && (
-                    <div
-                      className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-auto group/img"
-                      style={{
-                        left: `${customization.imagePosition.x}%`,
-                        top: `${customization.imagePosition.y}%`,
-                        width: `${Math.max(24, 100 * (customization.imageScale || 1))}px`,
-                        height: 'auto',
-                        opacity: customization.imageOpacity ?? 1,
-                        transform: `translate(-50%, -50%) rotate(${customization.imageRotation || 0}deg) scale(${customization.imageFlipX ? -1 : 1}, ${customization.imageFlipY ? -1 : 1})`,
-                        cursor: 'move'
-                      }}
-                    >
-                      <img 
-                        src={customization.image} 
-                        alt="Custom Overlay" 
-                        className="w-full h-auto drop-shadow-md"
-                      />
-                      <div className="absolute -inset-2 border-2 border-blue-500 rounded-sm opacity-0 group-hover/img:opacity-100 pointer-events-none" />
-                    </div>
-                  )}
-                </div>
+                <ErrorBoundary>
+                  <WebGLCheck>
+                    <ProductCustomizer3D
+                      productType={[product?.type, product?.name, product?.category, product?.sku]
+                        .filter(Boolean)
+                        .join(' ') || 'default'}
+                      productName={product?.name}
+                      productColor={customization.productColor}
+                      fabricMaterial={pickedFabric?.material || ''}
+                      view={view}
+                      placement={customization.placement}
+                      onDesignChange={handleDesignChange}
+                      initialElements={designElements}
+                      activeElement={activeDesignElement}
+                      onActiveElementChange={setActiveDesignElement}
+                      environment={environment}
+                      cameraPreset={null}
+                      autoRotate={false}
+                      flatPreview
+                    />
+                  </WebGLCheck>
+                </ErrorBoundary>
               </div>
             )}
           </div>
