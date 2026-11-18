@@ -11,6 +11,18 @@ import { Shield, ChevronLeft } from 'lucide-react';
  * extend Section 2 accordingly.
  */
 export function Privacy() {
+  const sections = [
+    ['privacy-collection', '1. What we collect'],
+    ['privacy-use', '2. How we use it'],
+    ['privacy-processors', '3. Sub-processors'],
+    ['privacy-cookies', '4. Cookies and tracking'],
+    ['privacy-retention', '5. Data retention'],
+    ['privacy-rights', '6. Your rights'],
+    ['privacy-security', '7. Security'],
+    ['privacy-children', "8. Children's privacy"],
+    ['privacy-changes', '9. Changes to this policy'],
+    ['privacy-contact', '10. Contact'],
+  ];
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white py-12 px-4">
       <div className="max-w-3xl mx-auto">
@@ -33,6 +45,17 @@ export function Privacy() {
           </h1>
           <p className="text-sm text-slate-500 mb-8">Last updated: {new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</p>
 
+          <nav aria-label="Privacy policy sections" className="mb-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <h2 className="text-sm font-bold text-slate-900">On this page</h2>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {sections.map(([id, label]) => (
+                <a key={id} href={`#${id}`} className="rounded-lg px-2 py-1 text-sm font-medium text-blue-700 hover:bg-blue-50 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-400">
+                  {label}
+                </a>
+              ))}
+            </div>
+          </nav>
+
           <div className="prose prose-slate max-w-none">
             <p>
               CustoMate ("we", "us", "our") respects your privacy and is committed to protecting your
@@ -40,7 +63,7 @@ export function Privacy() {
               have under the Philippines Data Privacy Act of 2012 (RA 10173) and equivalent laws.
             </p>
 
-            <h2 className="text-xl font-bold text-slate-900 mt-8 mb-3">1. What we collect</h2>
+            <h2 id="privacy-collection" className="scroll-mt-24 text-xl font-bold text-slate-900 mt-8 mb-3">1. What we collect</h2>
             <ul className="list-disc list-inside space-y-1 text-slate-700">
               <li><strong>Account info</strong> — name, email, phone, password (hashed)</li>
               <li><strong>Order info</strong> — shipping address, items, customization, totals</li>
@@ -49,7 +72,7 @@ export function Privacy() {
               <li><strong>Usage data</strong> — pages visited, design history, anonymised analytics</li>
             </ul>
 
-            <h2 className="text-xl font-bold text-slate-900 mt-8 mb-3">2. How we use it</h2>
+            <h2 id="privacy-use" className="scroll-mt-24 text-xl font-bold text-slate-900 mt-8 mb-3">2. How we use it</h2>
             <ul className="list-disc list-inside space-y-1 text-slate-700">
               <li>Fulfilling and shipping your orders</li>
               <li>Sending transactional emails (order updates, password reset)</li>
@@ -62,7 +85,7 @@ export function Privacy() {
               uploaded designs to train any AI model without your explicit consent.
             </p>
 
-            <h2 className="text-xl font-bold text-slate-900 mt-8 mb-3">3. Sub-processors</h2>
+            <h2 id="privacy-processors" className="scroll-mt-24 text-xl font-bold text-slate-900 mt-8 mb-3">3. Sub-processors</h2>
             <p>We share necessary data with the following service providers:</p>
             <ul className="list-disc list-inside space-y-1 text-slate-700">
               <li><strong>MongoDB Atlas</strong> — database hosting</li>
@@ -72,14 +95,14 @@ export function Privacy() {
               <li><strong>Gmail / SMTP provider</strong> — transactional emails</li>
             </ul>
 
-            <h2 className="text-xl font-bold text-slate-900 mt-8 mb-3">4. Cookies and tracking</h2>
+            <h2 id="privacy-cookies" className="scroll-mt-24 text-xl font-bold text-slate-900 mt-8 mb-3">4. Cookies and tracking</h2>
             <p>
               We use a minimal set of cookies for authentication (JWT token) and cart persistence.
               We do not use third-party advertising trackers. Browser localStorage is used to
               remember your design drafts and preferences.
             </p>
 
-            <h2 className="text-xl font-bold text-slate-900 mt-8 mb-3">5. Data retention</h2>
+            <h2 id="privacy-retention" className="scroll-mt-24 text-xl font-bold text-slate-900 mt-8 mb-3">5. Data retention</h2>
             <ul className="list-disc list-inside space-y-1 text-slate-700">
               <li>Active account data — kept until you request deletion</li>
               <li>Completed order records — kept for 5 years (Philippine accounting/tax requirements)</li>
@@ -87,7 +110,7 @@ export function Privacy() {
               <li>Audit logs — kept indefinitely (regulatory compliance)</li>
             </ul>
 
-            <h2 className="text-xl font-bold text-slate-900 mt-8 mb-3">6. Your rights</h2>
+            <h2 id="privacy-rights" className="scroll-mt-24 text-xl font-bold text-slate-900 mt-8 mb-3">6. Your rights</h2>
             <p>Under RA 10173, you have the right to:</p>
             <ul className="list-disc list-inside space-y-1 text-slate-700">
               <li>Be informed about how your data is processed</li>
@@ -103,27 +126,27 @@ export function Privacy() {
               We respond within 30 days.
             </p>
 
-            <h2 className="text-xl font-bold text-slate-900 mt-8 mb-3">7. Security</h2>
+            <h2 id="privacy-security" className="scroll-mt-24 text-xl font-bold text-slate-900 mt-8 mb-3">7. Security</h2>
             <p>
               We use industry-standard security practices: HTTPS/TLS in transit, password hashing
               (bcrypt), JWT-based authentication, MongoDB encryption at rest, rate limiting, and
               HMAC-signed webhook verification. We never share or display your full payment details.
             </p>
 
-            <h2 className="text-xl font-bold text-slate-900 mt-8 mb-3">8. Children's privacy</h2>
+            <h2 id="privacy-children" className="scroll-mt-24 text-xl font-bold text-slate-900 mt-8 mb-3">8. Children's privacy</h2>
             <p>
               CustoMate is not directed at children under 13. We do not knowingly collect data
               from minors. If you believe a child has provided us data, contact us and we will
               delete it.
             </p>
 
-            <h2 className="text-xl font-bold text-slate-900 mt-8 mb-3">9. Changes to this policy</h2>
+            <h2 id="privacy-changes" className="scroll-mt-24 text-xl font-bold text-slate-900 mt-8 mb-3">9. Changes to this policy</h2>
             <p>
               We may update this policy. Material changes will be announced via email to all
               active customers at least 14 days before taking effect.
             </p>
 
-            <h2 className="text-xl font-bold text-slate-900 mt-8 mb-3">10. Contact</h2>
+            <h2 id="privacy-contact" className="scroll-mt-24 text-xl font-bold text-slate-900 mt-8 mb-3">10. Contact</h2>
             <p>
               Data Protection Officer: <a href="mailto:privacy@customate.app" className="text-blue-600 hover:underline">privacy@customate.app</a><br />
               National Privacy Commission: <a href="https://privacy.gov.ph" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">privacy.gov.ph</a>

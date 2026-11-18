@@ -30,6 +30,12 @@ export function CustomerLayout() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const popularSearches = ['T-shirts', 'Jerseys', 'Mugs', 'Tote bags', 'Tumblers', 'Mousepads'];
 
+  // Route changes should open the new page at its beginning (not at the
+  // footer position where a visitor may have followed a legal link).
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0 });
+  }, [location.pathname]);
+
   useEffect(() => {
     let cancelled = false;
     setProductsLoading(true);
