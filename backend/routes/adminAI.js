@@ -84,9 +84,9 @@ async function getSystemContext() {
     const orders = await Order.find({ paymentStatus: { $in: ['paid', 'partial'] } });
     const totalRevenue = orders.reduce((sum, o) => sum + (o.paidAmount || 0), 0);
     
-    // Get inventory status
-    const lowStock = await Inventory.find({ 
-      $expr: { $lte: ['$quantity', '$lowStockThreshold'] }
+    // Inventory uses `stock` and `minStock` (not quantity/lowStockThreshold).
+    const lowStock = await Inventory.find({
+      $expr: { $lte: ['$stock', '$minStock'] }
     }).limit(5);
     
     // Get recent users
@@ -468,8 +468,6 @@ router.post('/predict-inventory', authMiddleware, async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Admin access required' });
     }
-    if (!checkAI(res)) return;
-
     // Get inventory data with order history
     const inventory = await Inventory.find();
     
@@ -493,26 +491,36 @@ router.post('/predict-inventory', authMiddleware, async (req, res) => {
     inventoryAnalysis = inventory.map(item => {
       const sku = item.sku;
       const monthlyUsage = skuUsage[sku] || 0;
-      const currentStock = item.stock;
+      const currentStock = Number(item.stock) || 0;
+      const availableStock = Math.max(0, currentStock - (Number(item.reservedStock) || 0));
       const daysOfSupply = monthlyUsage > 0 ? (currentStock / monthlyUsage) * 30 : 999;
       
       return {
         sku,
         name: item.name || sku,
         currentStock,
+        reservedStock: Number(item.reservedStock) || 0,
+        availableStock,
         monthlyUsage,
         daysOfSupply: Math.round(daysOfSupply),
-        lowStockThreshold: item.lowStockThreshold || 10,
-        isLow: currentStock <= (item.lowStockThreshold || 10),
-        status: daysOfSupply < 7 ? 'critical' : daysOfSupply < 14 ? 'warning' : 'healthy'
+        lowStockThreshold: Number(item.minStock) || 0,
+        isLow: availableStock <= (Number(item.minStock) || 0),
+        status: availableStock <= 0 || daysOfSupply < 7
+          ? 'critical'
+          : availableStock <= (Number(item.minStock) || 0) || daysOfSupply < 14
+            ? 'warning'
+            : 'healthy'
       };
     });
-    
-    // Check cache
-    const cacheKey = `inventory_${inventory.length}_${Object.keys(skuUsage).length}`;
-    const cached = getCachedResponse(cacheKey);
-    if (cached) {
-      return res.json({ ...cached, cached: true });
+
+    // Keep this analysis grounded in current database values. A count-only cache
+    // key can return stale stock numbers after restocks or adjustments.
+    if (!genAI) {
+      return res.json({
+        ...generateRuleBasedInventoryPredictions(inventoryAnalysis, skuUsage),
+        fallback: true,
+        message: 'AI service is unavailable. Showing predictions from current inventory and order data.'
+      });
     }
     
     // Check rate limit
@@ -530,19 +538,22 @@ router.post('/predict-inventory', authMiddleware, async (req, res) => {
     
     const prompt = `As an inventory management AI, analyze this data and provide predictive insights:
 
-CURRENT INVENTORY STATUS:
-${JSON.stringify(inventoryAnalysis.filter(i => i.status !== 'healthy'), null, 2)}
+CURRENT INVENTORY (complete list; one row per inventory record):
+${JSON.stringify(inventoryAnalysis, null, 2)}
 
 USAGE TRENDS (Last 30 Days):
 ${JSON.stringify(skuUsage, null, 2)}
 
-Provide:
-1. CRITICAL ALERTS: Items needing immediate reorder (less than 7 days supply)
-2. PREDICTION: Which items will run out in the next 2 weeks based on usage trends
-3. REORDER RECOMMENDATIONS: Suggested quantities for each at-risk item
-4. SEASONAL INSIGHTS: Any patterns that suggest upcoming demand spikes
+Rules:
+- Use only the SKUs, stock counts, thresholds, and usage values provided above. Never invent products, counts, or demand.
+- The inventory list is complete. An empty list means no inventory records were returned; it does NOT mean every SKU has zero stock.
+- A row with status healthy is in stock and must not be described as out of stock.
+- Treat availableStock as sellable stock after reservations; currentStock is physical stock.
+- If monthlyUsage is 0, say there is not enough recent usage data to predict depletion; do not claim a demand trend.
+- Do not infer seasonality or weather effects from SKU names.
+- Report each at-risk item with its exact stock/usage values, and clearly state when no items are at risk.
 
-Format as actionable bullet points. Be specific with numbers.`;
+Format as concise actionable bullet points.`;
 
     const result = await model.generateContent(prompt);
     const predictions = result.response.text();
@@ -558,9 +569,6 @@ Format as actionable bullet points. Be specific with numbers.`;
       }
     };
     
-    // Cache the response (reuse the existing cacheKey)
-    setCachedResponse(cacheKey, response);
-
     res.json(response);
 
   } catch (error) {
